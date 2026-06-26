@@ -64,9 +64,9 @@
 **Behavior:** 为 src 配置严格模式 TS；测试配置继承基础配置并纳入测试目录。
 
 **TDD Cycle:**
-- [ ] 创建两个 tsconfig 文件
-- [ ] 验证：`npx tsc --noEmit -p tsconfig.test.json` 退出码为 0
-- [ ] 提交：`chore: configure TypeScript strict mode`
+- [x] 创建两个 tsconfig 文件
+- [x] 验证：`npx tsc --noEmit -p tsconfig.test.json` 退出码为 0
+- [x] 提交：`chore: configure TypeScript strict mode`
 
 ### Task 3: Setup vitest with first smoke test
 
