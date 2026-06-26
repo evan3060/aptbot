@@ -120,12 +120,12 @@ export function maskSecret(value: string): string;
 **Behavior:** §10.7 边界。基于 `pino` 异步写入；stdout + `logs/aptbot.log` 双输出；10MB rotation 保留 5 份（`aptbot.log.1` ~ `aptbot.log.5`）；`maskSecret` 将 `aptbot_xxx` 形态的 token / apiKey 替换为 `aptbot_***`；`LOG_LEVEL` 环境变量切换阈值，默认 info；结构化 JSON 行（`{ts, level, scope, msg, ...props}`）。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：scope 保留、`maskSecret('aptbot_abc123')` 返回 `aptbot_***`、level 阈值过滤、child logger 继承 threshold
-- [ ] 验证失败：`npm run test -- tests/infrastructure/logger.spec.ts` → FAIL（module not found）
-- [ ] 安装：`npm install pino pino-rolling`
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add logger with rotation and secret masking (§10.7)`
+- [x] 编写失败测试覆盖：scope 保留、`maskSecret('aptbot_abc123')` 返回 `aptbot_***`、level 阈值过滤、child logger 继承 threshold
+- [x] 验证失败：`npm run test -- tests/infrastructure/logger.spec.ts` → FAIL（module not found）
+- [x] 安装：`npm install pino pino-rolling`
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add logger with rotation and secret masking (§10.7)`
 
 ### Task 5: Config types and zod schema (§10.8)
 
