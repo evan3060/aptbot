@@ -478,11 +478,11 @@ export const TURN_ABORT_MS = 10 * 60 * 1000;
 **Behavior:** §10.13 / §10.14 边界。`installProcessHandlers` 注册 SIGINT（10s 超时）/ SIGTERM（30s 超时）/ SIGHUP（忽略）/ `uncaughtException`（记录 + flush 日志 + exit(1)）/ `unhandledRejection`（记录不退出）。`onShutdown` 在超时内完成则 exit(0)，超时则强制 exit(1)。`startMemoryMonitor` 每 60s 采样 RSS，超 450MB warn。`startTurnWatchdog` 单 turn 超 5min warn、10min 触发 `onTimeout`。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：`isShuttingDown` 在 `onShutdown` 调用后返回 true、内存超阈值触发 warn、turn watchdog 5min warn / 10min abort（用 fake timer）
-- [ ] 验证失败：`npm run test -- tests/infrastructure/process-handler.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add process signal handler and exception fallback (§10.13, §10.14)`
+- [x] 编写失败测试覆盖：`isShuttingDown` 在 `onShutdown` 调用后返回 true、内存超阈值触发 warn、turn watchdog 5min warn / 10min abort（用 fake timer）
+- [x] 验证失败：`npm run test -- tests/infrastructure/process-handler.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add process signal handler and exception fallback (§10.13, §10.14)`
 
 ---
 
