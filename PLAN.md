@@ -856,11 +856,11 @@ export const bashTool: AgentTool<BashParams, BashDetails>;
 **Behavior:** §10.1.2 / §10.3 边界。执行 shell 命令，30s 硬超时：SIGTERM → 等 2s → SIGKILL。超时返回 `AgentToolResult.error({ code: 'timeout_error', ... })`。最大 10 并发（用 semaphore）。父进程 exit hook 杀所有子进程（SIGKILL）。stdout/stderr 截断到合理大小（默认 1MB）。AbortSignal 触发时 SIGTERM 子进程。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：成功执行 `echo hello` 返回 stdout、30s 超时返回 timeout_error（用短超时 100ms 测试）、abort 触发 SIGTERM、stderr 捕获、exit code 非 0 也返回（不抛错）
-- [ ] 验证失败：`npm run test -- tests/core/tool/tools/bash.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add bash tool with 30s hard timeout and SIGTERM→SIGKILL (§10.1.2)`
+- [x] 编写失败测试覆盖：成功执行 `echo hello` 返回 stdout、30s 超时返回 timeout_error（用短超时 100ms 测试）、abort 触发 SIGTERM、stderr 捕获、exit code 非 0 也返回（不抛错）
+- [x] 验证失败：`npm run test -- tests/core/tool/tools/bash.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add bash tool with 30s hard timeout and SIGTERM→SIGKILL (§10.1.2)`
 
 ### Task 24: read tool with size limit and streaming (§10.1.2)
 
