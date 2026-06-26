@@ -1573,12 +1573,12 @@ export function createCLIApp(config: {
 **Behavior:** §8.1 / §8.5 CLI 实现。Ink + Yoga 渲染。CLI 作为 Channel 注册到 ChannelManager。`/exit` 触发 `process.exit(0)`。流式渲染 `message_delta` 累积。斜杠命令通过 `CommandRegistry.resolve` 分发。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：渲染 AssistantMessage 含文本、UserMessage 含输入、ToolExecution 显示 tool name + status、WorkingLoader 在 isWorking=true 时显示、Footer 显示 model、InputEditor 接收输入、`/exit` 触发 action=exit
-- [ ] 验证失败：`npm run test -- tests/access/cli.spec.tsx` → FAIL
-- [ ] 安装：`npm install ink yoga react` `npm install -D @types/react`
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add CLI entry with Ink and 6 components (§8.1, §8.5)`
+- [x] 编写失败测试覆盖：渲染 AssistantMessage 含文本、UserMessage 含输入、ToolExecution 显示 tool name + status、WorkingLoader 在 isWorking=true 时显示、Footer 显示 model、InputEditor 接收输入、`/exit` 触发 action=exit
+- [x] 验证失败：`npm run test -- tests/access/cli.spec.tsx` → FAIL
+- [x] 安装：`npm install ink yoga react` `npm install -D @types/react`
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add CLI entry with Ink and 6 components (§8.1, §8.5)`
 
 ### Task 40: WebUI entry with Lit and 6 components (§8.1, §8.5)
 
