@@ -1,4 +1,4 @@
-import { mkdirSync, appendFileSync, existsSync, readFileSync } from 'node:fs';
+import { mkdirSync, appendFileSync, existsSync, readFileSync, writeFileSync, truncateSync, statSync, copyFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 /**
@@ -57,4 +57,61 @@ export async function readJsonlTolerant(path: string): Promise<JsonlReadResult> 
 export interface JsonlReadResult {
   entries: unknown[];
   skipped: number;
+}
+
+export interface JsonlRepairResult {
+  truncated: boolean;
+  bytesRemoved: number;
+  backedUp?: string;
+}
+
+/**
+ * §10.1.1 repairJsonl: 若 readJsonlTolerant 报告 skipped > 0，重写文件仅保留合法行。
+ * 使用 truncateSync + writeFileSync 截断破损尾部数据。
+ * 完全损坏时备份原文件到 <path>.corrupt.bak 后返回空文件。
+ */
+export async function repairJsonl(path: string): Promise<JsonlRepairResult> {
+  if (!existsSync(path)) {
+    return { truncated: false, bytesRemoved: 0 };
+  }
+  const before = statSync(path).size;
+  const result = readJsonlTolerantSync(path);
+  if (result.skipped === 0) {
+    return { truncated: false, bytesRemoved: 0 };
+  }
+  // 完全损坏（entries 全空）时备份原文件
+  if (result.entries.length === 0) {
+    const backup = `${path}.corrupt.bak`;
+    copyFileSync(path, backup);
+    truncateSync(path, 0);
+    return { truncated: true, bytesRemoved: before, backedUp: backup };
+  }
+  // 部分损坏：重写为仅含合法行
+  const validContent = result.entries
+    .map((e) => JSON.stringify(e))
+    .join('\n') + '\n';
+  truncateSync(path, 0);
+  writeFileSync(path, validContent, { encoding: 'utf-8' });
+  const after = statSync(path).size;
+  return {
+    truncated: true,
+    bytesRemoved: before - after,
+  };
+}
+
+function readJsonlTolerantSync(path: string): JsonlReadResult {
+  const content = readFileSync(path, { encoding: 'utf-8' });
+  const lines = content.split('\n');
+  const entries: unknown[] = [];
+  let skipped = 0;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed === '') continue;
+    try {
+      entries.push(JSON.parse(trimmed));
+    } catch {
+      skipped++;
+    }
+  }
+  return { entries, skipped };
 }

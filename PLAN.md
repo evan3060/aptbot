@@ -275,11 +275,11 @@ export function repairJsonl(path: string): Promise<JsonlRepairResult>;
 **Behavior:** §10.1.1 边界。若 `readJsonlTolerant` 报告 `skipped > 0`，则重写文件仅保留合法行（使用 `fs.truncateSync` + `writeFileSync` 截断破损尾部数据）。返回 `{ truncated: true, bytesRemoved: N }`。对已合法的文件为 no-op（`truncated: false`）。完全损坏时备份原文件到 `<path>.corrupt.bak` 后返回空文件。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：截断破损尾部数据（文件变为 2 条合法 entries）、合法文件 no-op、完全损坏备份 `.corrupt.bak`
-- [ ] 验证失败：`npm run test -- tests/infrastructure/jsonl-truncate.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add JSONL auto-truncate repair via fs.truncateSync (§10.1.1)`
+- [x] 编写失败测试覆盖：截断破损尾部数据（文件变为 2 条合法 entries）、合法文件 no-op、完全损坏备份 `.corrupt.bak`
+- [x] 验证失败：`npm run test -- tests/infrastructure/jsonl-truncate.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add JSONL auto-truncate repair via fs.truncateSync (§10.1.1)`
 
 ### Task 10: JSONL per-session mutex (§10.1.1)
 
