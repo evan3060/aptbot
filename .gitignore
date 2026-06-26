@@ -10,3 +10,11 @@ sessions/
 .DS_Store
 coverage/
 .vitest-cache/
+
+# Reference projects (not part of aptbot codebase)
+GenericAgent/
+mastra/
+nanobot/
+pi/
+.agents/
+.trae/
