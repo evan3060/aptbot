@@ -302,12 +302,12 @@ export const JSONL_LOCK_TIMEOUT_MS = 5000;
 **Behavior:** §10.1.1 边界。per-sessionId mutex 保证并发写入串行化。`withJsonlLock` 在 5000ms 内未获取锁则 reject 并发 `error` 事件。Mutex 实例缓存到 Map，session 结束后由调用方清理。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：同 sessionId 串行化、不同 sessionId 并行、锁超时 5s 抛错
-- [ ] 验证失败：`npm run test -- tests/infrastructure/jsonl-mutex.spec.ts` → FAIL
-- [ ] 安装：`npm install async-mutex`
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add per-sessionId JSONL mutex with 5s timeout (§10.1.1)`
+- [x] 编写失败测试覆盖：同 sessionId 串行化、不同 sessionId 并行、锁超时 5s 抛错
+- [x] 验证失败：`npm run test -- tests/infrastructure/jsonl-mutex.spec.ts` → FAIL
+- [x] 安装：`npm install async-mutex`
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add per-sessionId JSONL mutex with 5s timeout (§10.1.1)`
 
 ### Task 11: AgentMessage and content block types
 
