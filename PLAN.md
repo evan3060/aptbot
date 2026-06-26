@@ -973,11 +973,11 @@ export const updateWorkingMemoryTool: AgentTool<UpdateWorkingMemoryParams, Updat
 **Behavior:** §6.5 边界。LLM 调用以更新 key_info。key_info 超 2000 字符截断 + warn，返回 `truncated: true`。覆盖整个 keyInfo（单调更新）。通过 `StorageAdapter.writeWorkingMemory` 持久化为 `working_memory` SessionEntry。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：写入短 keyInfo 成功、超 2000 字符截断 + truncated=true、写入后 readWorkingMemory 能读回
-- [ ] 验证失败：`npm run test -- tests/core/tool/tools/update-working-memory.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add update_working_memory tool with 2000 char truncation (§6.5)`
+- [x] 编写失败测试覆盖：写入短 keyInfo 成功、超 2000 字符截断 + truncated=true、写入后 readWorkingMemory 能读回
+- [x] 验证失败：`npm run test -- tests/core/tool/tools/update-working-memory.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add update_working_memory tool with 2000 char truncation (§6.5)`
 
 ### Task 27: AgentEvent union types (§3.2)
 
