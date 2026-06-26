@@ -1646,11 +1646,11 @@ export function startServer(config: ServerConfig): Promise<void>;
 **Behavior:** 启动入口，组装所有层：loadConfig → createFileStorage → createToolRegistry(bash/read/edit/update_working_memory) → createProvider → createAgentSession → createInMemoryMessageBus → createChannelManager → register WebSocketChannel + CLIChannel → startWebSocketServer → installProcessHandlers → startMemoryMonitor。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：`startServer` 后 WebSocket 可连接、SIGINT 触发优雅关闭、所有组件被注入
-- [ ] 验证失败：`npm run test -- tests/e2e/wiring.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add server entry wiring all layers`
+- [x] 编写失败测试覆盖：`startServer` 后 WebSocket 可连接、SIGINT 触发优雅关闭、所有组件被注入
+- [x] 验证失败：`npm run test -- tests/e2e/wiring.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add server entry wiring all layers`
 
 ### Task 42: E2E test covering MVP acceptance #1-11 (§11.3)
 
