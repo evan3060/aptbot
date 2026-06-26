@@ -1103,11 +1103,11 @@ export function createAgentSession(config: AgentSessionConfig): AgentSession;
 **Behavior:** §3.1 Layer 2 / §3.4 错误处理。有状态封装，持有 context/steering 队列/session 存储。`run` 调用 `agentLoop` 并转发事件，turn 结束后持久化 entries。turn 原子性：错误响应不持久化（§10.4）。`pushSteering` 注入消息到队列（上限 5，超出丢弃最旧 + warn），仅在 turn 之间注入。`getWorkingMemory` 从 storage 读取最后一条。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：单 turn 运行后 entries 持久化、错误响应不持久化、`pushSteering` 后下个 turn 包含、steering 队列超 5 丢弃最旧 + warn
-- [ ] 验证失败：`npm run test -- tests/core/agent/session.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add AgentSession L2 with turn atomicity and steering (§3.4)`
+- [x] 编写失败测试覆盖：单 turn 运行后 entries 持久化、错误响应不持久化、`pushSteering` 后下个 turn 包含、steering 队列超 5 丢弃最旧 + warn
+- [x] 验证失败：`npm run test -- tests/core/agent/session.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add AgentSession L2 with turn atomicity and steering (§3.4)`
 
 ### Task 30: SessionRepo and session lifecycle (§6.3)
 
