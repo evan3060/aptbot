@@ -170,12 +170,12 @@ export function validateConfig(config: unknown): { success: true; data: AptbotCo
 **Behavior:** §10.8 边界。zod schema 校验：providers 至少 1 个、defaultModel 必填、每个 provider 必须有 id+name+auth、每个 model 必须有 id+api+contextWindow+maxTokens。`validateConfig` 返回 discriminated union，错误时聚合所有 zod issues 为字符串数组。`defaultConfig` 提供可用的 Anthropic 基线配置（`dataDir: './data'`，`deploy: 'local'`）。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：defaultConfig 含 providers 且合法、合法 config 通过、空 providers 被拒绝、缺失 defaultModel 被拒绝、无效 api 值被拒绝
-- [ ] 验证失败：`npm run test -- tests/infrastructure/config-types.spec.ts` → FAIL
-- [ ] 安装：`npm install zod`
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add config types and zod schema validation (§10.8)`
+- [x] 编写失败测试覆盖：defaultConfig 含 providers 且合法、合法 config 通过、空 providers 被拒绝、缺失 defaultModel 被拒绝、无效 api 值被拒绝
+- [x] 验证失败：`npm run test -- tests/infrastructure/config-types.spec.ts` → FAIL
+- [x] 安装：`npm install zod`
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add config types and zod schema validation (§10.8)`
 
 ### Task 6: Config file loader with env var priority (§10.8)
 
