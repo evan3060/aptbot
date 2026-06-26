@@ -1306,11 +1306,11 @@ export function matchesCapability(cap: ChannelCapability, event: AgentEvent): bo
 **Behavior:** §7.2 / §7.4 类型定义。`matchesCapability` 按 §7.4 能力过滤规则实现：`message_delta` 需 streaming、`reasoning_*` 需 reasoning、`tool_*` richUi payload 需 richUi（否则降级）、其他始终投递。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：`matchesCapability` 各事件类型分支、streaming=false 时 message_delta 不匹配、richUi=false 时 tool_call 不匹配
-- [ ] 验证失败：`npm run test -- tests/bus/types.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add Channel and AgentEventEnvelope types (§7.2)`
+- [x] 编写失败测试覆盖：`matchesCapability` 各事件类型分支、streaming=false 时 message_delta 不匹配、richUi=false 时 tool_call 不匹配
+- [x] 验证失败：`npm run test -- tests/bus/types.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add Channel and AgentEventEnvelope types (§7.2)`
 
 ### Task 34: MessageBus in-memory implementation (§7.3, §10.1.6)
 
