@@ -1,0 +1,12 @@
+node_modules/
+dist/
+logs/
+data/
+sessions/
+*.log
+*.bak
+.env
+.env.local
+.DS_Store
+coverage/
+.vitest-cache/
