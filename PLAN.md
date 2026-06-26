@@ -1532,12 +1532,12 @@ export interface WebSocketServer {
 **Behavior:** §10.1.4 边界。最大 50 连接。入站消息 content 上限 64KB，media 单文件 5MB，超出返回 `inbound_too_large` 并关闭连接。入站频率 10 条/秒，超出返回 `rate_limited` 警告，连续 3 次超限关闭。60s 心跳超时关闭。客户端断连后事件缓冲到 outbound 队列（上限 1000），溢出丢弃 delta 保留关键事件。重连后客户端发 `lastEventSeq`，服务端重放缓冲；seq 已丢弃则发 `resync_required`。连接关闭时 `removeAllListeners` + `terminate()`。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：客户端断连后 agent loop 继续、入站消息超 64KB 返回 inbound_too_large、频率超 10/秒返回 rate_limited、重连后 backlog 重放、seq 已丢弃发 resync_required、连接数超 50 拒绝新连接
-- [ ] 验证失败：`npm run test -- tests/access/websocket-server.spec.ts` → FAIL
-- [ ] 安装：`npm install ws` `npm install -D @types/ws`
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add WebSocket server with inbound limits and resync (§10.1.4)`
+- [x] 编写失败测试覆盖：客户端断连后 agent loop 继续、入站消息超 64KB 返回 inbound_too_large、频率超 10/秒返回 rate_limited、重连后 backlog 重放、seq 已丢弃发 resync_required、连接数超 50 拒绝新连接
+- [x] 验证失败：`npm run test -- tests/access/websocket-server.spec.ts` → FAIL
+- [x] 安装：`npm install ws` `npm install -D @types/ws`
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add WebSocket server with inbound limits and resync (§10.1.4)`
 
 ### Task 39: CLI entry with Ink and 6 components (§8.1, §8.5)
 
