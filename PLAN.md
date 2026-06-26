@@ -1342,11 +1342,11 @@ export class InMemoryMessageBus implements MessageBus {
 **Behavior:** §7.3 / §10.1.6 边界。inbound 队列上限 100，溢出返回 `inbound_queue_full` 错误并丢弃最旧的非 `agent_start` 消息。outbound 队列上限 1000，溢出丢弃最旧的 `message_delta`/`reasoning_delta`，保留 `tool_call`/`tool_result`/`message_end`（§10.1.4）。FIFO 保证。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：publish/consume 往返、inbound 队列满抛 `inbound_queue_full`、outbound 溢出丢弃 delta 保留 tool_result、FIFO 顺序
-- [ ] 验证失败：`npm run test -- tests/bus/message-bus.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add InMemoryMessageBus with queue overflow handling (§7.3, §10.1.6)`
+- [x] 编写失败测试覆盖：publish/consume 往返、inbound 队列满抛 `inbound_queue_full`、outbound 溢出丢弃 delta 保留 tool_result、FIFO 顺序
+- [x] 验证失败：`npm run test -- tests/bus/message-bus.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add InMemoryMessageBus with queue overflow handling (§7.3, §10.1.6)`
 
 ### Task 35: ChannelManager with dispatch loop and dead letter (§7.2, §10.1.6)
 
