@@ -1382,11 +1382,11 @@ export function createChannelManager(bus: MessageBus): ChannelManager;
 **Behavior:** §7.2 / §10.1.6 边界。`startAll` 并行启动所有 channel，单个失败不阻塞其他（记录 `channel_start_failed`）。`bindSession` 幂等：重复 bind 同 channel 不报错。`unbindSession` 幂等：解绑未注册 sessionKey 不报错。`runDispatchLoop` 按 capability 过滤 + 路由 + 重试。所有 channel 投递失败时保留到死信队列（上限 100）+ 发 `dispatch_dead_letter` warn。`Channel.consume` 异常时跳过该 channel 不影响其他。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：`bindSession` 重复不报错、`unbindSession` 未注册不报错、`startAll` 单个失败不阻塞、dispatch 按 capability 过滤、所有失败入死信队列、`consume` 异常跳过该 channel
-- [ ] 验证失败：`npm run test -- tests/bus/channel-manager.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add ChannelManager with dispatch loop and dead letter (§7.2, §10.1.6)`
+- [x] 编写失败测试覆盖：`bindSession` 重复不报错、`unbindSession` 未注册不报错、`startAll` 单个失败不阻塞、dispatch 按 capability 过滤、所有失败入死信队列、`consume` 异常跳过该 channel
+- [x] 验证失败：`npm run test -- tests/bus/channel-manager.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add ChannelManager with dispatch loop and dead letter (§7.2, §10.1.6)`
 
 ---
 
