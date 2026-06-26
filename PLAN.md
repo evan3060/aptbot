@@ -1227,11 +1227,11 @@ export async function loadWorkingMemory(sessionId: string, storage: StorageAdapt
 **Behavior:** §6.5 边界。`inheritWorkingMemory` 从 source session 读取最后一条 `working_memory` entry，写入 target session，`passedSessions` +1。source 无 working memory 时返回空 keyInfo 但仍 +1 计数。`loadWorkingMemory` 从 session entries 末尾反向查找。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：source 有 keyInfo 时继承、source 无 keyInfo 时 passedSessions 仍 +1、`loadWorkingMemory` 返回最后一条、target 写入后可读回
-- [ ] 验证失败：`npm run test -- tests/core/memory/working-memory.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add working memory cross-session inheritance (§6.5)`
+- [x] 编写失败测试覆盖：source 有 keyInfo 时继承、source 无 keyInfo 时 passedSessions 仍 +1、`loadWorkingMemory` 返回最后一条、target 写入后可读回
+- [x] 验证失败：`npm run test -- tests/core/memory/working-memory.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add working memory cross-session inheritance (§6.5)`
 
 ---
 
