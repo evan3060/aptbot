@@ -440,11 +440,11 @@ export class FileStorage implements StorageAdapter {
 **Behavior:** §9.4 接口契约 + §10.1.1 / §10.1.3 边界。`readSession` 对不存在 ID 返回空数组（不抛错）；对损坏文件先 `repairJsonl` 再读取，完全损坏时备份 `.corrupt.bak` 返回空数组。`appendSession` 通过 `withJsonlLock` 串行化。`listSessions` 扫描 sessions 目录，按 mtime 降序分页（每页 20 条）。`readWorkingMemory` 从 session entries 末尾反向查找最后一条 `working_memory` entry。`writeWorkingMemory` 追加新 entry。`deleteSession` 删除文件（幂等）。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：`readSession(不存在 id)` 返回 `[]`、`appendSession` 后能读回、并发 append 串行化、`listSessions` 按 mtime 排序、`readWorkingMemory` 返回最后一条、`deleteSession` 幂等
-- [ ] 验证失败：`npm run test -- tests/infrastructure/storage/file-storage.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add FileStorage adapter implementing StorageAdapter (§9.4)`
+- [x] 编写失败测试覆盖：`readSession(不存在 id)` 返回 `[]`、`appendSession` 后能读回、并发 append 串行化、`listSessions` 按 mtime 排序、`readWorkingMemory` 返回最后一条、`deleteSession` 幂等
+- [x] 验证失败：`npm run test -- tests/infrastructure/storage/file-storage.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add FileStorage adapter implementing StorageAdapter (§9.4)`
 
 ### Task 14: Process signal handler and exception兜底 (§10.13, §10.14)
 
