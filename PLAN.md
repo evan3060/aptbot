@@ -1188,12 +1188,12 @@ export async function compact(
 **Behavior:** §6.4 / §10.1.1 / §10.5 边界。`estimateTokens` 三级降级：tiktoken → usage → chars/4 + warn。`shouldCompact` 当 tokens ≥ contextWindow × 0.8 时返回 true。`compact` 找 cutPoint → 生成摘要（maxTokens 2048）→ append compaction entry。LLM 调用失败时返回 `{ success: false, reason: 'llm_failed' }`，保留旧 entries 不变（§10.1.1）。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：`shouldCompact` 在 80% 阈值触发、`findCutPoint` 找到 user 消息切点、`compact` 成功后 append compaction entry、LLM 失败后 `success: false` 且旧 entries 完整、`estimateTokens` 降级路径
-- [ ] 验证失败：`npm run test -- tests/core/memory/compaction.spec.ts` → FAIL
-- [ ] 安装：`npm install tiktoken`（或用 mock）
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add Compaction with LLM failure fallback and token estimation (§6.4, §10.1.1)`
+- [x] 编写失败测试覆盖：`shouldCompact` 在 80% 阈值触发、`findCutPoint` 找到 user 消息切点、`compact` 成功后 append compaction entry、LLM 失败后 `success: false` 且旧 entries 完整、`estimateTokens` 降级路径
+- [x] 验证失败：`npm run test -- tests/core/memory/compaction.spec.ts` → FAIL
+- [x] 安装：`npm install tiktoken`（或用 mock）
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add Compaction with LLM failure fallback and token estimation (§6.4, §10.1.1)`
 
 ### Task 32: Working Memory cross-session inheritance (§6.5)
 
