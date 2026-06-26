@@ -220,11 +220,11 @@ export function readJsonl(path: string): Promise<unknown[]>;
 **Behavior:** §10.11 边界。`appendJsonl` 将 entry 用 `JSON.stringify` 序列化 + `\n`（LF），首次写入时 `mkdirp` 递归创建目录（权限 0o755），文件编码 UTF-8 无 BOM，文件末尾保持 trailing newline。`readJsonl` 对不存在的文件返回 `[]`，逐行解析非空行。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：追加后读回往返、不存在的文件返回空数组、文件末尾有 `\n`、目录自动创建
-- [ ] 验证失败：`npm run test -- tests/infrastructure/jsonl.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add JSONL append/read with encoding constraints (§10.11)`
+- [x] 编写失败测试覆盖：追加后读回往返、不存在的文件返回空数组、文件末尾有 `\n`、目录自动创建
+- [x] 验证失败：`npm run test -- tests/infrastructure/jsonl.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add JSONL append/read with encoding constraints (§10.11)`
 
 ### Task 8: JSONL corruption-tolerant streaming parse (§10.1.1)
 
