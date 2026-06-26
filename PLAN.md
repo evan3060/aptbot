@@ -591,11 +591,11 @@ export function withDualClock<T>(
 **Behavior:** §10.1.5 / §10.3 边界。包装上游 AsyncGenerator，应用双时钟：首字节超时（TTFB 5000ms，可配置）与 chunk 间超时（1500ms，可配置）。TTFB 超时或 chunk 间超时抛 `StreamTimeoutError`（含 `retryable: true`）；收到 `signal.abort` 时 100ms 内停止 yield。已 yield 的 chunk 不撤回。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：TTFB 超 5s 抛错、chunk 间隔超 1.5s 抛错、正常流通过、abort 后 100ms 内停止
-- [ ] 验证失败：`npm run test -- tests/core/provider/dual-clock.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add dual-clock streaming controller TTFB 5s + chunk 1.5s (§10.1.5)`
+- [x] 编写失败测试覆盖：TTFB 超 5s 抛错、chunk 间隔超 1.5s 抛错、正常流通过、abort 后 100ms 内停止
+- [x] 验证失败：`npm run test -- tests/core/provider/dual-clock.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add dual-clock streaming controller TTFB 5s + chunk 1.5s (§10.1.5)`
 
 ### Task 17: Provider retry with error classification (§10.1.5)
 
@@ -625,11 +625,11 @@ export function withRetry<T>(
 **Behavior:** §10.1.5 边界。`classifyError` 将 HTTP 状态码分类：429/5xx 为 `retryable`，400/401/403 为 `fatal`，ECONNRESET/ETIMEDOUT 归类为 retryable。`withRetry` 对 retryable 错误按 1s/2s/4s 指数退避重试最多 3 次，fatal 错误立即抛出。重试时调用 `onRetry` 回调便于日志。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：429 retryable、500 retryable、401 fatal、403 fatal、400 fatal、ECONNRESET retryable、重试 3 次后抛错、fatal 不重试
-- [ ] 验证失败：`npm run test -- tests/core/provider/retry.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add provider retry with error classification 401/403/400 fatal (§10.1.5)`
+- [x] 编写失败测试覆盖：429 retryable、500 retryable、401 fatal、403 fatal、400 fatal、ECONNRESET retryable、重试 3 次后抛错、fatal 不重试
+- [x] 验证失败：`npm run test -- tests/core/provider/retry.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add provider retry with error classification 401/403/400 fatal (§10.1.5)`
 
 ### Task 18: Provider message sanitization
 
