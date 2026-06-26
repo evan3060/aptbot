@@ -936,11 +936,11 @@ export const editTool: AgentTool<EditParams, EditDetails>;
 **Behavior:** §10.1.2 / §10.3 边界。精确字符串替换。per-filePath mutex 串行化同一文件的并发 edit。`old_string` 在文件中出现 0 次返回 `not_found`，出现 >1 次返回 `not_unique` 拒绝。5s 超时返回 `edit_timeout`。AbortSignal 触发时 close fd。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：成功替换、old_string 不存在返回 not_found、old_string 多次出现返回 not_unique、并发 edit 同一文件串行化、5s 超时
-- [ ] 验证失败：`npm run test -- tests/core/tool/tools/edit.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add edit tool with per-file mutex and uniqueness check (§10.1.2)`
+- [x] 编写失败测试覆盖：成功替换、old_string 不存在返回 not_found、old_string 多次出现返回 not_unique、并发 edit 同一文件串行化、5s 超时
+- [x] 验证失败：`npm run test -- tests/core/tool/tools/edit.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add edit tool with per-file mutex and uniqueness check (§10.1.2)`
 
 ### Task 26: update_working_memory tool (§6.5)
 
