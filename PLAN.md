@@ -813,11 +813,11 @@ export function createToolRegistry(): ToolRegistry;
 **Behavior:** §5.1 / §5.3 设计要点。`createToolRegistry` 返回内存实现；`getDefinitions` 转换为 LLM schema 数组；重复 register 同名工具抛错或覆盖（选覆盖 + warn）。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：register 后 get 返回、has 正确、getDefinitions 返回 schema 数组、unregister 后 get 返回 undefined、重复 register 覆盖
-- [ ] 验证失败：`npm run test -- tests/core/tool/types.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add ToolRegistry and AgentTool interface`
+- [x] 编写失败测试覆盖：register 后 get 返回、has 正确、getDefinitions 返回 schema 数组、unregister 后 get 返回 undefined、重复 register 覆盖
+- [x] 验证失败：`npm run test -- tests/core/tool/types.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add ToolRegistry and AgentTool interface`
 
 ### Task 23: bash tool with hard timeout and process leak prevention (§10.1.2)
 
