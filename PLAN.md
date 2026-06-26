@@ -1488,11 +1488,11 @@ export function coreReducer(state: UIState, event: AgentEvent): UIState;
 **Behavior:** §8.3 状态转换。`turn_start` → isWorking=true；`message_start` → 追加流式 assistant 消息（isStreaming=true）；`message_delta` → 追加文本到当前消息；`message_end` → 标记 isStreaming=false；`tool_call_start` → 追加 toolCall 项 status=running；`tool_result` → 更新 status；`turn_end` → isWorking=false；`error` → 设置 error 字段且 isWorking=false。纯函数，不可变更新。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：`turn_start` 后 isWorking=true、`message_delta` 累积文本、`message_end` 后 isStreaming=false、`turn_end` 后 isWorking=false、`error` 事件后 isWorking=false 且 error 被设置、连续多个 `tool_call_start` 顺序保持
-- [ ] 验证失败：`npm run test -- tests/shared/ui-state/reducer.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add coreReducer UIState machine (§8.3)`
+- [x] 编写失败测试覆盖：`turn_start` 后 isWorking=true、`message_delta` 累积文本、`message_end` 后 isStreaming=false、`turn_end` 后 isWorking=false、`error` 事件后 isWorking=false 且 error 被设置、连续多个 `tool_call_start` 顺序保持
+- [x] 验证失败：`npm run test -- tests/shared/ui-state/reducer.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add coreReducer UIState machine (§8.3)`
 
 ### Task 38: WebSocket server with inbound limits and resync (§10.1.4)
 
