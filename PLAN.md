@@ -1677,10 +1677,10 @@ export function startServer(config: ServerConfig): Promise<void>;
 11. 跨 session 继承：`/continue <oldId>` → keyInfo 一致 + passedSessions +1
 
 **TDD Cycle:**
-- [ ] 编写 E2E 测试覆盖 MVP 验收 #1-11
-- [ ] 运行：`npm run test -- tests/e2e/full-loop.spec.ts` → 若前序任务均完成则通过
-- [ ] 运行全量：`npm run test` → All tests passed, Exit Code 0
-- [ ] 提交：`test: add E2E integration test for full agent loop (§11.3 MVP #1-11)`
+- [x] 编写 E2E 测试覆盖 MVP 验收 #1-11
+- [x] 运行：`npm run test -- tests/e2e/full-loop.spec.ts` → 若前序任务均完成则通过
+- [x] 运行全量：`npm run test` → All tests passed, Exit Code 0
+- [x] 提交：`test: add E2E integration test for full agent loop (§11.3 MVP #1-11)`
 
 ---
 
