@@ -897,11 +897,11 @@ export const readTool: AgentTool<ReadParams, ReadDetails>;
 **Behavior:** §10.1.2 / §10.3 边界。读取文件内容，支持 offset/limit 分页。>2MB 返回 `AgentToolResult.error({ code: 'file_too_large' })`。>1MB 用流式读取。5s 超时返回 `read_timeout`。路径遍历防护（拒绝 `..`）。AbortSignal 触发时 close fd。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：读取小文件返回 content、>2MB 返回 file_too_large、offset/limit 分页、路径含 `..` 拒绝、不存在的文件返回 error
-- [ ] 验证失败：`npm run test -- tests/core/tool/tools/read.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add read tool with 2MB limit and pagination (§10.1.2)`
+- [x] 编写失败测试覆盖：读取小文件返回 content、>2MB 返回 file_too_large、offset/limit 分页、路径含 `..` 拒绝、不存在的文件返回 error
+- [x] 验证失败：`npm run test -- tests/core/tool/tools/read.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add read tool with 2MB limit and pagination (§10.1.2)`
 
 ### Task 25: edit tool with per-file mutex (§10.1.2)
 
