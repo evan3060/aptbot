@@ -348,11 +348,11 @@ export function createMessage(role: MessageRole, content: string | ContentBlock[
 **Behavior:** 持久化层 AgentMessage 与 LLM ContextMessage 分离（§3.5）。`createMessage` 自动生成 `id`（`crypto.randomUUID()`）与 `timestamp`（`Date.now()`）。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：`createMessage` 生成 UUID、timestamp 为 ms 整数、role 保留、content 字符串与块数组都支持
-- [ ] 验证失败：`npm run test -- tests/core/memory/agent-message.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add AgentMessage and content block types`
+- [x] 编写失败测试覆盖：`createMessage` 生成 UUID、timestamp 为 ms 整数、role 保留、content 字符串与块数组都支持
+- [x] 验证失败：`npm run test -- tests/core/memory/agent-message.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add AgentMessage and content block types`
 
 ### Task 12: SessionEntry types and path resolver (§6.2, §10.10, §10.12)
 
