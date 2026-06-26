@@ -1013,11 +1013,11 @@ export function createToolCallId(): string;
 **Behavior:** §3.2 事件 union 类型。所有 ID 用 `crypto.randomUUID()`。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：`createTurnId()` 返回 UUID 格式、各事件分支可构造、`error` 事件含 retryable 字段
-- [ ] 验证失败：`npm run test -- tests/core/agent/events.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add AgentEvent union types (§3.2)`
+- [x] 编写失败测试覆盖：`createTurnId()` 返回 UUID 格式、各事件分支可构造、`error` 事件含 retryable 字段
+- [x] 验证失败：`npm run test -- tests/core/agent/events.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add AgentEvent union types (§3.2)`
 
 ### Task 28: AgentLoop L1 with maxIterations and AbortSignal (§3.3, §10.1.7)
 
