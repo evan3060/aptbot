@@ -652,11 +652,11 @@ export function sanitizeContext(context: Context): Context;
 **Behavior:** §4.4 边界。修复 role alternation（连续 user 消息合并、assistant 后跟 assistant 插入空 user）；空 content 替换为占位符 `' '`；移除 image content 当 provider 不支持；tool 消息必须有 `toolCallId`。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：连续 user 合并、空 content 替换、tool 消息无 toolCallId 被过滤
-- [ ] 验证失败：`npm run test -- tests/core/provider/sanitize.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add provider message sanitization`
+- [x] 编写失败测试覆盖：连续 user 合并、空 content 替换、tool 消息无 toolCallId 被过滤
+- [x] 验证失败：`npm run test -- tests/core/provider/sanitize.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add provider message sanitization`
 
 ### Task 19: openai-responses API implementation
 
