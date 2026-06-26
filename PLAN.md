@@ -247,11 +247,11 @@ export function readJsonlTolerant(path: string): Promise<JsonlReadResult>;
 **Behavior:** §10.1.1 边界。逐行解析；`JSON.parse` 失败时递增 `skipped` 并继续（不抛错）。返回合法 entries + 跳过的破损行计数。处理空文件（`skipped: 0`）与全破损文件（`entries: []`, `skipped: N`）。完全损坏时由调用方决定备份策略。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：跳过破损尾部残行（返回 2 条合法 + skipped 1）、空文件、全破损文件、中间行破损
-- [ ] 验证失败：`npm run test -- tests/infrastructure/jsonl-corruption.spec.ts` → FAIL（`readJsonlTolerant` not exported）
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add JSONL corruption-tolerant streaming parse (§10.1.1)`
+- [x] 编写失败测试覆盖：跳过破损尾部残行（返回 2 条合法 + skipped 1）、空文件、全破损文件、中间行破损
+- [x] 验证失败：`npm run test -- tests/infrastructure/jsonl-corruption.spec.ts` → FAIL（`readJsonlTolerant` not exported）
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add JSONL corruption-tolerant streaming parse (§10.1.1)`
 
 ### Task 9: JSONL auto-truncate repair (§10.1.1)
 

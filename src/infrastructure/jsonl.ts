@@ -31,3 +31,30 @@ export async function readJsonl(path: string): Promise<unknown[]> {
   }
   return entries;
 }
+
+/**
+ * §10.1.1 readJsonlTolerant: 逐行解析；JSON.parse 失败时递增 skipped 并继续（不抛错）。
+ * 处理空文件（skipped: 0）与全破损文件（entries: [], skipped: N）。
+ */
+export async function readJsonlTolerant(path: string): Promise<JsonlReadResult> {
+  if (!existsSync(path)) return { entries: [], skipped: 0 };
+  const content = readFileSync(path, { encoding: 'utf-8' });
+  const lines = content.split('\n');
+  const entries: unknown[] = [];
+  let skipped = 0;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed === '') continue;
+    try {
+      entries.push(JSON.parse(trimmed));
+    } catch {
+      skipped++;
+    }
+  }
+  return { entries, skipped };
+}
+
+export interface JsonlReadResult {
+  entries: unknown[];
+  skipped: number;
+}
