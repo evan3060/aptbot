@@ -1445,11 +1445,11 @@ export function createCommandRegistry(): CommandRegistry;
 **Behavior:** §8.2 / §8.4 边界。`resolve` 解析 `/cmd args` 或别名。未知命令返回 `null`（由调用方显示 `unknown_command`）。`/continue <id>` 调用 `inheritWorkingMemory`，不存在的 id 返回友好错误。`/exit` 返回 `action: 'exit'`。`/help` 列出所有命令。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：`resolve('/new')` 返回 new 命令、别名解析、未知命令返回 null、`/continue <不存在 id>` 返回错误 output、`/exit` 返回 action=exit、`/help` 输出含所有命令名
-- [ ] 验证失败：`npm run test -- tests/shared/commands/registry.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add CommandRegistry with 7 builtin slash commands (§8.2, §8.4)`
+- [x] 编写失败测试覆盖：`resolve('/new')` 返回 new 命令、别名解析、未知命令返回 null、`/continue <不存在 id>` 返回错误 output、`/exit` 返回 action=exit、`/help` 输出含所有命令名
+- [x] 验证失败：`npm run test -- tests/shared/commands/registry.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add CommandRegistry with 7 builtin slash commands (§8.2, §8.4)`
 
 ### Task 37: coreReducer UIState machine (§8.3)
 
