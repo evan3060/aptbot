@@ -556,11 +556,11 @@ export interface Provider {
 **Behavior:** Provider 抽象层类型定义。`stream` 返回 AsyncGenerator，按 §3.2 事件顺序 yield `AssistantMessageEvent`。`Api` 从 Task 5 (`config-types.ts`) 导入，避免重复定义。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：类型断言（编译期）+ `AssistantMessageEvent` union 各分支可构造
-- [ ] 验证失败：`npm run test -- tests/core/provider/types.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add Provider and Model type definitions`
+- [x] 编写失败测试覆盖：类型断言（编译期）+ `AssistantMessageEvent` union 各分支可构造
+- [x] 验证失败：`npm run test -- tests/core/provider/types.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add Provider and Model type definitions`
 
 ### Task 16: Provider dual-clock streaming controller (§10.1.5, §10.3)
 
