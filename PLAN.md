@@ -762,11 +762,11 @@ export function createProvider(decl: ProviderDeclaration, apiKey: string): Provi
 **Behavior:** §4.1 / §4.2 Api-Provider 分离。每个 provider 声明含 id+name+baseUrl+auth+models。`createProvider` 根据 `model.api` 选择 stream 工厂（deepseek 复用 openai-responses）。`ModelRegistry.findModel` 按 model id 路由到 provider。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：`findModel('gpt-4')` 返回 openai provider、`findModel('claude-3')` 返回 anthropic、`findModel('deepseek-chat')` 返回 deepseek、未知 model 返回 undefined
-- [ ] 验证失败：`npm run test -- tests/core/provider/models.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add provider declarations and model registry`
+- [x] 编写失败测试覆盖：`findModel('gpt-4')` 返回 openai provider、`findModel('claude-3')` 返回 anthropic、`findModel('deepseek-chat')` 返回 deepseek、未知 model 返回 undefined
+- [x] 验证失败：`npm run test -- tests/core/provider/models.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add provider declarations and model registry`
 
 ### Task 22: ToolRegistry and AgentTool interface
 
