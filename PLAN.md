@@ -81,10 +81,10 @@
 **Behavior:** Vitest 配置 + 一个最小冒烟测试（`expect(1 + 1).toBe(2)`）确认测试框架可用。
 
 **TDD Cycle:**
-- [ ] 在 `tests/smoke.spec.ts` 编写失败冒烟测试
-- [ ] 安装依赖：`npm install -D vitest @types/node tsx`
-- [ ] 验证通过：`npm run test -- tests/smoke.spec.ts` → 1 test passed, Exit Code 0
-- [ ] 提交：`chore: setup vitest with smoke test`
+- [x] 在 `tests/smoke.spec.ts` 编写失败冒烟测试
+- [x] 安装依赖：`npm install -D vitest @types/node tsx`
+- [x] 验证通过：`npm run test -- tests/smoke.spec.ts` → 1 test passed, Exit Code 0
+- [x] 提交：`chore: setup vitest with smoke test`
 
 ---
 
