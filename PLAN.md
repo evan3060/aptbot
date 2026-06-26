@@ -1138,11 +1138,11 @@ export function createSessionRepo(storage: StorageAdapter): SessionRepo;
 **Behavior:** §6.3 接口。`create` 生成新 UUID 并初始化空 session。`open` 对不存在 ID 创建新 session（幂等语义 §10.1.3）。`list` 委托 storage。`delete` 幂等。`Session.append` 委托 storage。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：`create` 返回新 session、`open(不存在 id)` 创建新 session、`list` 返回数组、`delete` 后 list 不含
-- [ ] 验证失败：`npm run test -- tests/core/memory/session-repo.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add SessionRepo with idempotent open/create (§6.3)`
+- [x] 编写失败测试覆盖：`create` 返回新 session、`open(不存在 id)` 创建新 session、`list` 返回数组、`delete` 后 list 不含
+- [x] 验证失败：`npm run test -- tests/core/memory/session-repo.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add SessionRepo with idempotent open/create (§6.3)`
 
 ### Task 31: Compaction with LLM failure fallback (§6.4, §10.1.1)
 
