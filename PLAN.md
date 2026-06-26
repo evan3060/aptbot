@@ -1614,12 +1614,12 @@ export function createWebUIApp(config: {
 **Behavior:** §8.1 / §8.5 WebUI 实现。Lit + Web Components。WebSocket 连接到 server，消费 `AgentEventEnvelope`。`coreReducer` 维护 UIState，组件订阅 state 切片。流式渲染 `message_delta`。斜杠命令本地解析（不需要回环 server）。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：`<assistant-message>` 渲染 text、`<user-message>` 渲染输入、`<tool-execution>` 显示 status、`<working-indicator>` 在 isWorking=true 时可见、`<footer-bar>` 显示 model、`<input-box>` 派发 submit 事件
-- [ ] 验证失败：`npm run test -- tests/access/webui.spec.ts` → FAIL
-- [ ] 安装：`npm install lit`
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add WebUI entry with Lit and 6 components (§8.1, §8.5)`
+- [x] 编写失败测试覆盖：`<assistant-message>` 渲染 text、`<user-message>` 渲染输入、`<tool-execution>` 显示 status、`<working-indicator>` 在 isWorking=true 时可见、`<footer-bar>` 显示 model、`<input-box>` 派发 submit 事件
+- [x] 验证失败：`npm run test -- tests/access/webui.spec.ts` → FAIL
+- [x] 安装：`npm install lit`
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add WebUI entry with Lit and 6 components (§8.1, §8.5)`
 
 ### Task 41: Server entry wiring all layers
 

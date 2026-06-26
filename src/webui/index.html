@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>aptbot</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #fafafa;
+      color: #1f2937;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      max-width: 800px;
+      width: 100%;
+      margin: 0 auto;
+    }
+    working-indicator, footer-bar, input-box {
+      max-width: 800px;
+      width: 100%;
+      margin: 0 auto;
+    }
+  </style>
+</head>
+<body>
+  <div id="messages"></div>
+  <working-indicator></working-indicator>
+  <input-box></input-box>
+  <footer-bar></footer-bar>
+  <script type="module" src="./index.ts"></script>
+</body>
+</html>
