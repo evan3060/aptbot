@@ -685,11 +685,11 @@ export function createOpenaiResponsesStream(
 **Behavior:** 实现 OpenAI Responses API 协议的流式调用。SSE 解析，按 `AssistantMessageEvent` union 转换事件。应用 `sanitizeContext` 预处理，`withDualClock` 双时钟保护，`withRetry` 重试。401/403/400 立即抛 fatal。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：mock fetch 返回 SSE 流，断言 yield 序列（text → tool_call → stop）、401 抛 fatal、500 重试 3 次
-- [ ] 验证失败：`npm run test -- tests/core/provider/api/openai-responses.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add openai-responses API stream implementation`
+- [x] 编写失败测试覆盖：mock fetch 返回 SSE 流，断言 yield 序列（text → tool_call → stop）、401 抛 fatal、500 重试 3 次
+- [x] 验证失败：`npm run test -- tests/core/provider/api/openai-responses.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add openai-responses API stream implementation`
 
 ### Task 20: anthropic-messages API implementation
 
@@ -716,11 +716,11 @@ export function createAnthropicMessagesStream(
 **Behavior:** 实现 Anthropic Messages API 协议的流式调用。SSE 解析，转换 `content_block_delta` 等事件为 `AssistantMessageEvent`。其余同 Task 19。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：mock fetch 返回 Anthropic SSE 流，断言 yield 序列、401 抛 fatal、429 重试
-- [ ] 验证失败：`npm run test -- tests/core/provider/api/anthropic-messages.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add anthropic-messages API stream implementation`
+- [x] 编写失败测试覆盖：mock fetch 返回 Anthropic SSE 流，断言 yield 序列、401 抛 fatal、429 重试
+- [x] 验证失败：`npm run test -- tests/core/provider/api/anthropic-messages.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add anthropic-messages API stream implementation`
 
 ### Task 21: Provider declarations and models registry
 
