@@ -1056,11 +1056,11 @@ export function agentLoop(config: AgentLoopConfig): AsyncGenerator<AgentEvent, A
 **Behavior:** §3.1 Layer 1 / §3.3 / §10.1.7 边界。无状态生成器函数，双 while 循环（steering + follow-up）。事件顺序遵循 §3.2：`agent_start` → 每轮（`turn_start` → `message_start` → deltas → `message_end` → tool calls → `tool_result` → `turn_end`）→ `agent_end`。`maxIterations` 达到上限发 `error` 事件（`message: 'max_iterations_exceeded'`, `retryable: false`）后正常结束。AbortSignal 触发时停止 provider yield、cancel 进行中 tool_call、发 `agent_end` 后退出。generator 提前 `return()` 触发 finally 清理。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：单 turn 事件序列完整、tool_call → tool_result → message_start 顺序、`maxIterations` 达到上限发 error 且 retryable=false、AbortSignal 触发后发 agent_end、generator return() 触发清理
-- [ ] 验证失败：`npm run test -- tests/core/agent/loop.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add AgentLoop L1 with maxIterations and AbortSignal (§3.3, §10.1.7)`
+- [x] 编写失败测试覆盖：单 turn 事件序列完整、tool_call → tool_result → message_start 顺序、`maxIterations` 达到上限发 error 且 retryable=false、AbortSignal 触发后发 agent_end、generator return() 触发清理
+- [x] 验证失败：`npm run test -- tests/core/agent/loop.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add AgentLoop L1 with maxIterations and AbortSignal (§3.3, §10.1.7)`
 
 ### Task 29: AgentSession L2 with turn atomicity and steering (§3.3, §3.4)
 
