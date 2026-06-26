@@ -402,11 +402,11 @@ export function nowTimestamp(): number;
 **Behavior:** §6.2 / §10.10 / §10.12 边界。`SessionEntry` union 类型，timestamp 为 ms 精度 UTC（`Date.now()`）。`getSessionPath` 返回 `./sessions/<sessionId>.jsonl`，sessionId 必须匹配 `SESSION_ID_REGEX`（UUID），否则抛错（路径遍历防护）；路径长度上限 255 字符。`isValidSessionId` 用于校验入站 ID。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：合法 UUID 返回路径、含 `..` 的 ID 抛错、含 `/` 的 ID 抛错、路径超 255 字符抛错、`nowTimestamp` 返回整数 ms
-- [ ] 验证失败：`npm run test -- tests/core/memory/types.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add SessionEntry types and path resolver (§6.2, §10.10, §10.12)`
+- [x] 编写失败测试覆盖：合法 UUID 返回路径、含 `..` 的 ID 抛错、含 `/` 的 ID 抛错、路径超 255 字符抛错、`nowTimestamp` 返回整数 ms
+- [x] 验证失败：`npm run test -- tests/core/memory/types.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add SessionEntry types and path resolver (§6.2, §10.10, §10.12)`
 
 ### Task 13: FileStorage adapter (§9.4 StorageAdapter interface)
 
