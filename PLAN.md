@@ -196,11 +196,11 @@ export const DEFAULT_CONFIG_PATH = './config/aptbot.json';
 **Behavior:** §10.8 边界。`loadConfig` 优先读取 `APTBOT_CONFIG` 环境变量作为路径，否则用 `DEFAULT_CONFIG_PATH`。读取 JSON → `validateConfig` 校验 → 与 `defaultConfig` 浅合并 → 返回。文件缺失、JSON 非法或校验失败时抛错并打印 stderr 退出码 1。`resolveApiKey` 实现优先级：`provider.auth.apiKey` → `process.env[provider.auth.envVar]` → undefined。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：加载合法 JSON、`APTBOT_CONFIG` 覆盖路径、文件缺失抛错、JSON 非法抛错、校验失败抛错、`resolveApiKey` 优先 envVar
-- [ ] 验证失败：`npm run test -- tests/infrastructure/config-loader.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] 提交：`feat: add config loader with env var priority (§10.8)`
+- [x] 编写失败测试覆盖：加载合法 JSON、`APTBOT_CONFIG` 覆盖路径、文件缺失抛错、JSON 非法抛错、校验失败抛错、`resolveApiKey` 优先 envVar
+- [x] 验证失败：`npm run test -- tests/infrastructure/config-loader.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] 提交：`feat: add config loader with env var priority (§10.8)`
 
 ### Task 7: JSONL basic append and read with encoding constraints (§10.11)
 
