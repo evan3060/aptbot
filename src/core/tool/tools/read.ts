@@ -1,8 +1,8 @@
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 import { createReadStream } from 'node:fs';
 import type { AgentTool, AgentToolResult } from '../types.js';
 import { createLogger } from '../../../infrastructure/logger.js';
+import { containsPathTraversal, toolError } from './path-guard.js';
 
 const log = createLogger('tool:read');
 
@@ -22,25 +22,16 @@ export const READ_MAX_BYTES = 2 * 1024 * 1024;
 export const READ_STREAM_THRESHOLD = 1024 * 1024;
 export const READ_TIMEOUT_MS = 5000;
 
-function containsPathTraversal(p: string): boolean {
-  // Reject any relative parent reference
-  return p.split(/[\\/]/).some((seg) => seg === '..');
-}
-
 function errorResult(
   code: string,
   message: string,
   details: Partial<ReadDetails> = {},
 ): AgentToolResult<ReadDetails> {
-  return {
-    content: [{ type: 'text', text: `${code}: ${message}` }],
-    details: {
-      lines: details.lines ?? 0,
-      bytes: details.bytes ?? 0,
-      truncated: details.truncated ?? false,
-    },
-    error: { code, message },
-  };
+  return toolError(code, message, {
+    lines: details.lines ?? 0,
+    bytes: details.bytes ?? 0,
+    truncated: details.truncated ?? false,
+  }) as AgentToolResult<ReadDetails>;
 }
 
 async function readStreaming(
@@ -51,7 +42,7 @@ async function readStreaming(
     const chunks: Buffer[] = [];
     let totalBytes = 0;
     let aborted = false;
-    const stream = createReadStream(filePath, { encoding: null });
+    const stream = createReadStream(filePath, { encoding: undefined });
     let timeoutHandle: NodeJS.Timeout | undefined;
     let abortListener: (() => void) | undefined;
 

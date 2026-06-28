@@ -1,11 +1,19 @@
 import type { AgentEvent } from './events.js';
 import { createTurnId, createMessageId } from './events.js';
-import type { Provider, Model, Context, AssistantMessageEvent } from '../provider/types.js';
+import type { Provider, Model, Context } from '../provider/types.js';
 import type { ToolRegistry } from '../tool/types.js';
 import type { AgentMessage, ToolCall } from '../memory/agent-message.js';
 
 export const DEFAULT_MAX_ITERATIONS = 10;
 export const MAX_STEERING_QUEUE = 5;
+export const DEFAULT_STOP_REASON = 'end_turn';
+
+/**
+ * 当 toolCalls 非空时返回原数组，否则返回 undefined（用于 AgentMessage.toolCalls 字段）。
+ */
+export function maybeToolCalls(toolCalls: ToolCall[]): ToolCall[] | undefined {
+  return toolCalls.length > 0 ? toolCalls : undefined;
+}
 
 export interface AgentLoopConfig {
   provider: Provider;
@@ -48,7 +56,7 @@ async function* agentLoopImpl(
 
       let textAccum = '';
       const toolCalls: ToolCall[] = [];
-      let stopReason = 'end_turn';
+      let stopReason = DEFAULT_STOP_REASON;
       let hadToolCall = false;
 
       const streamCtx: Context = {
@@ -70,7 +78,7 @@ async function* agentLoopImpl(
           toolCalls.push({ id: tc.id, name: tc.name, arguments: tc.arguments });
           hadToolCall = true;
         } else if (evt.type === 'stop') {
-          stopReason = evt.stopReason ?? 'end_turn';
+          stopReason = evt.stopReason ?? DEFAULT_STOP_REASON;
           break;
         }
       }
@@ -83,7 +91,7 @@ async function* agentLoopImpl(
         id: messageId,
         role: 'assistant',
         content: textAccum,
-        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+        toolCalls: maybeToolCalls(toolCalls),
         stopReason,
         timestamp: Date.now(),
       };
@@ -91,7 +99,7 @@ async function* agentLoopImpl(
       contextMessages.push({
         role: 'assistant',
         content: textAccum,
-        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+        toolCalls: maybeToolCalls(toolCalls),
       });
 
       if (hadToolCall) {

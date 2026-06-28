@@ -75,6 +75,39 @@ describe('anthropic-messages stream', () => {
     expect(stops).toHaveLength(1);
   });
 
+  // C4 回归测试：多个 input_json_delta 分片应累积，且 id/name 来自 content_block_start
+  it('accumulates fragmented tool_use deltas with correct id and name (C4)', async () => {
+    const chunks = [
+      sseChunk('content_block_start', {
+        type: 'content_block_start',
+        index: 1,
+        content_block: { type: 'tool_use', id: 'toolu_01abc', name: 'bash', input: {} },
+      }),
+      sseChunk('content_block_delta', {
+        type: 'content_block_delta',
+        index: 1,
+        delta: { type: 'input_json_delta', partial_json: '{"cmd":' },
+      }),
+      sseChunk('content_block_delta', {
+        type: 'content_block_delta',
+        index: 1,
+        delta: { type: 'input_json_delta', partial_json: '"ls"}' },
+      }),
+      sseChunk('content_block_stop', { type: 'content_block_stop', index: 1 }),
+      sseChunk('message_stop', { type: 'message_stop' }),
+    ];
+    globalThis.fetch = vi.fn().mockResolvedValue(makeSseResponse(chunks));
+
+    const gen = createAnthropicMessagesStream('https://api.anthropic.com/v1', 'sk-test', MODEL, CTX);
+    const events = await collect(gen);
+
+    const toolCalls = events.filter((e) => e.type === 'tool_call');
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0].toolCall?.id).toBe('toolu_01abc');
+    expect(toolCalls[0].toolCall?.name).toBe('bash');
+    expect(toolCalls[0].toolCall?.arguments).toBe('{"cmd":"ls"}');
+  });
+
   it('throws fatal error on 401', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response('{"error":"unauthorized"}', { status: 401 }),

@@ -79,17 +79,16 @@ export function coreReducer(state: UIState, event: AgentEvent): UIState {
     }
 
     case 'tool_call_delta':
-      return state;
-
     case 'tool_call_end':
       return state;
 
     case 'tool_result': {
+      const status: 'success' | 'failed' = event.success ? 'success' : 'failed';
       const messages = state.messages.map((m) => ({
         ...m,
         toolCalls: m.toolCalls?.map((tc) =>
           tc.id === event.toolCallId
-            ? { ...tc, status: (event.success ? 'success' : 'failed') as 'success' | 'failed' }
+            ? { ...tc, status }
             : tc,
         ),
       }));

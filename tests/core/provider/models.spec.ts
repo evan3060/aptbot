@@ -166,7 +166,7 @@ describe('createProvider', () => {
     expect(events.some((e) => e.type === 'stop')).toBe(true);
     expect(calls[0]).toContain('api.openai.com');
     // OpenAI uses Bearer authorization
-    expect((globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][1].headers.authorization).toBe(
+    expect(((globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][1] as { headers: Record<string, string> }).headers.authorization).toBe(
       'Bearer sk-test',
     );
   });
@@ -212,7 +212,7 @@ describe('createProvider', () => {
     }
     expect(events.some((e) => e.type === 'text')).toBe(true);
     expect(calls[0]).toContain('api.anthropic.com');
-    const headers = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][1].headers;
+    const headers = ((globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][1] as { headers: Record<string, string> }).headers;
     expect(headers['x-api-key']).toBe('ant-test');
     expect(headers['anthropic-version']).toBe('2023-06-01');
   });
@@ -255,7 +255,7 @@ describe('createProvider', () => {
     }
     expect(events.some((e) => e.type === 'text')).toBe(true);
     expect(calls[0]).toContain('api.deepseek.com');
-    const headers = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][1].headers;
+    const headers = ((globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][1] as { headers: Record<string, string> }).headers;
     expect(headers.authorization).toBe('Bearer ds-test');
   });
 });

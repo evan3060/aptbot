@@ -63,6 +63,8 @@ export interface MessageBus {
   consumeInbound(): Promise<InboundMessage>;
   publishOutbound(envelope: AgentEventEnvelope): Promise<void>;
   consumeOutbound(): Promise<AgentEventEnvelope>;
+  // I14 修复：取消 pending consumeOutbound 的 waiter，使 unmount 后事件保留在队列中
+  cancelOutboundWaiter?(): void;
 }
 
 /**

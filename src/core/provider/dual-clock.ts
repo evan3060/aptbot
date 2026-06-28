@@ -71,6 +71,9 @@ export async function* withDualClock<T>(
 
       if (result === true) {
         // abort 触发
+        // I10 修复：调用 source.return() 清理上游 generator，防止 fetch 连接泄漏
+        // fire-and-forget —— source 可能阻塞在未完成的 fetch 上，不阻塞 abort 路径
+        source.return(undefined).catch(() => {});
         await new Promise((r) => setTimeout(r, ABORT_SETTLE_MS));
         return;
       }
@@ -81,6 +84,8 @@ export async function* withDualClock<T>(
       yield next.value;
     } catch (err) {
       timeout.clear();
+      // I10 修复：超时/错误时也清理 source generator
+      source.return(undefined).catch(() => {});
       throw err;
     }
   }

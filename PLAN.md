@@ -1,5 +1,7 @@
 # aptbot MVP Implementation Plan
 
+> ✅ **MVP COMPLETED (v0.1.0)** — 42/42 tasks done, 383 tests passing. 封仓于 2026-06-28。后续迭代请见 `PLAN-L1.md`（待建）。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 构建 aptbot MVP —— 个人学习/工作助手 agent，支持 CLI + WebUI 双入口，单模型 ReAct 循环，4 个基础工具（bash/read/edit/update_working_memory）与会话短期记忆持久化。

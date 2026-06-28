@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createLogger, maskSecret, type LogLevel } from '../../src/infrastructure/logger.js';
-import { existsSync, rmSync, readFileSync, mkdirSync } from 'node:fs';
+import { createLogger, maskSecret } from '../../src/infrastructure/logger.js';
+import { existsSync, rmSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const LOG_DIR = './logs';

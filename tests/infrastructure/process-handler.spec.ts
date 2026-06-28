@@ -34,6 +34,19 @@ describe('process-handler', () => {
       expect(process.listeners('SIGINT').length).toBeGreaterThan(0);
       expect(process.listeners('SIGTERM').length).toBeGreaterThan(0);
     });
+
+    // I15 回归测试：重复调用不应堆叠 listener
+    it('does not stack listeners on repeated calls (I15)', () => {
+      const onShutdown = vi.fn(async () => {});
+      const isShuttingDown = vi.fn(() => false);
+      installProcessHandlers({ onShutdown, isShuttingDown });
+      const firstCount = process.listeners('SIGINT').length;
+      expect(firstCount).toBeGreaterThan(0);
+      installProcessHandlers({ onShutdown, isShuttingDown });
+      const secondCount = process.listeners('SIGINT').length;
+      // 关键不变量：第二次调用后 listener 数量不增加（不堆叠）
+      expect(secondCount).toBe(firstCount);
+    });
   });
 
   describe('startMemoryMonitor', () => {

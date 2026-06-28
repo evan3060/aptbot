@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, rmSync, mkdirSync, statSync } from 'node:fs';
+import { existsSync, rmSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { FileStorage, type StorageAdapter } from '../../../src/infrastructure/storage/file-storage.js';
+import { withJsonlLock } from '../../../src/infrastructure/jsonl-mutex.js';
 import type { SessionEntry } from '../../../src/core/memory/types.js';
 
 const TMP_DIR = './tests/.tmp-file-storage';
@@ -105,6 +106,37 @@ describe('FileStorage', () => {
     const { appendFileSync } = await import('node:fs');
     appendFileSync(path, '{"broken":');
     const entries = await storage.readSession(id);
+    expect(entries.length).toBe(1);
+  });
+
+  // I11 回归测试：readSession 必须获取 jsonl 锁，防止与 appendSession 的读写竞态
+  it('readSession acquires jsonl lock — no read-write race (I11)', async () => {
+    const id = validUuid();
+    await storage.appendSession(id, makeMessageEntry('first'));
+
+    // 外部持有锁
+    let releaseExternal: () => void = () => {};
+    const externalGate = new Promise<void>((r) => { releaseExternal = r; });
+    const lockHeld = withJsonlLock(id, () => externalGate);
+
+    // 尝试读取 —— 应阻塞（等待锁释放）
+    let readCompleted = false;
+    const readPromise = storage.readSession(id).then((entries) => {
+      readCompleted = true;
+      return entries;
+    });
+
+    // 等待 50ms —— read 不应完成（锁仍被持有）
+    await new Promise((r) => setTimeout(r, 50));
+    expect(readCompleted).toBe(false);
+
+    // 释放锁
+    releaseExternal();
+    await lockHeld;
+
+    // 现在 read 应完成
+    const entries = await readPromise;
+    expect(readCompleted).toBe(true);
     expect(entries.length).toBe(1);
   });
 });

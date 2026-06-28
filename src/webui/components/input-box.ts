@@ -1,7 +1,7 @@
 import { LitElement, html, css } from 'lit';
 
 export class InputBox extends LitElement {
-  static styles = css`
+  static override styles = css`
     :host {
       display: block;
       padding: 8px 12px;
@@ -37,7 +37,7 @@ export class InputBox extends LitElement {
     }
   `;
 
-  static properties = {
+  static override properties = {
     _value: { state: true },
   };
 
@@ -48,7 +48,7 @@ export class InputBox extends LitElement {
     this._value = '';
   }
 
-  protected render() {
+  protected override render() {
     return html`
       <form @submit=${this._handleSubmit}>
         <input

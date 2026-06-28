@@ -37,21 +37,7 @@ export async function readJsonl(path: string): Promise<unknown[]> {
  * 处理空文件（skipped: 0）与全破损文件（entries: [], skipped: N）。
  */
 export async function readJsonlTolerant(path: string): Promise<JsonlReadResult> {
-  if (!existsSync(path)) return { entries: [], skipped: 0 };
-  const content = readFileSync(path, { encoding: 'utf-8' });
-  const lines = content.split('\n');
-  const entries: unknown[] = [];
-  let skipped = 0;
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed === '') continue;
-    try {
-      entries.push(JSON.parse(trimmed));
-    } catch {
-      skipped++;
-    }
-  }
-  return { entries, skipped };
+  return readJsonlTolerantSync(path);
 }
 
 export interface JsonlReadResult {
@@ -100,6 +86,7 @@ export async function repairJsonl(path: string): Promise<JsonlRepairResult> {
 }
 
 function readJsonlTolerantSync(path: string): JsonlReadResult {
+  if (!existsSync(path)) return { entries: [], skipped: 0 };
   const content = readFileSync(path, { encoding: 'utf-8' });
   const lines = content.split('\n');
   const entries: unknown[] = [];

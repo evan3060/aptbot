@@ -18,7 +18,7 @@ export interface SessionMetadata {
   readonly createdAt: number;
   readonly updatedAt: number;
   readonly label?: string;
-  readonly passedSessions?: string[];
+  readonly passedSessions?: number;
 }
 
 export interface Session {

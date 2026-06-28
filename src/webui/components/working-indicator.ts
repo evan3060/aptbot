@@ -1,7 +1,7 @@
 import { LitElement, html, css } from 'lit';
 
 export class WorkingIndicator extends LitElement {
-  static styles = css`
+  static override styles = css`
     :host {
       display: block;
       padding: 4px 12px;
@@ -19,7 +19,7 @@ export class WorkingIndicator extends LitElement {
     }
   `;
 
-  static properties = {
+  static override properties = {
     isWorking: { type: Boolean },
   };
 
@@ -30,7 +30,7 @@ export class WorkingIndicator extends LitElement {
     this.isWorking = false;
   }
 
-  protected render() {
+  protected override render() {
     if (!this.isWorking) return html``;
     return html`<span class="dot">⠋ Working...</span>`;
   }

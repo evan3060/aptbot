@@ -55,4 +55,26 @@ describe('jsonl mutex', () => {
     const m2 = getJsonlMutex(sessionId);
     expect(m1).toBe(m2);
   });
+
+  // Regression for C1: timeout 后 ghost acquisition 永久锁死 mutex
+  it('does not permanently deadlock after timeout (regression for C1)', async () => {
+    const sessionId = 'sess-deadlock-' + Date.now();
+    const mutex = getJsonlMutex(sessionId);
+
+    // 手动持锁超过超时阈值
+    const releaseA = await mutex.acquire();
+
+    // B 将在 5000ms 后超时
+    const bPromise = withJsonlLock(sessionId, async () => 'b-result');
+    await expect(bPromise).rejects.toThrow(/jsonl lock timeout/);
+
+    // 释放 A —— B 的 ghost acquisition 此刻可能 resolve 但 release 未被调用
+    releaseA();
+    // 让 microtask 刷新，使 ghost acquisition 有机会 resolve 并（修复后）自释放
+    await new Promise((r) => setTimeout(r, 50));
+
+    // C 应能重新获取锁；若存在死锁 bug，此处将永久挂起直到 testTimeout
+    const cResult = await withJsonlLock(sessionId, async () => 'c-result');
+    expect(cResult).toBe('c-result');
+  }, 15000);
 });

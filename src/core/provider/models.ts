@@ -6,6 +6,7 @@ import type {
   AssistantMessageEvent,
 } from './types.js';
 import { createOpenaiResponsesStream } from './api/openai-responses.js';
+import { createOpenaiCompletionsStream } from './api/openai-completions.js';
 import { createAnthropicMessagesStream } from './api/anthropic-messages.js';
 
 export { openaiProvider } from './providers/openai.js';
@@ -57,7 +58,8 @@ export class ModelRegistry {
  * §4.1 createProvider。
  * 根据 model.api 选择 stream 工厂：
  *   - 'anthropic-messages' → createAnthropicMessagesStream
- *   - 'openai-responses' | 'openai-completions' → createOpenaiResponsesStream（MVP 简化）
+ *   - 'openai-responses' → createOpenaiResponsesStream（/responses 端点）
+ *   - 'openai-completions' → createOpenaiCompletionsStream（/chat/completions 端点）
  */
 export function createProvider(decl: ProviderDeclaration, apiKey: string): Provider {
   return {
@@ -75,7 +77,10 @@ export function createProvider(decl: ProviderDeclaration, apiKey: string): Provi
       if (model.api === 'anthropic-messages') {
         return createAnthropicMessagesStream(baseUrl, apiKey, model, context, options);
       }
-      // openai-responses 与 openai-completions 在 MVP 阶段统一走 responses 端点
+      if (model.api === 'openai-completions') {
+        return createOpenaiCompletionsStream(baseUrl, apiKey, model, context, options);
+      }
+      // openai-responses 走 /responses 端点
       return createOpenaiResponsesStream(baseUrl, apiKey, model, context, options);
     },
   };

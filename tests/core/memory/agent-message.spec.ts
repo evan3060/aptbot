@@ -1,12 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   createMessage,
-  type AgentMessage,
-  type MessageRole,
   type ContentBlock,
-  type ToolCall,
-  type TextContent,
-  type ImageContent,
 } from '../../../src/core/memory/agent-message.js';
 
 describe('agent-message', () => {

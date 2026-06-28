@@ -140,14 +140,14 @@ async function executeBash(
     killed = true;
     try {
       child.kill('SIGTERM');
-    } catch {
-      /* noop */
+    } catch (err) {
+      log.debug('child kill failed:', err);
     }
     sigkillHandle = setTimeout(() => {
       try {
         child.kill('SIGKILL');
-      } catch {
-        /* noop */
+      } catch (err) {
+        log.debug('child kill failed:', err);
       }
     }, BASH_SIGTERM_GRACE_MS);
   };

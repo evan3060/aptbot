@@ -43,7 +43,8 @@ export function createChannelManager(bus: MessageBus): ChannelManager {
   async function dispatchEnvelope(envelope: AgentEventEnvelope): Promise<void> {
     const bound = bindings.get(envelope.sessionKey);
     if (!bound || bound.size === 0) {
-      addDeadLetter(envelope);
+      // I13 修复：无绑定 session 是正常情况（无订阅者），warn+drop 而非入死信队列
+      log.warn('dispatch_no_binding', { sessionKey: envelope.sessionKey, seq: envelope.seq });
       return;
     }
 

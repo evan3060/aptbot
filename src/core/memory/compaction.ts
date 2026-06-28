@@ -21,12 +21,13 @@ export const DEFAULT_COMPACTION_SETTINGS: CompactionSettings = {
 export const COMPACTION_TRIGGER_RATIO = 0.8;
 export const COMPACTION_TARGET_RATIO = 0.3;
 export const COMPACTION_MAX_TOKENS = 2048;
+const CHARS_PER_TOKEN = 4;
 
 /**
  * §10.5 estimateTokens: 三级降级 tiktoken → usage → chars/4 + warn。
  * MVP 使用 chars/4 降级路径。
  */
-export function estimateTokens(messages: AgentMessage[], _model: Model): number {
+export function estimateTokens(messages: AgentMessage[]): number {
   let totalChars = 0;
   for (const m of messages) {
     if (typeof m.content === 'string') {
@@ -37,7 +38,7 @@ export function estimateTokens(messages: AgentMessage[], _model: Model): number 
       }
     }
   }
-  return Math.ceil(totalChars / 4);
+  return Math.ceil(totalChars / CHARS_PER_TOKEN);
 }
 
 /**
@@ -55,12 +56,12 @@ export function shouldCompact(
 function entryTokens(entry: SessionEntry): number {
   if (entry.type !== 'message') return 0;
   const content = entry.message.content;
-  if (typeof content === 'string') return Math.ceil(content.length / 4);
+  if (typeof content === 'string') return Math.ceil(content.length / CHARS_PER_TOKEN);
   if (Array.isArray(content)) {
     const chars = content
       .filter((c) => c.type === 'text')
       .reduce((sum, c) => sum + (c.type === 'text' ? c.text.length : 0), 0);
-    return Math.ceil(chars / 4);
+    return Math.ceil(chars / CHARS_PER_TOKEN);
   }
   return 0;
 }
@@ -74,16 +75,24 @@ export function findCutPoint(entries: SessionEntry[], keepRecentTokens: number):
   for (let i = entries.length - 1; i >= 0; i--) {
     acc += entryTokens(entries[i]);
     if (acc > keepRecentTokens) {
-      // 从 i 向前搜索下一个 user 消息作为保留块的起点
+      // 从 i 向后搜索下一个 user 消息作为保留块的起点
       for (let j = i; j < entries.length; j++) {
-        if (entries[j].type === 'message' && entries[j].message.role === 'user') {
+        const entry = entries[j];
+        if (entry.type === 'message' && entry.message.role === 'user') {
           return j;
         }
       }
-      return 0;
+      // I12 修复：overflow 但 i 之后无 user 消息
+      // 若整个 entries 中存在 user 消息，则在溢出点 i 强制截断（summarize 块含 user）
+      // 若整个 entries 中无 user 消息，返回 -1（无法安全截断）
+      const hasUserAnywhere = entries.some(
+        (e) => e.type === 'message' && e.message.role === 'user',
+      );
+      return hasUserAnywhere ? i : -1;
     }
   }
-  return 0;
+  // I12 修复：所有 entries 都在 keepRecentTokens 内，无需压缩，返回 -1（区别于 0）
+  return -1;
 }
 
 /**
@@ -99,7 +108,8 @@ export async function compact(
   sessionId: string,
 ): Promise<{ success: boolean; reason?: string }> {
   const cutPoint = findCutPoint(entries, DEFAULT_COMPACTION_SETTINGS.keepRecentTokens);
-  if (cutPoint === 0) {
+  // I12 修复：-1 表示无需压缩（含 overflow 但无 user 消息的安全拒绝）
+  if (cutPoint === -1) {
     return { success: false, reason: 'no_compaction_needed' };
   }
 
@@ -118,7 +128,7 @@ export async function compact(
       type: 'compaction',
       id: `compaction-${Date.now()}`,
       summary,
-      tokensBefore: estimateTokens(messages, model),
+      tokensBefore: estimateTokens(messages),
       firstKeptEntryId: entries[cutPoint].id,
       timestamp: Date.now(),
     };

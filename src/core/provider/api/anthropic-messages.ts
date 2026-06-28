@@ -5,8 +5,12 @@ import type {
   AssistantMessageEvent,
 } from '../types.js';
 import { withDualClock } from '../dual-clock.js';
-import { withRetry, classifyError } from '../retry.js';
 import { sanitizeContext } from '../sanitize.js';
+import { createSseFetchGenerator } from './sse-fetch.js';
+import { DEFAULT_STOP_REASON } from '../../agent/loop.js';
+
+const DEFAULT_MAX_TOKENS = 4096;
+const ANTHROPIC_API_VERSION = '2023-06-01';
 
 /**
  * §4.1 anthropic-messages API stream.
@@ -36,70 +40,62 @@ export function createAnthropicMessagesStream(
       })),
       stream: true,
       temperature: options?.temperature,
-      max_tokens: options?.maxTokens ?? 4096,
+      max_tokens: options?.maxTokens ?? DEFAULT_MAX_TOKENS,
     };
 
-    const fetchGen = createFetchGenerator(url, apiKey, body, options?.signal);
+    const fetchGen = createSseFetchGenerator(url, apiKey, body, options?.signal, {
+      'content-type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': ANTHROPIC_API_VERSION,
+    });
     const dualClockGen = withDualClock(fetchGen, {
       signal: options?.signal,
     });
 
+    // C4 修复：按 index 累积 tool_use 分片，id/name 取自 content_block_start
+    const pending = new Map<number, { id: string; name: string; arguments: string }>();
+
     for await (const chunk of dualClockGen) {
       const event = parseAnthropicEvent(chunk);
-      if (event) yield event;
-      if (event?.type === 'stop') return;
+      if (!event) continue;
+
+      if (event.type === 'text') {
+        yield { type: 'text', text: event.text };
+      } else if (event.type === 'tool_call_start') {
+        pending.set(event.index, { id: event.id, name: event.name, arguments: '' });
+      } else if (event.type === 'tool_call_delta') {
+        let tc = pending.get(event.index);
+        if (!tc) {
+          tc = { id: `tu_${event.index}`, name: 'unknown', arguments: '' };
+          pending.set(event.index, tc);
+        }
+        tc.arguments += event.delta;
+      } else if (event.type === 'tool_call_done') {
+        const tc = pending.get(event.index);
+        if (tc) {
+          yield { type: 'tool_call', toolCall: tc };
+          pending.delete(event.index);
+        }
+      } else if (event.type === 'stop') {
+        for (const tc of pending.values()) {
+          yield { type: 'tool_call', toolCall: tc };
+        }
+        pending.clear();
+        yield { type: 'stop', stopReason: event.stopReason };
+        return;
+      }
     }
   })();
 }
 
-async function* createFetchGenerator(
-  url: string,
-  apiKey: string,
-  body: unknown,
-  signal?: AbortSignal,
-): AsyncGenerator<string> {
-  const doFetch = () =>
-    fetch(url, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify(body),
-      signal,
-    });
+type AnthropicParsedEvent =
+  | { type: 'text'; text: string }
+  | { type: 'tool_call_start'; index: number; id: string; name: string }
+  | { type: 'tool_call_delta'; index: number; delta: string }
+  | { type: 'tool_call_done'; index: number }
+  | { type: 'stop'; stopReason: string };
 
-  const response = await withRetry(async () => {
-    const res = await doFetch();
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '');
-      throw classifyError(res.status, errBody);
-    }
-    return res;
-  }, { signal });
-
-  if (!response.body) throw new Error('empty response body');
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed === '' || trimmed.startsWith('event:')) continue;
-      yield trimmed;
-    }
-  }
-  if (buffer.trim()) yield buffer.trim();
-}
-
-function parseAnthropicEvent(raw: string): AssistantMessageEvent | null {
+function parseAnthropicEvent(raw: string): AnthropicParsedEvent | null {
   if (!raw.startsWith('data:')) return null;
   const dataStr = raw.slice(5).trim();
   try {
@@ -109,31 +105,26 @@ function parseAnthropicEvent(raw: string): AssistantMessageEvent | null {
         return { type: 'text', text: data.delta.text };
       }
       if (data.delta?.type === 'input_json_delta') {
-        return {
-          type: 'tool_call',
-          toolCall: {
-            id: `tu_${data.index ?? 0}`,
-            name: 'unknown',
-            arguments: data.delta.partial_json ?? '',
-          },
-        };
+        return { type: 'tool_call_delta', index: data.index ?? 0, delta: data.delta.partial_json ?? '' };
       }
     }
     if (data.type === 'content_block_start' && data.content_block?.type === 'tool_use') {
       return {
-        type: 'tool_call',
-        toolCall: {
-          id: data.content_block.id,
-          name: data.content_block.name,
-          arguments: '',
-        },
+        type: 'tool_call_start',
+        index: data.index ?? 0,
+        id: data.content_block.id,
+        name: data.content_block.name,
       };
     }
+    if (data.type === 'content_block_stop') {
+      return { type: 'tool_call_done', index: data.index ?? 0 };
+    }
     if (data.type === 'message_stop') {
-      return { type: 'stop', stopReason: 'end_turn' };
+      return { type: 'stop', stopReason: DEFAULT_STOP_REASON };
     }
     return null;
   } catch {
+    console.debug('SSE JSON parse failed', { raw: raw.slice(0, 100) });
     return null;
   }
 }

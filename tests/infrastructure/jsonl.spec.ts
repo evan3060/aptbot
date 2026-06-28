@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, rmSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, rmSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { appendJsonl, readJsonl } from '../../src/infrastructure/jsonl.js';
 

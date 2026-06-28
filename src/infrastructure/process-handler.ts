@@ -11,8 +11,29 @@ export const MEMORY_WARN_THRESHOLD_MB = 450;
 export const TURN_WARN_MS = 5 * 60 * 1000;
 export const TURN_ABORT_MS = 10 * 60 * 1000;
 const MEMORY_SAMPLE_INTERVAL_MS = 60 * 1000;
+const EXIT_FLUSH_MS = 100;
 
 const logger = createLogger('process-handler');
+
+// I15 修复：跟踪已注册的 listener，防止重复调用 installProcessHandlers 时堆叠
+interface InstalledListeners {
+  sigint: () => void;
+  sigterm: () => void;
+  sighup: () => void;
+  uncaughtException: (err: Error) => void;
+  unhandledRejection: (reason: unknown) => void;
+}
+let installed: InstalledListeners | null = null;
+
+function removeInstalledListeners(): void {
+  if (!installed) return;
+  process.off('SIGINT', installed.sigint);
+  process.off('SIGTERM', installed.sigterm);
+  process.off('SIGHUP', installed.sighup);
+  process.off('uncaughtException', installed.uncaughtException);
+  process.off('unhandledRejection', installed.unhandledRejection);
+  installed = null;
+}
 
 /**
  * §10.13 / §10.14 installProcessHandlers:
@@ -20,8 +41,12 @@ const logger = createLogger('process-handler');
  * - SIGHUP 忽略（MVP）
  * - uncaughtException: 记录 + flush 日志 + exit(1)
  * - unhandledRejection: 记录不退出
+ * - I15 修复：重复调用时先移除旧 listener，防止堆叠
  */
 export function installProcessHandlers(handlers: ShutdownHandlers): void {
+  // I15 修复：移除上一次调用注册的 listener
+  removeInstalledListeners();
+
   const triggerShutdown = async (signal: 'SIGINT' | 'SIGTERM') => {
     if (handlers.isShuttingDown()) {
       logger.warn(`received ${signal} during shutdown, ignoring`);
@@ -45,26 +70,26 @@ export function installProcessHandlers(handlers: ShutdownHandlers): void {
     }
   };
 
-  process.on('SIGINT', () => {
-    void triggerShutdown('SIGINT');
-  });
-  process.on('SIGTERM', () => {
-    void triggerShutdown('SIGTERM');
-  });
-  process.on('SIGHUP', () => {
-    logger.info('received SIGHUP, ignoring (MVP)');
-  });
-
-  process.on('uncaughtException', (err) => {
+  const sigint = () => { void triggerShutdown('SIGINT'); };
+  const sigterm = () => { void triggerShutdown('SIGTERM'); };
+  const sighup = () => { logger.info('received SIGHUP, ignoring (MVP)'); };
+  const uncaughtException = (err: Error) => {
     logger.error(`uncaughtException: ${err.stack ?? err}`);
     // 给 logger flush 的时间，然后退出
-    setTimeout(() => process.exit(1), 100);
-  });
-
-  process.on('unhandledRejection', (reason) => {
+    setTimeout(() => process.exit(1), EXIT_FLUSH_MS);
+  };
+  const unhandledRejection = (reason: unknown) => {
     logger.error(`unhandledRejection: ${String(reason)}`);
     // 不退出，仅记录
-  });
+  };
+
+  process.on('SIGINT', sigint);
+  process.on('SIGTERM', sigterm);
+  process.on('SIGHUP', sighup);
+  process.on('uncaughtException', uncaughtException);
+  process.on('unhandledRejection', unhandledRejection);
+
+  installed = { sigint, sigterm, sighup, uncaughtException, unhandledRejection };
 }
 
 /**

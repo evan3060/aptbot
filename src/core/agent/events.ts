@@ -28,6 +28,7 @@ export function createMessageId(): string {
   return randomUUID();
 }
 
+/** 内部测试辅助，保留供测试构造事件使用 */
 export function createToolCallId(): string {
   return randomUUID();
 }

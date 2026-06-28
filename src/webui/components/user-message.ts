@@ -1,7 +1,7 @@
 import { LitElement, html, css } from 'lit';
 
 export class UserMessage extends LitElement {
-  static styles = css`
+  static override styles = css`
     :host {
       display: block;
       padding: 8px 12px;
@@ -14,7 +14,7 @@ export class UserMessage extends LitElement {
     }
   `;
 
-  static properties = {
+  static override properties = {
     text: { type: String },
   };
 
@@ -25,7 +25,7 @@ export class UserMessage extends LitElement {
     this.text = '';
   }
 
-  protected render() {
+  protected override render() {
     return html`<span>${this.text}</span>`;
   }
 }

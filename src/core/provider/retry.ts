@@ -73,7 +73,7 @@ export async function withRetry<T>(
         throw providerErr;
       }
       options?.onRetry?.(providerErr, attempt);
-      const delay = RETRY_DELAYS_MS[attempt - 1] ?? 4000;
+      const delay = RETRY_DELAYS_MS[attempt - 1] ?? RETRY_DELAYS_MS[RETRY_DELAYS_MS.length - 1];
       await new Promise((r) => setTimeout(r, delay));
     }
   }

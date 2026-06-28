@@ -25,22 +25,24 @@ export async function withJsonlLock<T>(
   fn: () => Promise<T>,
 ): Promise<T> {
   const mutex = getJsonlMutex(sessionId);
-  let release: MutexInterface.Releaser | undefined;
   const acquisition = mutex.acquire();
   const timeout = new Promise<never>((_, reject) => {
     setTimeout(() => {
       reject(new Error(`jsonl lock timeout after ${JSONL_LOCK_TIMEOUT_MS}ms for sessionId=${sessionId}`));
     }, JSONL_LOCK_TIMEOUT_MS);
   });
+  let release: MutexInterface.Releaser;
   try {
     release = await Promise.race([acquisition, timeout]);
   } catch (err) {
-    // 取消 acquisition 的等待（async-mutex 没有原生 cancel，但 release 在 finally 中兜底）
+    // 超时胜出：acquisition 仍 pending。若它后续 resolve，必须立即 release，
+    // 否则 ghost acquisition 将永久锁死该 sessionId 的 mutex（C1 死锁修复）。
+    acquisition.then((rel) => rel()).catch(() => {});
     throw err;
   }
   try {
     return await fn();
   } finally {
-    if (release) release();
+    release();
   }
 }

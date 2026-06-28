@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { editTool, EDIT_TIMEOUT_MS } from '../../../../src/core/tool/tools/edit.js';
+import { Mutex } from 'async-mutex';
+import { editTool, EDIT_TIMEOUT_MS, acquireWithTimeout } from '../../../../src/core/tool/tools/edit.js';
 
 let tmpDir: string;
 
@@ -117,5 +118,27 @@ describe('editTool', () => {
     expect(editTool.description).toBeTruthy();
     expect(editTool.parameters).toBeDefined();
     expect(editTool.executionMode).toBe('sequential');
+  });
+
+  // C5 回归测试：acquireWithTimeout 超时后，ghost acquisition 不应永久锁死 mutex
+  it('acquireWithTimeout releases ghost acquisition after timeout (C5)', async () => {
+    const mutex = new Mutex();
+    const SHORT_TIMEOUT = 50;
+
+    // 1. 持有 mutex
+    const holderRelease = await mutex.acquire();
+
+    // 2. acquireWithTimeout 超时（mutex 被 holder 占用）
+    await expect(acquireWithTimeout(mutex, SHORT_TIMEOUT)).rejects.toThrow('edit lock timeout');
+
+    // 3. 释放 holder —— 此时 ghost acquisition 可能 resolve
+    holderRelease();
+
+    // 4. 等待 ghost acquisition resolve 并自动 release
+    await new Promise((r) => setTimeout(r, 30));
+
+    // 5. 新的 acquireWithTimeout 应立即成功（不被 ghost 锁死）
+    const releaser = await acquireWithTimeout(mutex, SHORT_TIMEOUT);
+    releaser();
   });
 });

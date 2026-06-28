@@ -87,7 +87,7 @@ export function validateConfig(
 ): { success: true; data: AptbotConfig } | { success: false; errors: string[] } {
   const result = configSchema.safeParse(config);
   if (result.success) {
-    return { success: true, data: result.data as AptbotConfig };
+    return { success: true, data: result.data };
   }
   return {
     success: false,

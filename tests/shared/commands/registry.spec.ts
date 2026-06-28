@@ -15,7 +15,8 @@ function makeMockStorage(entriesBySession: Record<string, SessionEntry[]> = {}):
     readWorkingMemory: vi.fn(async (sessionId: string) => {
       const entries = store[sessionId] ?? [];
       for (let i = entries.length - 1; i >= 0; i--) {
-        if (entries[i].type === 'working_memory') return entries[i].keyInfo;
+        const entry = entries[i];
+        if (entry.type === 'working_memory') return entry.keyInfo;
       }
       return null;
     }),
@@ -143,12 +144,12 @@ describe('CommandRegistry', () => {
     expect(result.output).toContain('gpt-4');
   });
 
-  it('list returns all 7 commands', () => {
+  it('list returns all 9 commands', () => {
     const reg = createCommandRegistry();
     const commands = reg.list();
-    expect(commands.length).toBe(7);
+    expect(commands.length).toBe(9);
     const names = commands.map((c) => c.name).sort();
-    expect(names).toEqual(['clear', 'continue', 'exit', 'help', 'model', 'new', 'session']);
+    expect(names).toEqual(['clear', 'continue', 'exit', 'help', 'model', 'new', 'resume', 'session', 'sessions']);
   });
 
   it('has and get work correctly', () => {

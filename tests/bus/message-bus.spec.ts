@@ -139,4 +139,20 @@ describe('InMemoryMessageBus', () => {
     }
     expect(foundMessageEnd).toBe(true);
   });
+
+  // I3 回归测试：队列满且无可丢弃 delta 时，应抛 outbound_overflow（背压）而非丢弃关键事件
+  it('outbound overflow with no droppable deltas throws outbound_overflow (I3)', async () => {
+    const bus = new InMemoryMessageBus();
+    // 填满队列 with non-droppable events (tool_result)
+    for (let i = 0; i < OUTBOUND_QUEUE_MAX; i++) {
+      await bus.publishOutbound(makeEnvelope(i, 'tool_result'));
+    }
+    // 再推入 message_end（触发溢出，无可丢弃 delta，应抛 outbound_overflow）
+    await expect(bus.publishOutbound(makeEnvelope(999, 'message_end'))).rejects.toThrow('outbound_overflow');
+
+    // 验证原队列未被破坏 —— 第一个仍是 seq=0
+    const first = await bus.consumeOutbound();
+    expect(first.seq).toBe(0);
+    expect(first.event.type).toBe('tool_result');
+  });
 });

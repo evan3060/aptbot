@@ -107,10 +107,8 @@ describe('Server wiring', () => {
     serverHandle = await startServer({ port, deploy: 'local', authToken: 'secret-token' });
 
     const ws = new WebSocket(`ws://127.0.0.1:${port}`);
-    let opened = false;
     let closed = false;
     await new Promise<void>((resolve) => {
-      ws.on('open', () => { opened = true; });
       ws.on('close', () => { closed = true; resolve(); });
       ws.on('error', () => resolve());
       setTimeout(() => resolve(), 3000);
@@ -118,6 +116,44 @@ describe('Server wiring', () => {
 
     expect(closed).toBe(true);
     ws.close();
+    await new Promise((r) => setTimeout(r, 100));
+  });
+
+  // C12 修复：E2E #7 — WebSocket 断连重连
+  it('client can disconnect and reconnect (E2E #7)', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'aptbot-test-'));
+    const configPath = makeTestConfig(tempDir);
+    process.env.APTBOT_CONFIG = configPath;
+    process.env.TEST_API_KEY = 'test-key';
+
+    const port = 21432 + Math.floor(Math.random() * 1000);
+    serverHandle = await startServer({ port, deploy: 'local' });
+
+    // 第一次连接
+    const ws1 = new WebSocket(`ws://127.0.0.1:${port}`);
+    await new Promise<boolean>((resolve) => {
+      ws1.on('open', () => resolve(true));
+      ws1.on('error', () => resolve(false));
+      setTimeout(() => resolve(false), 3000);
+    });
+    expect(serverHandle!.getActiveConnections()).toBe(1);
+
+    // 断连
+    ws1.close();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(serverHandle!.getActiveConnections()).toBe(0);
+
+    // 重连
+    const ws2 = new WebSocket(`ws://127.0.0.1:${port}`);
+    const reopened = await new Promise<boolean>((resolve) => {
+      ws2.on('open', () => resolve(true));
+      ws2.on('error', () => resolve(false));
+      setTimeout(() => resolve(false), 3000);
+    });
+    expect(reopened).toBe(true);
+    expect(serverHandle!.getActiveConnections()).toBe(1);
+
+    ws2.close();
     await new Promise((r) => setTimeout(r, 100));
   });
 });

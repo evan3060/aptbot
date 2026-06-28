@@ -1,7 +1,7 @@
 import { LitElement, html, css } from 'lit';
 
 export class FooterBar extends LitElement {
-  static styles = css`
+  static override styles = css`
     :host {
       display: block;
       padding: 6px 12px;
@@ -12,7 +12,7 @@ export class FooterBar extends LitElement {
     }
   `;
 
-  static properties = {
+  static override properties = {
     model: { type: String },
   };
 
@@ -23,7 +23,7 @@ export class FooterBar extends LitElement {
     this.model = '';
   }
 
-  protected render() {
+  protected override render() {
     return html`<span>model: ${this.model}</span>`;
   }
 }

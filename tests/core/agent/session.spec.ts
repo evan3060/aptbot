@@ -5,7 +5,6 @@ import type { AgentMessage } from '../../../src/core/memory/agent-message.js';
 import type { StorageAdapter } from '../../../src/infrastructure/storage/file-storage.js';
 import type { SessionEntry } from '../../../src/core/memory/types.js';
 import type { Provider, Model } from '../../../src/core/provider/types.js';
-import type { ToolRegistry } from '../../../src/core/tool/types.js';
 import { createToolRegistry } from '../../../src/core/tool/types.js';
 import type { AgentLoopConfig } from '../../../src/core/agent/loop.js';
 
@@ -245,5 +244,59 @@ describe('AgentSession', () => {
 
     const collected = await collect(session.run('hi'));
     expect(collected.map((e) => e.type)).toEqual(events.map((e) => e.type));
+  });
+
+  // I5 回归测试：并发 run() 必须串行化 —— 第二个 turn 须等第一个完成才能启动
+  it('serializes concurrent run() calls — second turn waits for first (I5)', async () => {
+    const { storage } = makeMockStorage();
+
+    let resolveFirst: () => void = () => {};
+    const firstTurnGate = new Promise<void>((r) => { resolveFirst = r; });
+    let loopCallCount = 0;
+
+    const blockingLoop = vi.fn((_config: AgentLoopConfig): AsyncGenerator<AgentEvent, AgentMessage[]> => {
+      const callNum = ++loopCallCount;
+      return (async function* () {
+        if (callNum === 1) {
+          await firstTurnGate;
+        }
+        yield { type: 'agent_start' };
+        yield { type: 'turn_start', turnId: 't1' };
+        yield { type: 'message_end', messageId: 'm1', stopReason: 'end_turn' };
+        yield { type: 'turn_end', turnId: 't1' };
+        yield { type: 'agent_end' };
+        return [];
+      })();
+    });
+
+    const session = createAgentSession({
+      storage,
+      sessionId: SESSION_ID,
+      agentLoop: blockingLoop,
+      provider: STUB_PROVIDER,
+      model: MODEL,
+      tools: createToolRegistry(),
+      systemPrompt: 'sys',
+    });
+
+    // 启动第一个 run —— 会在 agentLoop 内阻塞
+    const p1 = collect(session.run('msg1'));
+    await new Promise((r) => setTimeout(r, 30));
+
+    // 启动第二个 run
+    const p2 = collect(session.run('msg2'));
+    await new Promise((r) => setTimeout(r, 30));
+
+    // I5 断言：第二个 turn 的 agentLoop 不应已被调用（串行化）
+    expect(loopCallCount).toBe(1);
+
+    // 释放第一个 turn
+    resolveFirst();
+
+    // 等待两个 turn 完成
+    await Promise.all([p1, p2]);
+
+    // 两个 agentLoop 都应已被调用
+    expect(loopCallCount).toBe(2);
   });
 });

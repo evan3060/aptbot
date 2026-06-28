@@ -3,7 +3,7 @@ import type { InboundMessage, AgentEventEnvelope, MessageBus } from './types.js'
 export const INBOUND_QUEUE_MAX = 100;
 export const OUTBOUND_QUEUE_MAX = 1000;
 
-const DROPPIABLE_EVENT_TYPES = new Set(['message_delta', 'reasoning_delta']);
+const DROPPABLE_EVENT_TYPES = new Set(['message_delta', 'reasoning_delta']);
 
 /**
  * §7.3 / §10.1.6 InMemoryMessageBus: 内存双向队列实现。
@@ -48,12 +48,13 @@ export class InMemoryMessageBus implements MessageBus {
     }
     if (this.outboundQueue.length >= OUTBOUND_QUEUE_MAX) {
       const dropIndex = this.outboundQueue.findIndex(
-        (e) => DROPPIABLE_EVENT_TYPES.has(e.event.type),
+        (e) => DROPPABLE_EVENT_TYPES.has(e.event.type),
       );
       if (dropIndex >= 0) {
         this.outboundQueue.splice(dropIndex, 1);
       } else {
-        this.outboundQueue.shift();
+        // I3 修复：无可丢弃 delta 时施加背压，绝不丢弃关键事件（tool_call/tool_result/message_end 等）
+        throw new Error('outbound_overflow');
       }
     }
     this.outboundQueue.push(envelope);
@@ -66,5 +67,10 @@ export class InMemoryMessageBus implements MessageBus {
     return new Promise<AgentEventEnvelope>((resolve) => {
       this.outboundWaiter = resolve;
     });
+  }
+
+  // I14 修复：清除 pending outbound waiter，使后续 publishOutbound 事件入队列而非被 stale waiter 消费
+  cancelOutboundWaiter(): void {
+    this.outboundWaiter = null;
   }
 }

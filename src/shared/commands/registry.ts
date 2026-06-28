@@ -12,6 +12,7 @@ export interface CommandResult {
   output?: string;
   action?: 'exit' | 'new_session' | 'clear' | 'continue';
   continueSessionId?: string;
+  resumeFromArg?: boolean;
 }
 
 export interface CommandContext {
@@ -53,6 +54,8 @@ export function createCommandRegistry(): CommandRegistry {
   register(sessionCommand);
   register(continueCommand);
   register(exitCommand);
+  register(sessionsCommand);
+  register(resumeCommand);
 
   return {
     register,
@@ -98,7 +101,7 @@ const clearCommand: Command = {
 const helpCommand: Command = {
   name: 'help',
   description: 'Show available commands',
-  async execute(_args, ctx) {
+  async execute(_args) {
     // help 需要列出所有命令，但 Command 接口无法访问 registry。
     // 通过 ctx 传入或使用固定列表。MVP 使用固定列表。
     const lines = [
@@ -108,6 +111,8 @@ const helpCommand: Command = {
       '  /help         - Show this help message',
       '  /model [name] - Show or set the current model',
       '  /session      - Show session information',
+      '  /sessions     - List all sessions',
+      '  /resume <id>  - Resume a specific session',
       '  /continue <id> - Continue from a previous session',
       '  /exit         - Exit the application',
     ];
@@ -150,7 +155,8 @@ const continueCommand: Command = {
     try {
       await inheritWorkingMemory(sourceId, ctx.sessionId, ctx.storage);
       return { action: 'continue', continueSessionId: sourceId };
-    } catch {
+    } catch (err) {
+      console.warn('inheritWorkingMemory failed:', err);
       return { output: `Failed to inherit working memory from: ${sourceId}` };
     }
   },
@@ -162,5 +168,75 @@ const exitCommand: Command = {
   aliases: ['quit'],
   async execute() {
     return { action: 'exit' };
+  },
+};
+
+/**
+ * 格式化相对时间。
+ */
+function formatRelativeTime(ts: number): string {
+  const diff = Date.now() - ts;
+  if (diff < 60000) return 'just now';
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+  return `${Math.floor(diff / 86400000)}d ago`;
+}
+
+/**
+ * 从 entries 中提取最后一条 user/assistant 消息的摘要。
+ */
+function findLastMessagePreview(entries: { type: string; message?: { content: unknown } }[]): string {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i];
+    if (e.type === 'message' && e.message) {
+      const content = e.message.content;
+      const text = typeof content === 'string' ? content : JSON.stringify(content);
+      return text.length > 40 ? text.slice(0, 40) + '...' : text;
+    }
+  }
+  return '(empty)';
+}
+
+const sessionsCommand: Command = {
+  name: 'sessions',
+  description: 'List all sessions',
+  async execute(_args, ctx) {
+    const sessions = await ctx.storage.listSessions();
+    if (sessions.length === 0) {
+      return { output: 'No sessions found.' };
+    }
+    const lines: string[] = ['Sessions:'];
+    for (let i = 0; i < sessions.length; i++) {
+      const s = sessions[i];
+      const entries = await ctx.storage.readSession(s.id);
+      const msgCount = entries.filter((e) => e.type === 'message').length;
+      const preview = findLastMessagePreview(entries as { type: string; message?: { content: unknown } }[]);
+      const time = formatRelativeTime(s.updatedAt);
+      const shortId = s.id.slice(0, 8);
+      const prefix = s.id === ctx.sessionId ? '(current) ' : '';
+      lines.push(`  [${i + 1}] ${prefix}${shortId}  (${time}, ${msgCount} msgs)  "${preview}"`);
+    }
+    lines.push('', 'Use /resume <id> to switch to a session.');
+    return { output: lines.join('\n') };
+  },
+};
+
+const resumeCommand: Command = {
+  name: 'resume',
+  description: 'Resume a specific session by ID (short or full)',
+  async execute(args, ctx) {
+    if (args.length === 0) {
+      return { output: 'Usage: /resume <session-id>' };
+    }
+    const targetId = args[0];
+    const sessions = await ctx.storage.listSessions();
+    const matches = sessions.filter((s) => s.id.startsWith(targetId));
+    if (matches.length === 0) {
+      return { output: `Session not found: ${targetId}` };
+    }
+    if (matches.length > 1) {
+      return { output: `Ambiguous id, matches: ${matches.map((s) => s.id.slice(0, 8)).join(', ')}` };
+    }
+    return { action: 'new_session', continueSessionId: matches[0].id, resumeFromArg: true };
   },
 };

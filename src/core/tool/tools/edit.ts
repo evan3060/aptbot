@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import type { AgentTool, AgentToolResult } from '../types.js';
 import { createLogger } from '../../../infrastructure/logger.js';
 import { Mutex, type MutexInterface } from 'async-mutex';
+import { containsPathTraversal, toolError } from './path-guard.js';
 
 const log = createLogger('tool:edit');
 
@@ -31,24 +32,16 @@ function getMutex(filePath: string): Mutex {
   return m;
 }
 
-function containsPathTraversal(p: string): boolean {
-  return p.split(/[\\/]/).some((seg) => seg === '..');
-}
-
 function errorResult(
   code: string,
   message: string,
   details: Partial<EditDetails> = {},
 ): AgentToolResult<EditDetails> {
-  return {
-    content: [{ type: 'text', text: `${code}: ${message}` }],
-    details: {
-      bytesBefore: details.bytesBefore ?? 0,
-      bytesAfter: details.bytesAfter ?? 0,
-      replaced: details.replaced ?? 0,
-    },
-    error: { code, message },
-  };
+  return toolError(code, message, {
+    bytesBefore: details.bytesBefore ?? 0,
+    bytesAfter: details.bytesAfter ?? 0,
+    replaced: details.replaced ?? 0,
+  }) as AgentToolResult<EditDetails>;
 }
 
 function countOccurrences(haystack: string, needle: string): number {
@@ -62,7 +55,7 @@ function countOccurrences(haystack: string, needle: string): number {
   return count;
 }
 
-async function acquireWithTimeout(
+export async function acquireWithTimeout(
   mutex: Mutex,
   timeoutMs: number,
 ): Promise<MutexInterface.Releaser> {
@@ -72,7 +65,14 @@ async function acquireWithTimeout(
       reject(new Error(`edit lock timeout after ${timeoutMs}ms`));
     }, timeoutMs);
   });
-  return Promise.race([acquisition, timeout]);
+  try {
+    return await Promise.race([acquisition, timeout]);
+  } catch (err) {
+    // 超时胜出：acquisition 仍 pending。若它后续 resolve，必须立即 release，
+    // 否则 ghost acquisition 将永久锁死该 filePath 的 mutex（C5 死锁修复）。
+    acquisition.then((rel) => rel()).catch(() => {});
+    throw err;
+  }
 }
 
 async function executeEdit(
@@ -94,10 +94,10 @@ async function executeEdit(
   try {
     try {
       release = await acquireWithTimeout(mutex, EDIT_LOCK_TIMEOUT_MS);
-    } catch {
+    } catch (err) {
       return errorResult(
         'edit_timeout',
-        `could not acquire lock within ${EDIT_LOCK_TIMEOUT_MS}ms`,
+        `could not acquire lock within ${EDIT_LOCK_TIMEOUT_MS}ms (${String(err)})`,
       );
     }
 

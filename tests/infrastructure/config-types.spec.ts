@@ -4,9 +4,6 @@ import {
   defaultConfig,
   validateConfig,
   type AptbotConfig,
-  type ProviderConfig,
-  type ModelConfig,
-  type Api,
 } from '../../src/infrastructure/config-types.js';
 
 describe('config-types', () => {

@@ -171,4 +171,20 @@ describe('ChannelManager', () => {
 
     expect(mgr.getDeadLetters().length).toBeLessThanOrEqual(DEAD_LETTER_MAX);
   });
+
+  // I13 回归测试：无绑定 session 的 envelope 应 warn+drop，不入死信队列
+  it('no-bound envelope is dropped without entering dead letter queue (I13)', async () => {
+    const bus = new InMemoryMessageBus();
+    const mgr = createChannelManager(bus);
+
+    // 推入一个没有 session 绑定的 envelope
+    await bus.publishOutbound(makeEnvelope('unbound-session', 'agent_start', 0));
+    const loopPromise = mgr.runDispatchLoop();
+    await new Promise((r) => setTimeout(r, 50));
+    mgr.stopAll();
+    await loopPromise.catch(() => {});
+
+    // 不应进入死信队列（无订阅者是正常情况，非投递失败）
+    expect(mgr.getDeadLetters().length).toBe(0);
+  });
 });

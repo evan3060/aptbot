@@ -3,7 +3,7 @@ import { LitElement, html, css } from 'lit';
 export type ToolStatus = 'running' | 'success' | 'failed';
 
 export class ToolExecution extends LitElement {
-  static styles = css`
+  static override styles = css`
     :host {
       display: flex;
       align-items: center;
@@ -20,7 +20,7 @@ export class ToolExecution extends LitElement {
     .failed .icon { color: #dc2626; }
   `;
 
-  static properties = {
+  static override properties = {
     name: { type: String },
     status: { type: String },
   };
@@ -34,7 +34,7 @@ export class ToolExecution extends LitElement {
     this.status = 'running';
   }
 
-  protected render() {
+  protected override render() {
     const icon = this.status === 'running' ? '⏳'
       : this.status === 'success' ? '✓'
       : '✗';

@@ -4,7 +4,6 @@ import {
   withRetry,
   RETRY_DELAYS_MS,
   MAX_RETRIES,
-  type ProviderError,
 } from '../../../src/core/provider/retry.js';
 
 describe('classifyError', () => {

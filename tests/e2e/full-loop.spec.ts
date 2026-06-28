@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync } from 'fs';
+import { describe, it, expect, afterEach } from 'vitest';
+import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { FileStorage } from '../../src/infrastructure/storage/file-storage.js';
@@ -14,7 +14,7 @@ import { createCommandRegistry } from '../../src/shared/commands/registry.js';
 import { coreReducer, initialUIState } from '../../src/shared/ui-state/reducer.js';
 import { inheritWorkingMemory } from '../../src/core/memory/working-memory.js';
 import { compact, shouldCompact, DEFAULT_COMPACTION_SETTINGS } from '../../src/core/memory/compaction.js';
-import type { Provider, Model, AssistantMessageEvent, Context } from '../../src/core/provider/types.js';
+import type { Provider, Model, AssistantMessageEvent } from '../../src/core/provider/types.js';
 import type { AgentEvent } from '../../src/core/agent/events.js';
 import type { AgentMessage } from '../../src/core/memory/agent-message.js';
 import type { SessionEntry } from '../../src/core/memory/types.js';
@@ -227,15 +227,45 @@ describe('E2E: Full agent loop', () => {
     expect(hasText).toBe(true);
   });
 
-  it('#8 CLI commands: all 7 builtin commands available', () => {
+  it('#8 CLI commands: all 9 builtin commands available and executable (I16)', async () => {
     const registry = createCommandRegistry();
     const commands = registry.list();
-    expect(commands.length).toBe(7);
+    expect(commands.length).toBe(9);
     const names = commands.map((c) => c.name).sort();
-    expect(names).toEqual(['clear', 'continue', 'exit', 'help', 'model', 'new', 'session']);
+    expect(names).toEqual(['clear', 'continue', 'exit', 'help', 'model', 'new', 'resume', 'session', 'sessions']);
+
+    // I16 修复：实际执行每个命令验证输出/action，而非仅检查注册数量
+    const mockStorage: StorageAdapter = {
+      readSession: async () => [],
+      appendSession: async () => {},
+      listSessions: async () => [],
+      readWorkingMemory: async () => null,
+      writeWorkingMemory: async () => {},
+      deleteSession: async () => {},
+    };
+    const ctx = { sessionId: 'test-sid', model: 'test-model', storage: mockStorage };
+
+    const helpResult = await registry.resolve('/help')!.command.execute([], ctx);
+    expect(helpResult.output).toContain('Available commands');
+
+    const sessionResult = await registry.resolve('/session')!.command.execute([], ctx);
+    expect(sessionResult.output).toContain('test-sid');
+
+    const modelResult = await registry.resolve('/model')!.command.execute([], ctx);
+    expect(modelResult.output).toContain('test-model');
+
+    const exitResult = await registry.resolve('/exit')!.command.execute([], ctx);
+    expect(exitResult.action).toBe('exit');
+
+    const newResult = await registry.resolve('/new')!.command.execute([], ctx);
+    expect(newResult.action).toBe('new_session');
+
+    const clearResult = await registry.resolve('/clear')!.command.execute([], ctx);
+    expect(clearResult.action).toBe('clear');
   });
 
-  it('#9 coreReducer: processes agent events into UI state', () => {
+  // C13 修复：#9 准确描述为 WebUI 状态核心（coreReducer）—— 组件渲染测试在 access/webui.spec.ts
+  it('#9 WebUI state core: coreReducer processes agent events into UI state', () => {
     let state = initialUIState;
     const events: AgentEvent[] = [
       { type: 'agent_start' },
@@ -243,8 +273,8 @@ describe('E2E: Full agent loop', () => {
       { type: 'message_start', messageId: 'm1' },
       { type: 'message_delta', text: 'Hello ' },
       { type: 'message_delta', text: 'World' },
-      { type: 'message_end' },
-      { type: 'turn_end' },
+      { type: 'message_end', messageId: 'm1', stopReason: 'end_turn' },
+      { type: 'turn_end', turnId: 't1' },
     ];
     for (const e of events) {
       state = coreReducer(state, e);
@@ -254,11 +284,13 @@ describe('E2E: Full agent loop', () => {
     expect(state.isWorking).toBe(false);
   });
 
-  it('#10 compaction: triggers at threshold and generates summary', async () => {
+  it('#10 compaction: triggers at threshold and generates summary (I17)', async () => {
     const { storage } = setupStorage();
     const smallContextModel: Model = { ...MODEL, contextWindow: 100 };
+    // I17 修复：使用足够长的文本强制超过 keepRecentTokens(100) + trigger threshold(80)
+    // repeat(40) = 440 chars = 110 tokens，加 user msg 总计 ~115 tokens > 100 keepRecent
     const scripts: AssistantMessageEvent[][] = [
-      [{ type: 'text', text: 'long reply '.repeat(20) }, { type: 'stop', stopReason: 'end_turn' }],
+      [{ type: 'text', text: 'long reply '.repeat(40) }, { type: 'stop', stopReason: 'end_turn' }],
       [{ type: 'text', text: 'Summary of conversation' }, { type: 'stop', stopReason: 'end_turn' }],
     ];
     const provider = makeScriptedProvider(scripts);
@@ -271,18 +303,17 @@ describe('E2E: Full agent loop', () => {
     const totalText = messages.map((m) => m.message.content).join('');
     const tokens = Math.ceil(totalText.length / 4);
 
-    if (shouldCompact(tokens, smallContextModel.contextWindow, DEFAULT_COMPACTION_SETTINGS)) {
-      const result = await compact(entries, null, smallContextModel, provider, storage, sessionId);
-      expect(result.success).toBe(true);
-      const updated = await storage.readSession(sessionId);
-      const compactionEntry = updated.find((e) => e.type === 'compaction');
-      expect(compactionEntry).toBeDefined();
-    } else {
-      expect(tokens).toBeLessThan(smallContextModel.contextWindow * 0.8);
-    }
+    // I17 修复：强制验证 compaction 触发，移除 if/else 可选路径
+    expect(tokens).toBeGreaterThanOrEqual(80);
+    expect(shouldCompact(tokens, smallContextModel.contextWindow, DEFAULT_COMPACTION_SETTINGS)).toBe(true);
+    const result = await compact(entries, null, smallContextModel, provider, storage, sessionId);
+    expect(result.success).toBe(true);
+    const updated = await storage.readSession(sessionId);
+    const compactionEntry = updated.find((e) => e.type === 'compaction');
+    expect(compactionEntry).toBeDefined();
   });
 
-  it('#11 cross-session inheritance: /continue inherits working memory', async () => {
+  it('#11 cross-session inheritance: /continue inherits working memory (I18)', async () => {
     const { storage } = setupStorage();
     const oldSessionId = randomUUID();
     const newSessionId = randomUUID();
@@ -295,9 +326,15 @@ describe('E2E: Full agent loop', () => {
     };
     await storage.appendSession(oldSessionId, wmEntry);
 
-    const result = await inheritWorkingMemory(oldSessionId, newSessionId, storage);
-    expect(result.keyInfo).toBe('inherited key info');
-    expect(result.passedSessions).toBe(1);
+    // I18 修复：通过 /continue 命令路径测试，而非直接调用 inheritWorkingMemory
+    const registry = createCommandRegistry();
+    const ctx = { sessionId: newSessionId, model: 'test-model', storage };
+    const resolved = registry.resolve(`/continue ${oldSessionId}`);
+    expect(resolved).not.toBeNull();
+    const result = await resolved!.command.execute(resolved!.args, ctx);
+
+    expect(result.action).toBe('continue');
+    expect(result.continueSessionId).toBe(oldSessionId);
 
     const newEntries = await storage.readSession(newSessionId);
     const newWm = newEntries.find((e) => e.type === 'working_memory') as { type: 'working_memory'; id: string; keyInfo: string } | undefined;

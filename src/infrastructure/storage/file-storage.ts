@@ -9,10 +9,17 @@ import { withJsonlLock } from '../jsonl-mutex.js';
 import {
   type SessionEntry,
   type SessionMetadata,
-  getSessionPath,
   isValidSessionId,
   nowTimestamp,
 } from '../../core/memory/types.js';
+
+/**
+ * 生成 `${prefix}${timestamp}-${random}` 形态的 entry id。
+ * timestamp 为 ms 精度（等同 nowTimestamp / Date.now），random 为 6 位 base36。
+ */
+export function generateEntryId(prefix: string): string {
+  return `${prefix}${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
 export interface StorageAdapter {
   readSession(id: string): Promise<SessionEntry[]>;
@@ -44,10 +51,13 @@ export class FileStorage implements StorageAdapter {
   async readSession(id: string): Promise<SessionEntry[]> {
     const path = this.resolvePath(id);
     if (!existsSync(path)) return [];
-    // 先修复破损，再读取
-    await repairJsonl(path);
-    const result = await readJsonlTolerant(path);
-    return result.entries as SessionEntry[];
+    // I11 修复：获取 jsonl 锁，防止 repairJsonl 的 truncate+rewrite 与 appendSession 的写入竞态
+    return withJsonlLock(id, async () => {
+      // 先修复破损，再读取
+      await repairJsonl(path);
+      const result = await readJsonlTolerant(path);
+      return result.entries as SessionEntry[];
+    });
   }
 
   async appendSession(id: string, entry: SessionEntry): Promise<void> {
@@ -88,7 +98,7 @@ export class FileStorage implements StorageAdapter {
   async writeWorkingMemory(sessionId: string, keyInfo: string): Promise<void> {
     const entry: SessionEntry = {
       type: 'working_memory',
-      id: `wm-${nowTimestamp()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: generateEntryId('wm-'),
       keyInfo,
       timestamp: nowTimestamp(),
     };

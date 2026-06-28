@@ -1,8 +1,10 @@
+import { Mutex } from 'async-mutex';
 import { createLogger } from '../../infrastructure/logger.js';
 import { createMessage } from '../memory/agent-message.js';
 import type { AgentMessage, ToolCall } from '../memory/agent-message.js';
 import type { SessionEntry } from '../memory/types.js';
 import type { AgentEvent } from './events.js';
+import { MAX_STEERING_QUEUE, maybeToolCalls } from './loop.js';
 import type { AgentLoopConfig } from './loop.js';
 import type { Provider, Model, ContextMessage } from '../provider/types.js';
 import type { ToolRegistry } from '../tool/types.js';
@@ -36,7 +38,33 @@ export function createAgentSession(config: AgentSessionConfig): AgentSession {
   const { storage, sessionId, agentLoop, provider, model, tools, systemPrompt } = config;
   const contextMessages: ContextMessage[] = [];
   const steeringQueue: AgentMessage[] = [];
-  const MAX_STEERING_QUEUE = 5;
+  // I5 修复：per-session turn 互斥锁，防止并发 run() 交错 mutating contextMessages
+  const turnMutex = new Mutex();
+  // 修复：重启后加载历史上下文，避免 session 记忆丢失
+  let historyLoaded = false;
+
+  async function loadHistory(): Promise<void> {
+    if (historyLoaded) return;
+    historyLoaded = true;
+    try {
+      const entries = await storage.readSession(sessionId);
+      for (const entry of entries) {
+        if (entry.type === 'message') {
+          contextMessages.push({
+            role: entry.message.role,
+            content: entry.message.content,
+            toolCallId: entry.message.toolCallId,
+            toolCalls: entry.message.toolCalls,
+          });
+        }
+      }
+      if (contextMessages.length > 0) {
+        log.info('loaded session history', { sessionId, entries: entries.length, messages: contextMessages.length });
+      }
+    } catch (err) {
+      log.warn('failed to load session history', { sessionId, error: String(err) });
+    }
+  }
 
   function drainSteeringQueue(): void {
     while (steeringQueue.length > 0) {
@@ -51,118 +79,126 @@ export function createAgentSession(config: AgentSessionConfig): AgentSession {
   }
 
   async function* run(userMessage: string): AsyncGenerator<AgentEvent> {
-    const userMsg = createMessage('user', userMessage);
-    contextMessages.push({ role: 'user', content: userMessage });
+    // I5 修复：串行化 turn —— 第二个 run() 会阻塞直到前一个完成（或抛出）
+    const release = await turnMutex.acquire();
+    try {
+      // 修复：首次 run 时加载历史上下文
+      await loadHistory();
+      const userMsg = createMessage('user', userMessage);
+      contextMessages.push({ role: 'user', content: userMessage });
 
-    drainSteeringQueue();
+      drainSteeringQueue();
 
-    let bufferedEntries: SessionEntry[] = [
-      { type: 'message', id: userMsg.id, message: userMsg, timestamp: userMsg.timestamp },
-    ];
-    let turnHasError = false;
-    let currentMessageId = '';
-    let textAccum = '';
-    let toolCalls: ToolCall[] = [];
-    let currentToolCall: ToolCall | null = null;
+      let bufferedEntries: SessionEntry[] = [
+        { type: 'message', id: userMsg.id, message: userMsg, timestamp: userMsg.timestamp },
+      ];
+      let turnHasError = false;
+      let currentMessageId = '';
+      let textAccum = '';
+      let toolCalls: ToolCall[] = [];
+      let currentToolCall: ToolCall | null = null;
 
-    const gen = agentLoop({
-      provider,
-      model,
-      tools,
-      context: {
+      const gen = agentLoop({
+        provider,
+        model,
+        tools,
+        context: {
+          systemPrompt,
+          messages: contextMessages,
+          tools: tools.getDefinitions(),
+        },
         systemPrompt,
-        messages: contextMessages,
-        tools: tools.getDefinitions(),
-      },
-      systemPrompt,
-    });
+      });
 
-    while (true) {
-      const result = await gen.next();
-      if (result.done) break;
-      const evt = result.value;
-      yield evt;
+      while (true) {
+        const result = await gen.next();
+        if (result.done) break;
+        const evt = result.value;
+        yield evt;
 
-      switch (evt.type) {
-        case 'turn_start':
-          turnHasError = false;
-          break;
-        case 'message_start':
-          currentMessageId = evt.messageId;
-          textAccum = '';
-          toolCalls = [];
-          break;
-        case 'message_delta':
-          textAccum += evt.text;
-          break;
-        case 'tool_call_start':
-          currentToolCall = { id: evt.toolCallId, name: evt.toolName, arguments: '' };
-          break;
-        case 'tool_call_delta':
-          if (currentToolCall) currentToolCall.arguments += evt.arguments;
-          break;
-        case 'tool_call_end':
-          if (currentToolCall) {
-            toolCalls.push(currentToolCall);
-            currentToolCall = null;
-          }
-          break;
-        case 'message_end': {
-          const assistantMsg: AgentMessage = {
-            id: currentMessageId,
-            role: 'assistant',
-            content: textAccum,
-            toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-            stopReason: evt.stopReason,
-            timestamp: Date.now(),
-          };
-          bufferedEntries.push({
-            type: 'message',
-            id: assistantMsg.id,
-            message: assistantMsg,
-            timestamp: assistantMsg.timestamp,
-          });
-          contextMessages.push({
-            role: 'assistant',
-            content: textAccum,
-            toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-          });
-          break;
-        }
-        case 'tool_result': {
-          const toolMsg: AgentMessage = {
-            id: evt.toolCallId,
-            role: 'tool',
-            content: evt.summary,
-            toolCallId: evt.toolCallId,
-            timestamp: Date.now(),
-          };
-          bufferedEntries.push({
-            type: 'message',
-            id: toolMsg.id,
-            message: toolMsg,
-            timestamp: toolMsg.timestamp,
-          });
-          contextMessages.push({
-            role: 'tool',
-            content: evt.summary,
-            toolCallId: evt.toolCallId,
-          });
-          break;
-        }
-        case 'error':
-          turnHasError = true;
-          break;
-        case 'turn_end':
-          if (!turnHasError) {
-            for (const entry of bufferedEntries) {
-              await storage.appendSession(sessionId, entry);
+        switch (evt.type) {
+          case 'turn_start':
+            turnHasError = false;
+            break;
+          case 'message_start':
+            currentMessageId = evt.messageId;
+            textAccum = '';
+            toolCalls = [];
+            break;
+          case 'message_delta':
+            textAccum += evt.text;
+            break;
+          case 'tool_call_start':
+            currentToolCall = { id: evt.toolCallId, name: evt.toolName, arguments: '' };
+            break;
+          case 'tool_call_delta':
+            if (currentToolCall) currentToolCall.arguments += evt.arguments;
+            break;
+          case 'tool_call_end':
+            if (currentToolCall) {
+              toolCalls.push(currentToolCall);
+              currentToolCall = null;
             }
+            break;
+          case 'message_end': {
+            const assistantMsg: AgentMessage = {
+              id: currentMessageId,
+              role: 'assistant',
+              content: textAccum,
+              toolCalls: maybeToolCalls(toolCalls),
+              stopReason: evt.stopReason,
+              timestamp: Date.now(),
+            };
+            bufferedEntries.push({
+              type: 'message',
+              id: assistantMsg.id,
+              message: assistantMsg,
+              timestamp: assistantMsg.timestamp,
+            });
+            contextMessages.push({
+              role: 'assistant',
+              content: textAccum,
+              toolCalls: maybeToolCalls(toolCalls),
+            });
+            break;
           }
-          bufferedEntries = [];
-          drainSteeringQueue();
-          break;
+          case 'tool_result': {
+            const toolMsg: AgentMessage = {
+              id: evt.toolCallId,
+              role: 'tool',
+              content: evt.summary,
+              toolCallId: evt.toolCallId,
+              timestamp: Date.now(),
+            };
+            bufferedEntries.push({
+              type: 'message',
+              id: toolMsg.id,
+              message: toolMsg,
+              timestamp: toolMsg.timestamp,
+            });
+            contextMessages.push({
+              role: 'tool',
+              content: evt.summary,
+              toolCallId: evt.toolCallId,
+            });
+            break;
+          }
+          case 'error':
+            turnHasError = true;
+            break;
+          case 'turn_end':
+            if (!turnHasError) {
+              for (const entry of bufferedEntries) {
+                await storage.appendSession(sessionId, entry);
+              }
+            }
+            bufferedEntries = [];
+            drainSteeringQueue();
+            break;
+        }
       }
+    } finally {
+      release();
     }
   }
 

@@ -1,7 +1,7 @@
 import { LitElement, html, css } from 'lit';
 
 export class AssistantMessage extends LitElement {
-  static styles = css`
+  static override styles = css`
     :host {
       display: block;
       padding: 8px 12px;
@@ -21,7 +21,7 @@ export class AssistantMessage extends LitElement {
     }
   `;
 
-  static properties = {
+  static override properties = {
     text: { type: String },
     isStreaming: { type: Boolean },
   };
@@ -35,7 +35,7 @@ export class AssistantMessage extends LitElement {
     this.isStreaming = false;
   }
 
-  protected render() {
+  protected override render() {
     return html`<span class=${this.isStreaming ? 'streaming' : ''}>${this.text}</span>`;
   }
 }

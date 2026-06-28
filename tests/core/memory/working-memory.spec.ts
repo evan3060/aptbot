@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   inheritWorkingMemory,
   loadWorkingMemory,
-  type WorkingMemoryState,
 } from '../../../src/core/memory/working-memory.js';
 import type { StorageAdapter } from '../../../src/infrastructure/storage/file-storage.js';
 import type { SessionEntry } from '../../../src/core/memory/types.js';
@@ -26,7 +25,8 @@ function makeMockStorage(entriesBySession: Record<string, SessionEntry[]> = {}) 
     readWorkingMemory: vi.fn(async (sessionId: string) => {
       const entries = store[sessionId] ?? [];
       for (let i = entries.length - 1; i >= 0; i--) {
-        if (entries[i].type === 'working_memory') return entries[i].keyInfo;
+        const entry = entries[i];
+        if (entry.type === 'working_memory') return entry.keyInfo;
       }
       return null;
     }),

@@ -1,7 +1,7 @@
-import { createServer, type Server as HttpServer } from 'node:http';
-import { WebSocketServer as WsServer, type WebSocket } from 'ws';
+import { createServer } from 'node:http';
+import { WebSocketServer as WsServer, WebSocket } from 'ws';
 import { createLogger } from '../infrastructure/logger.js';
-import type { MessageBus, InboundMessage } from '../bus/types.js';
+import type { MessageBus, InboundMessage, AgentEventEnvelope } from '../bus/types.js';
 
 const log = createLogger('websocket-server');
 
@@ -10,22 +10,29 @@ export const WS_INBOUND_CONTENT_MAX_BYTES = 64 * 1024;
 export const WS_INBOUND_MEDIA_MAX_BYTES = 5 * 1024 * 1024;
 export const WS_INBOUND_RATE_LIMIT_PER_SEC = 10;
 export const WS_HEARTBEAT_TIMEOUT_MS = 60000;
+export const WS_HEARTBEAT_INTERVAL_MS = 30000;
 export const WS_OUTBOUND_BUFFER_MAX = 1000;
+const RATE_LIMIT_WINDOW_MS = 1000;
+const RATE_LIMIT_WARN_THRESHOLD = 3;
 
 export interface WebSocketServerOptions {
   port: number;
   bus: MessageBus;
   authToken?: string;
+  /** 若提供，HTTP GET / 将返回此 HTML（用于服务最小化聊天页面） */
+  serveHtml?: string;
 }
 
 export interface WebSocketServer {
   stop(): Promise<void>;
   getActiveConnections(): number;
+  broadcast(envelope: AgentEventEnvelope): void;
 }
 
 interface ConnectionState {
   messageTimestamps: number[];
   rateLimitWarnings: number;
+  isAlive: boolean;
 }
 
 /**
@@ -37,15 +44,27 @@ interface ConnectionState {
  */
 export function startWebSocketServer(options: WebSocketServerOptions): Promise<WebSocketServer> {
   return new Promise((resolve, reject) => {
-    const { port, bus, authToken } = options;
-    const httpServer = createServer();
+    const { port, bus, authToken, serveHtml } = options;
+    const httpServer = createServer((req, res) => {
+      // 服务最小化聊天页面（部署用）
+      if (serveHtml && req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.end(serveHtml);
+        return;
+      }
+      res.writeHead(404, { 'content-type': 'text/plain' });
+      res.end('Not Found');
+    });
     const wss = new WsServer({ server: httpServer });
     const connections = new Map<WebSocket, ConnectionState>();
+    // I1+I2 修复：per-server ring buffer，存储最近 WS_OUTBOUND_BUFFER_MAX 条 envelope 供重连重放
+    const ringBuffer: AgentEventEnvelope[] = [];
 
     wss.on('connection', (ws, req) => {
+      const url = new URL(req.url ?? '', `http://localhost:${port}`);
+
       // Auth check
       if (authToken) {
-        const url = new URL(req.url ?? '', `http://localhost:${port}`);
         const token = url.searchParams.get('token');
         if (token !== authToken) {
           safeSend(ws, { type: 'error', code: 'auth_failed', message: 'Invalid or missing auth token' });
@@ -64,11 +83,26 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
       const state: ConnectionState = {
         messageTimestamps: [],
         rateLimitWarnings: 0,
+        isAlive: true,
       };
       connections.set(ws, state);
 
+      // I1 修复：resync 协议 — 客户端携带 lastEventSeq 重连时重放缓冲事件
+      const lastEventSeqStr = url.searchParams.get('lastEventSeq');
+      if (lastEventSeqStr !== null) {
+        const lastEventSeq = parseInt(lastEventSeqStr, 10);
+        if (!Number.isNaN(lastEventSeq)) {
+          replayBufferedEvents(ws, ringBuffer, lastEventSeq);
+        }
+      }
+
+      // C11 修复：heartbeat — pong 回来标记存活
+      ws.on('pong', () => {
+        state.isAlive = true;
+      });
+
       ws.on('message', (data) => {
-        handleMessage(ws, state, data, bus);
+        handleMessage(ws, state, data as Buffer, bus);
       });
 
       ws.on('close', () => {
@@ -80,26 +114,75 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
       });
     });
 
+    // C11 修复：heartbeat interval — 每 30s ping 全部连接，超时 60s 无 pong 则 terminate
+    const heartbeatInterval = setInterval(() => {
+      for (const [ws, state] of connections) {
+        if (state.isAlive === false) {
+          log.warn('heartbeat timeout, terminating connection', { connections: connections.size });
+          ws.terminate();
+          continue;
+        }
+        state.isAlive = false;
+        ws.ping();
+      }
+    }, WS_HEARTBEAT_INTERVAL_MS);
+
     httpServer.listen(port, () => {
       log.info('websocket server started', { port, connections: connections.size });
       resolve({
         async stop(): Promise<void> {
+          clearInterval(heartbeatInterval);
           for (const [ws] of connections) {
             ws.removeAllListeners();
             ws.terminate();
           }
           connections.clear();
+          ringBuffer.length = 0;
           wss.close();
           await new Promise<void>((r) => httpServer.close(() => r()));
         },
         getActiveConnections(): number {
           return connections.size;
         },
+        broadcast(envelope: AgentEventEnvelope): void {
+          // I1+I2 修复：push to ring buffer (evict oldest if at cap)
+          ringBuffer.push(envelope);
+          if (ringBuffer.length > WS_OUTBOUND_BUFFER_MAX) {
+            ringBuffer.shift();
+          }
+          // 广播 {type:'event', seq, event} wrapper 给所有已连接客户端
+          const payload = JSON.stringify({ type: 'event', seq: envelope.seq, event: envelope.event });
+          for (const [ws] of connections) {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(payload);
+            }
+          }
+        },
       });
     });
 
     httpServer.on('error', reject);
   });
+}
+
+/**
+ * I1 修复：重放 ring buffer 中 seq > lastEventSeq 的 envelope。
+ * 若 lastEventSeq 过旧（小于 buffer 最旧 seq - 1），发送 resync_required。
+ */
+function replayBufferedEvents(ws: WebSocket, ringBuffer: AgentEventEnvelope[], lastEventSeq: number): void {
+  if (ringBuffer.length === 0) return;
+  const oldestSeq = ringBuffer[0].seq;
+  // 若客户端的 lastEventSeq 与 buffer 最旧 seq 之间有缺口，事件已丢失
+  if (lastEventSeq < oldestSeq - 1) {
+    safeSend(ws, { type: 'resync_required' });
+    return;
+  }
+  // 重放 seq > lastEventSeq 的所有缓冲事件
+  for (const env of ringBuffer) {
+    if (env.seq > lastEventSeq) {
+      safeSend(ws, { type: 'event', seq: env.seq, event: env.event });
+    }
+  }
 }
 
 function safeSend(ws: WebSocket, msg: unknown): void {
@@ -111,10 +194,10 @@ function safeSend(ws: WebSocket, msg: unknown): void {
 function handleMessage(
   ws: WebSocket,
   state: ConnectionState,
-  data: unknown,
+  data: Buffer,
   bus: MessageBus,
 ): void {
-  let parsed: any;
+  let parsed: { type?: string; content?: string };
   try {
     const str = data.toString();
     parsed = JSON.parse(str);
@@ -134,11 +217,11 @@ function handleMessage(
 
   // Rate limiting (sliding window 1 second)
   const now = Date.now();
-  state.messageTimestamps = state.messageTimestamps.filter((t) => now - t < 1000);
+  state.messageTimestamps = state.messageTimestamps.filter((t) => now - t < RATE_LIMIT_WINDOW_MS);
   if (state.messageTimestamps.length >= WS_INBOUND_RATE_LIMIT_PER_SEC) {
     state.rateLimitWarnings++;
     safeSend(ws, { type: 'error', code: 'rate_limited', message: 'Rate limit exceeded' });
-    if (state.rateLimitWarnings >= 3) {
+    if (state.rateLimitWarnings >= RATE_LIMIT_WARN_THRESHOLD) {
       ws.close();
     }
     return;

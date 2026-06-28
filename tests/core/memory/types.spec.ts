@@ -7,7 +7,6 @@ import {
   SESSIONS_DIR,
   MAX_PATH_LENGTH,
   type SessionEntry,
-  type SessionMetadata,
 } from '../../../src/core/memory/types.js';
 
 describe('session types', () => {

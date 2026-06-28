@@ -1,0 +1,23 @@
+{
+  "providers": [
+    {
+      "id": "custom",
+      "name": "Custom API",
+      "baseUrl": "http://192.168.0.11:3000/v1",
+      "auth": {
+        "envVar": "CUSTOM_API_KEY"
+      },
+      "models": [
+        {
+          "id": "deepseek-v4-flash",
+          "api": "openai-completions",
+          "contextWindow": 64000,
+          "maxTokens": 4096
+        }
+      ]
+    }
+  ],
+  "defaultModel": "deepseek-v4-flash",
+  "dataDir": "./data",
+  "deploy": "local"
+}

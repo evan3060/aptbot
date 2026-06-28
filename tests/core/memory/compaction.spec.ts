@@ -104,13 +104,38 @@ describe('Compaction', () => {
     expect(cut).toBe(2);
   });
 
-  it('findCutPoint returns 0 when all entries fit', () => {
+  it('findCutPoint returns -1 when all entries fit (I12)', () => {
     const entries: SessionEntry[] = [
       msg('1', 'user', 'short', 1),
       msg('2', 'assistant', 'short', 2),
     ];
     const cut = findCutPoint(entries, 9999);
-    expect(cut).toBe(0);
+    expect(cut).toBe(-1);
+  });
+
+  // I12 回归测试：overflow 且无 user 消息时，应在溢出点强制截断（返回 i），而非返回 0
+  it('findCutPoint returns overflow index when no user message found (I12)', () => {
+    const entries: SessionEntry[] = [
+      msg('1', 'user', 'x'.repeat(500), 1),
+      msg('2', 'assistant', 'y'.repeat(500), 2),
+      msg('3', 'assistant', 'z'.repeat(500), 3),  // overflow 在这里
+      msg('4', 'assistant', 'w'.repeat(500), 4),
+    ];
+    const cut = findCutPoint(entries, 50);
+    // overflow 发生在 i=2 或更早，但 i 之后无 user 消息
+    // 应返回 i（强制截断），而非 0（被误认为 no-compaction）
+    expect(cut).toBeGreaterThan(0);
+  });
+
+  // I12 回归测试：overflow 在 i=0（首条消息就超限）时返回 -1（无法安全截断）
+  it('findCutPoint returns -1 when overflow at i=0 with no user message (I12)', () => {
+    const entries: SessionEntry[] = [
+      msg('1', 'assistant', 'x'.repeat(500), 1),
+      msg('2', 'assistant', 'y'.repeat(500), 2),
+    ];
+    const cut = findCutPoint(entries, 10);
+    // 所有 entries 都是非 user，overflow 在 i=0
+    expect(cut).toBe(-1);
   });
 
   it('compact success appends compaction entry', async () => {
@@ -157,7 +182,7 @@ describe('Compaction', () => {
     const messages: AgentMessage[] = [
       { id: '1', role: 'user', content: 'hello world', timestamp: 1 },
     ];
-    const tokens = estimateTokens(messages, MODEL);
+    const tokens = estimateTokens(messages);
     // 'hello world' = 11 chars → ceil(11/4) = 3
     expect(tokens).toBe(3);
   });
@@ -167,7 +192,7 @@ describe('Compaction', () => {
       { id: '1', role: 'user', content: 'hello', timestamp: 1 },
       { id: '2', role: 'assistant', content: 'world', timestamp: 2 },
     ];
-    const tokens = estimateTokens(messages, MODEL);
+    const tokens = estimateTokens(messages);
     // 'hello' (5) + 'world' (5) = 10 chars → ceil(10/4) = 3
     expect(tokens).toBe(3);
   });

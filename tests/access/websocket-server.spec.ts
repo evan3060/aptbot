@@ -5,16 +5,21 @@ import {
   WS_MAX_CONNECTIONS,
   WS_INBOUND_CONTENT_MAX_BYTES,
   WS_INBOUND_RATE_LIMIT_PER_SEC,
+  WS_OUTBOUND_BUFFER_MAX,
   type WebSocketServer,
 } from '../../src/access/websocket-server.js';
 import { InMemoryMessageBus } from '../../src/bus/message-bus.js';
-import type { MessageBus } from '../../src/bus/types.js';
+import type { MessageBus, AgentEventEnvelope } from '../../src/bus/types.js';
 
 const TEST_PORT = 18765;
 
-function connect(port: number, token?: string): Promise<WebSocket> {
+function connect(port: number, token?: string, lastEventSeq?: number): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
-    const url = token ? `ws://localhost:${port}?token=${token}` : `ws://localhost:${port}`;
+    const params = new URLSearchParams();
+    if (token) params.set('token', token);
+    if (lastEventSeq !== undefined) params.set('lastEventSeq', String(lastEventSeq));
+    const qs = params.toString();
+    const url = `ws://localhost:${port}${qs ? `?${qs}` : ''}`;
     const ws = new WebSocket(url);
     ws.once('open', () => resolve(ws));
     ws.once('error', reject);
@@ -33,6 +38,18 @@ function waitForMessage(ws: WebSocket, timeoutMs = 1000): Promise<any> {
       resolve(JSON.parse(data.toString()));
     });
   });
+}
+
+function makeEnvelope(seq: number, eventType: string = 'message_delta'): AgentEventEnvelope {
+  const event: AgentEventEnvelope['event'] =
+    eventType === 'agent_start'
+      ? { type: 'agent_start' }
+      : eventType === 'turn_start'
+        ? { type: 'turn_start', turnId: 't1' }
+        : eventType === 'turn_end'
+          ? { type: 'turn_end', turnId: 't1' }
+          : { type: 'message_delta', text: `delta-${seq}` };
+  return { sessionKey: 's1', chatId: 'c1', channel: 'ws', event, seq };
 }
 
 describe('WebSocketServer', () => {
@@ -145,5 +162,97 @@ describe('WebSocketServer', () => {
     const ws = await connect(TEST_PORT, 'secret');
     clients.push(ws);
     expect(server.getActiveConnections()).toBe(1);
+  });
+
+  // I1+I2 回归测试：broadcast 发送 {type:'event', seq, event} wrapper
+  it('broadcast wraps envelope as {type:event, seq, event} (I1)', async () => {
+    server = await startWebSocketServer({ port: TEST_PORT, bus });
+    const ws = await connect(TEST_PORT);
+    clients.push(ws);
+
+    server!.broadcast(makeEnvelope(42, 'agent_start'));
+    const msg = await waitForMessage(ws);
+    expect(msg.type).toBe('event');
+    expect(msg.seq).toBe(42);
+    expect(msg.event.type).toBe('agent_start');
+  });
+
+  // I1+I2 回归测试：reconnect with lastEventSeq replays buffered events
+  it('replays buffered events on reconnect with lastEventSeq (I1+I2)', async () => {
+    server = await startWebSocketServer({ port: TEST_PORT, bus });
+
+    // 第一个客户端连接
+    const ws1 = await connect(TEST_PORT);
+    clients.push(ws1);
+
+    // 广播 3 个事件
+    server!.broadcast(makeEnvelope(0, 'agent_start'));
+    server!.broadcast(makeEnvelope(1, 'turn_start'));
+    server!.broadcast(makeEnvelope(2, 'turn_end'));
+
+    // 等待 ws1 接收
+    const msgs1: any[] = [];
+    await new Promise<void>((resolve) => {
+      let count = 0;
+      ws1.on('message', (data) => {
+        msgs1.push(JSON.parse(data.toString()));
+        count++;
+        if (count >= 3) resolve();
+      });
+    });
+    expect(msgs1[2].seq).toBe(2);
+
+    // 断连 ws1
+    ws1.close();
+    await new Promise((r) => setTimeout(r, 100));
+
+    // 离线时广播更多事件
+    server!.broadcast(makeEnvelope(3, 'agent_start'));
+    server!.broadcast(makeEnvelope(4, 'turn_end'));
+
+    // 用 lastEventSeq=2 重连 —— 先注册 message listener 再等待 open，
+    // 因为 server 的 replay 在 connection handler 中同步发送（早于 client open 事件）
+    const ws2 = new WebSocket(`ws://localhost:${TEST_PORT}?lastEventSeq=2`);
+    clients.push(ws2);
+    const msgs2: any[] = [];
+    const replayDone = new Promise<void>((resolve) => {
+      let count = 0;
+      ws2.on('message', (data) => {
+        msgs2.push(JSON.parse(data.toString()));
+        count++;
+        if (count >= 2) resolve();
+      });
+      setTimeout(resolve, 1000);
+    });
+    await new Promise<void>((resolve, reject) => {
+      ws2.once('open', () => resolve());
+      ws2.once('error', reject);
+    });
+    await replayDone;
+
+    expect(msgs2.length).toBe(2);
+    expect(msgs2[0].seq).toBe(3);
+    expect(msgs2[1].seq).toBe(4);
+  });
+
+  // I1 回归测试：lastEventSeq 过旧时发送 resync_required
+  it('sends resync_required when lastEventSeq is too old (I1)', async () => {
+    server = await startWebSocketServer({ port: TEST_PORT, bus });
+
+    // 广播超过 buffer 容量 + 2 条事件，驱逐 seq 0 和 1
+    for (let i = 0; i < WS_OUTBOUND_BUFFER_MAX + 2; i++) {
+      server!.broadcast(makeEnvelope(i, 'message_delta'));
+    }
+
+    // buffer 现在包含 seq 2..1001 (seq 0, 1 被驱逐)
+    // 用 lastEventSeq=0 连接 (seq 1 丢失 → resync_required)
+    const ws = new WebSocket(`ws://localhost:${TEST_PORT}?lastEventSeq=0`);
+    clients.push(ws);
+    const msg = await new Promise<any>((resolve, reject) => {
+      ws.once('message', (data) => resolve(JSON.parse(data.toString())));
+      ws.once('error', reject);
+      setTimeout(() => reject(new Error('message timeout')), 1000);
+    });
+    expect(msg.type).toBe('resync_required');
   });
 });

@@ -45,8 +45,8 @@ function createElements(): AppElements {
 function renderMessages(container: HTMLElement, messages: Array<{ role: string; text: string }>): void {
   container.innerHTML = '';
   for (const m of messages) {
-    const el = document.createElement(m.role === 'user' ? 'user-message' : 'assistant-message');
-    (el as unknown as { text: string }).text = m.text;
+    const el = document.createElement(m.role === 'user' ? 'user-message' : 'assistant-message') as HTMLElement & { text: string };
+    el.text = m.text;
     container.appendChild(el);
   }
 }
@@ -66,10 +66,17 @@ export function createWebUIApp(config: WebUIAppConfig): WebUIApp {
 
       ws.addEventListener('message', (event) => {
         try {
-          const envelope = JSON.parse(event.data as string) as { event: AgentEvent };
-          state = coreReducer(state, envelope.event);
-          renderMessages(els.messagesEl, state.messages);
-          (els.workingEl as unknown as { isWorking: boolean }).isWorking = state.isWorking;
+          const msg = JSON.parse(event.data as string) as { type: string; seq?: number; event?: AgentEvent };
+          if (msg.type === 'event' && msg.event) {
+            state = coreReducer(state, msg.event);
+            renderMessages(els.messagesEl, state.messages);
+            els.workingEl.isWorking = state.isWorking;
+          } else if (msg.type === 'resync_required') {
+            // 服务端缓冲已丢失，重置 UI 状态
+            state = initialUIState;
+            renderMessages(els.messagesEl, state.messages);
+            els.workingEl.isWorking = false;
+          }
         } catch {
           // ignore malformed
         }
@@ -80,13 +87,16 @@ export function createWebUIApp(config: WebUIAppConfig): WebUIApp {
         const text = detail.text;
         if (text.startsWith('/')) {
           const result = config.registry.resolve(text);
-          if (result?.action === 'exit') {
+          // C10 修复：resolve() 返回 { command, args } 而非 CommandResult；
+          // 通过 command.name 判断是否为 exit 命令
+          if (result?.command.name === 'exit') {
             ws.close();
             return;
           }
           return;
         }
-        ws.send(JSON.stringify({ type: 'message', text }));
+        // C9 修复：WS server 读取 parsed.content 而非 parsed.text
+        ws.send(JSON.stringify({ type: 'message', content: text }));
       });
     },
   };

@@ -50,8 +50,6 @@ function mergeWithDefaults(config: AptbotConfig): AptbotConfig {
   return {
     ...defaultConfig,
     ...config,
-    providers: config.providers,
-    defaultModel: config.defaultModel,
     dataDir: config.dataDir ?? defaultConfig.dataDir,
     deploy: config.deploy ?? defaultConfig.deploy,
   };

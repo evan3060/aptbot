@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { agentLoop, DEFAULT_MAX_ITERATIONS, MAX_STEERING_QUEUE } from '../../../src/core/agent/loop.js';
 import type { AgentEvent } from '../../../src/core/agent/events.js';
 import type { Provider, Model, Context, AssistantMessageEvent } from '../../../src/core/provider/types.js';
-import type { ToolRegistry, AgentTool, AgentToolResult } from '../../../src/core/tool/types.js';
+import type { AgentTool, AgentToolResult } from '../../../src/core/tool/types.js';
 import { createToolRegistry } from '../../../src/core/tool/types.js';
 
 const MODEL: Model = {

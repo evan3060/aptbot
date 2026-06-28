@@ -87,4 +87,64 @@ describe('dual-clock', () => {
     const next = await gen.next();
     expect(next.done).toBe(true);
   });
+
+  // I10 回归测试：abort 时应调用 source.return() 清理上游 generator
+  it('calls source.return() on abort to prevent fetch leak (I10)', async () => {
+    const ctrl = new AbortController();
+    let returnCalled = false;
+
+    const innerSource = (async function* () {
+      yield 'a';
+      await new Promise((r) => setTimeout(r, 10000));
+      yield 'b';
+    })();
+
+    const wrappedSource = {
+      next: (...args: []) => innerSource.next(...args),
+      return: async (val?: string) => {
+        returnCalled = true;
+        return innerSource.return(val);
+      },
+      throw: (e?: unknown) => innerSource.throw(e as never),
+      [Symbol.asyncIterator]() { return wrappedSource; },
+    } as AsyncGenerator<string>;
+
+    const gen = withDualClock(wrappedSource, { signal: ctrl.signal, ttfbMs: 50000, chunkIntervalMs: 50000 });
+    await gen.next(); // consume 'a'
+    ctrl.abort();
+    await new Promise((r) => setTimeout(r, 200));
+    await gen.next(); // done
+
+    expect(returnCalled).toBe(true);
+  });
+
+  // I10 回归测试：timeout 时应调用 source.return() 清理上游 generator
+  it('calls source.return() on timeout to prevent fetch leak (I10)', async () => {
+    let returnCalled = false;
+
+    const innerSource = (async function* () {
+      await new Promise((r) => setTimeout(r, 300));
+      yield 'too late';
+    })();
+
+    const wrappedSource = {
+      next: (...args: []) => innerSource.next(...args),
+      return: async (val?: string) => {
+        returnCalled = true;
+        return innerSource.return(val);
+      },
+      throw: (e?: unknown) => innerSource.throw(e as never),
+      [Symbol.asyncIterator]() { return wrappedSource; },
+    } as AsyncGenerator<string>;
+
+    try {
+      await collect(withDualClock(wrappedSource, { ttfbMs: 100, chunkIntervalMs: 500 }));
+    } catch {
+      // expected StreamTimeoutError
+    }
+    // Give fire-and-forget source.return() a tick to set the flag
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(returnCalled).toBe(true);
+  });
 });

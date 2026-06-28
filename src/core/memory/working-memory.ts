@@ -1,4 +1,4 @@
-import type { StorageAdapter } from '../../infrastructure/storage/file-storage.js';
+import { generateEntryId, type StorageAdapter } from '../../infrastructure/storage/file-storage.js';
 import type { SessionEntry } from './types.js';
 
 /**
@@ -52,7 +52,7 @@ export async function inheritWorkingMemory(
 
   const entry: SessionEntry = {
     type: 'working_memory',
-    id: `${PS_ID_PREFIX}${newPassed}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    id: generateEntryId(`${PS_ID_PREFIX}${newPassed}-`),
     keyInfo,
     timestamp: Date.now(),
   };
