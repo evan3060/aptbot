@@ -1,6 +1,6 @@
 # aptbot MVP Implementation Plan
 
-> ✅ **MVP COMPLETED (v0.1.0)** — 42/42 tasks done, 383 tests passing. 封仓于 2026-06-28。后续迭代请见 `PLAN-L1.md`（待建）。
+> ✅ **MVP COMPLETED (v0.1.0)** — 42/42 tasks done, 383 tests passing. 封仓于 2026-06-28。后续迭代请见 [PLAN-L1.md](./PLAN-L1.md)。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

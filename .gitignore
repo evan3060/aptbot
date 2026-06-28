@@ -17,3 +17,6 @@ mastra/
 nanobot/
 pi/
 .trae/
+
+# VPS 部署记录（含敏感信息，不上传）
+DEPLOYMENT-VPS.md

@@ -6,6 +6,10 @@
     <img src="https://img.shields.io/badge/version-0.1.0--mvp-orange" alt="Version">
     <img src="https://img.shields.io/badge/license-MIT-yellow" alt="License">
   </p>
+  <p>
+    <a href="./README.md">English</a> |
+    <a href="./README.zh-CN.md">简体中文</a>
+  </p>
 </div>
 
 🤖 **aptbot** is a personal learning and work assistant agent with a small, readable core. It runs a single-model ReAct loop with bash/read/edit tools, persists sessions to JSONL, and ships both a CLI (Ink) and a WebUI (Lit + Web Components) over WebSocket.
