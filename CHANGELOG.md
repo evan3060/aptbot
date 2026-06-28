@@ -92,3 +92,16 @@ MVP 首个封仓版本。42 任务 / 54 源文件 / 5714 LOC src + 6289 LOC test
 - 43 测试文件 / 383 用例全部通过
 - E2E 覆盖 §11.3 全部 11 项验收标准
 - 类型检查 `tsc --noEmit` 0 错误
+
+### Release Finalization（封仓收尾）
+- 添加 MIT LICENSE 文件（README 此前标注 planned）
+- 添加 `docs/deployment.md` 脱敏版 VPS 部署指南（nginx + Caddy 双方案、systemd、SSH 加固、sudoers、12 节常见问题排查）— 提前完成 PLAN-L1 Task 2
+- 添加 `.editorconfig` + `.prettierrc` 代码风格配置（多 agent 协作防风格漂移）
+- 从仓库移除 `test_manual_MVP.md`（临时手工测试日志，不入库）
+- `.agents/skills/` 加入 `.gitignore` 并取消 git 跟踪（工具 skill 非 aptbot 代码，−10073 行）
+- 同步更新 README.md / README.zh-CN.md（修正 LICENSE 链接、新增 deployment 链接、移除 test_manual 引用）
+- 打 `v0.1.0` git tag 作为版本基线，后续 L1/L2 迭代可清晰回溯
+
+---
+
+> **MVP v0.1.0 已于 2026-06-28 完整封仓。** 下一迭代见 [PLAN-L1.md](./PLAN-L1.md)：浏览器会话隔离 + 多客户端同步。
