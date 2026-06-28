@@ -160,9 +160,9 @@ aptbot 自底向上分层：每层仅依赖其下层。
 ## 📚 文档
 
 - [架构文档](./ARCHITECTURE.md) — 分层设计、模块映射、事件流
+- [部署指南](./docs/deployment.md) — VPS 部署含 systemd + nginx/Caddy
 - [更新日志](./CHANGELOG.md) — 版本发布说明
 - [PLAN.md](./PLAN.md) — MVP 任务计划（42 项任务，全部完成）
-- [手工测试用例](./test_manual_MVP.md) — 41 个验收场景
 
 ## 🚢 部署
 
@@ -184,7 +184,7 @@ echo "HOST=127.0.0.1" >> .env
 # 5. nginx 反向代理（自动 TLS）
 ```
 
-Node.js 绑定 `127.0.0.1`，nginx 在 443 端口终止 TLS 并代理到 8080。完整 systemd unit 和 nginx 配置见部署指南。
+Node.js 绑定 `127.0.0.1`，反向代理在 443 端口终止 TLS 并代理到 8080。完整 systemd unit、nginx/Caddy 配置、SSH 加固与 sudoers 配置见[部署指南](./docs/deployment.md)。
 
 ### 本地
 
@@ -215,7 +215,7 @@ E2E 覆盖完整 agent 循环：基础对话、工具调用、多轮上下文、
 
 ## 📄 许可证
 
-MIT（见 [LICENSE](./LICENSE) — 计划中）。
+MIT（见 [LICENSE](./LICENSE)）。
 
 <div align="center">
   <em>作为个人学习项目构建。感谢访问 ✨ aptbot！</em>

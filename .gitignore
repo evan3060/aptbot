@@ -20,3 +20,6 @@ pi/
 
 # VPS 部署记录（含敏感信息，不上传）
 DEPLOYMENT-VPS.md
+
+# 工具技能定义（非 aptbot 代码，仅本地使用）
+.agents/

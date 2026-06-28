@@ -160,9 +160,9 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full module map, event flow dia
 ## 📚 Docs
 
 - [Architecture](./ARCHITECTURE.md) — layered design, module map, event flow
+- [Deployment](./docs/deployment.md) — VPS deployment with systemd + nginx/Caddy
 - [Changelog](./CHANGELOG.md) — versioned release notes
 - [PLAN.md](./PLAN.md) — MVP task plan (42 tasks, all complete)
-- [Manual test cases](./test_manual_MVP.md) — 41 acceptance scenarios
 
 ## 🚢 Deployment
 
@@ -183,7 +183,7 @@ echo "APTBOT_AUTH_TOKEN=$(openssl rand -hex 32)" >> .env
 # 5. Caddy reverse proxy (auto TLS for your domain)
 ```
 
-Node.js binds to `127.0.0.1`, Caddy terminates TLS on 443 and proxies to 8080. See the [deployment guide](./docs/deployment.md) (planned) for the full systemd unit and Caddyfile.
+Node.js binds to `127.0.0.1`, the reverse proxy terminates TLS on 443 and proxies to 8080. See the [deployment guide](./docs/deployment.md) for the full systemd unit, nginx/Caddy configs, SSH hardening, and sudoers setup.
 
 ### Local
 
@@ -214,7 +214,7 @@ PRs welcome. The codebase is intentionally small — 54 source files, ~5700 LOC.
 
 ## 📄 License
 
-MIT (see [LICENSE](./LICENSE) — planned).
+MIT (see [LICENSE](./LICENSE)).
 
 <div align="center">
   <em>Built as a personal learning project. Thanks for visiting ✨ aptbot!</em>
