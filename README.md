@@ -1,41 +1,59 @@
-# aptbot
+<div align="center">
+  <p>
+    <img src="https://img.shields.io/badge/tests-383%20passed-brightgreen" alt="Tests">
+    <img src="https://img.shields.io/badge/TypeScript-strict-blue" alt="TypeScript">
+    <img src="https://img.shields.io/badge/node-%3E%3D20-green" alt="Node">
+    <img src="https://img.shields.io/badge/version-0.1.0--mvp-orange" alt="Version">
+    <img src="https://img.shields.io/badge/license-MIT-yellow" alt="License">
+  </p>
+</div>
 
-> 个人学习/工作助手 agent —— CLI + WebUI 双入口，单模型 ReAct 循环，会话持久化。
+🤖 **aptbot** is a personal learning and work assistant agent with a small, readable core. It runs a single-model ReAct loop with bash/read/edit tools, persists sessions to JSONL, and ships both a CLI (Ink) and a WebUI (Lit + Web Components) over WebSocket.
 
-[![Tests](https://img.shields.io/badge/tests-383%20passed-brightgreen)]()
-[![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)]()
-[![Node](https://img.shields.io/badge/node-%3E%3D20-green)]()
+> **Status:** v0.1.0 MVP — 42 tasks done, 383 tests passing. Currently single-user, local/VPS deployment.
 
-## 特性
+## Start Here
 
-- **双入口**：CLI（Ink + Yoga）与 WebUI（Lit + Web Components），共享同一 agent 核心
-- **ReAct 循环**：单模型流式响应 + 工具调用（bash / read / edit / update_working_memory）
-- **会话持久化**：JSONL append-only，进程重启自动恢复最近 session
-- **Slash 命令**：`/new` `/clear` `/help` `/model` `/session` `/sessions` `/resume` `/continue` `/exit`
-- **Session 管理**：`/sessions` 列出所有会话（含当前标识），`/resume <短ID>` 切换会话
-- **流式边界**：Provider TTFB 5s + chunk 1.5s 双时钟控制器
-- **工具硬超时**：bash 30s SIGTERM→SIGKILL，read/edit 5s，大文件 2MB 分页
-- **JSONL 容错**：增量流式解析 + `fs.truncateSync` 自动修复破损行
-- **WebSocket**：入站限流（64KB content / 10 msg/s）+ resync 协议
+| You want to... | Go to |
+|---|---|
+| Install and get a first reply in 5 minutes | [Quick Start](#-quick-start) |
+| Open the browser UI after the server runs | [WebUI](#-webui) |
+| Deploy to a VPS with TLS | [Deployment](#-deployment) |
+| Understand the layered architecture | [Architecture](./ARCHITECTURE.md) |
+| See what changed between versions | [Changelog](./CHANGELOG.md) |
+| Review the MVP task plan | [PLAN.md](./PLAN.md) |
 
-## 快速开始
+## 💡 Why aptbot
 
-### 1. 安装依赖
+- **Small core**: a readable ReAct loop, not a framework. The whole agent layer is ~3 files.
+- **Dual entry**: CLI (Ink) and WebUI (Lit) share the same `coreReducer` state machine.
+- **Persistent sessions**: JSONL append-only with corruption-tolerant parsing and auto-repair.
+- **Hardened boundaries**: TTFB/chunk dual-clock streaming, 30s bash hard timeout, 2MB read limit, per-file edit mutex.
+- **Own your stack**: inspect every line, self-host on a $5 VPS, no platform lock-in.
+
+## 📦 Install
+
+Prerequisites: Node.js 20+ and npm. Git to clone the repo.
 
 ```bash
+git clone https://github.com/evan3060/aptbot.git
+cd aptbot
 npm install
 ```
 
-### 2. 配置 API Key
+## 🚀 Quick Start
 
-复制示例配置并填入你的 API key 到 `.env`：
+**1. Configure your API key**
+
+Create `.env` in the project root (already gitignored):
 
 ```bash
-# .env（已在 .gitignore 中，不会提交）
 CUSTOM_API_KEY=sk-your-api-key-here
 ```
 
-`config/aptbot.json` 通过 `envVar` 字段引用环境变量，不直接存储密钥：
+**2. Edit `config/aptbot.json`**
+
+Point `baseUrl` at your OpenAI-compatible endpoint and pick a model:
 
 ```json
 {
@@ -57,67 +75,143 @@ CUSTOM_API_KEY=sk-your-api-key-here
 }
 ```
 
-支持三种 API 协议：`openai-completions` / `openai-responses` / `anthropic-messages`。
+Supported `api` protocols: `openai-completions` · `openai-responses` · `anthropic-messages`.
 
-### 3. 启动服务器
-
-```bash
-npm run dev          # 自动加载 .env，监听 PORT 或默认 8080
-# 或显式指定端口
-PORT=3000 npm run dev
-```
-
-### 4. 访问
-
-- **WebUI**：浏览器打开 `http://localhost:8080/`
-- **CLI**：`npx tsx src/cli/index.tsx`（开发中，MVP 主入口为 WebUI）
-
-## Slash 命令
-
-| 命令 | 说明 |
-|------|------|
-| `/new` | 开始新 session |
-| `/clear` | 清空当前对话上下文 |
-| `/help` | 显示命令帮助 |
-| `/model [name]` | 查看或切换模型 |
-| `/session` | 显示当前 session ID |
-| `/sessions` | 列出所有 session（`(current)` 标识当前会话） |
-| `/resume <id>` | 切换到指定 session（支持短 ID 前缀匹配） |
-| `/continue <id>` | 从旧 session 继承 working memory |
-| `/exit` | 退出应用 |
-
-## 项目结构
-
-详见 [ARCHITECTURE.md](./ARCHITECTURE.md)。
-
-```
-src/
-├── infrastructure/    # 基建层：config / logger / jsonl / storage / process
-├── core/              # 核心层：provider / tool / memory / agent
-├── bus/               # 总线层：message-bus / channel-manager
-├── access/            # 接入层：websocket-server / chat-page
-├── shared/            # 共享：commands / ui-state
-├── cli/               # CLI 入口（Ink）
-├── webui/             # WebUI 入口（Lit）
-└── server.ts          # 服务器入口，装配所有层
-```
-
-## 测试
+**3. Start the server**
 
 ```bash
-npm test              # 全量测试（43 文件，383 用例）
-npx tsc --noEmit      # 类型检查
+npm run dev          # loads .env automatically, listens on PORT or 8080
 ```
 
-## 技术栈
+**4. Open the WebUI**
 
-- **Language**: TypeScript (strict) / ESM / Node.js >= 20
-- **Test**: vitest
-- **Provider**: zod (config schema) / pino (logger) / async-mutex
-- **CLI**: Ink + Yoga + React
-- **WebUI**: Lit + Web Components
-- **Transport**: WebSocket (ws)
+Visit [`http://localhost:8080/`](http://localhost:8080/) in your browser.
 
-## 版本
+**5. Try a slash command**
 
-当前版本 **v0.1.0-mvp**。详见 [CHANGELOG.md](./CHANGELOG.md)。
+```
+/help          show available commands
+/sessions      list all sessions (current marked)
+/new           start a new session
+/resume 0ca9   switch to a session by short ID
+```
+
+## 🌐 WebUI
+
+The WebUI is served inline by the WebSocket server — no separate build step. Just start the server and open the URL.
+
+- Streaming responses with `turn_start` / `message_delta` / `turn_end` events
+- Tool call display with 200px max-height + 800-char result truncation
+- 6 Lit components: `assistant-message` · `user-message` · `tool-execution` · `working-indicator` · `footer-bar` · `input-box`
+- Auto-reconnect with `resync_required` protocol
+
+## 🏗️ Architecture
+
+aptbot is layered bottom-up: each layer depends only on the layer below.
+
+```
+┌─────────────────────────────────────────────────┐
+│  access / cli / webui                           │
+│  WebSocketServer · chat-page · Ink CLI · Lit UI  │
+├─────────────────────────────────────────────────┤
+│  bus                                            │
+│  MessageBus (inbound/outbound) · ChannelManager  │
+├─────────────────────────────────────────────────┤
+│  core                                           │
+│  Provider · Tool · Memory · AgentLoop/Session    │
+├─────────────────────────────────────────────────┤
+│  infrastructure                                 │
+│  Config · Logger · JSONL · FileStorage · Process │
+└─────────────────────────────────────────────────┘
+```
+
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full module map, event flow diagram, and design decisions.
+
+## ✨ Features
+
+| Capability | Detail |
+|---|---|
+| ReAct loop | Single-model streaming + tool calls, `maxIterations` cap, `AbortSignal` propagation |
+| Tools | `bash` (30s SIGTERM→SIGKILL) · `read` (2MB limit) · `edit` (per-file mutex) · `update_working_memory` |
+| Memory | JSONL append-only · corruption-tolerant parse · `fs.truncateSync` auto-repair · Compaction at 80% context |
+| Sessions | `/sessions` list with `(current)` marker · `/resume <short-id>` prefix matching · auto-restore last session on restart |
+| Providers | `openai-completions` · `openai-responses` · `anthropic-messages` · dual-clock TTFB 5s + chunk 1.5s · 401/403/400 fatal, 429/5xx retry |
+| WebSocket | Inbound limits 64KB / 10 msg/s · heartbeat 60s · resync protocol · dead-letter queue |
+| Safety | systemPrompt forbids kill / source-mod / `data/sessions/` access · API key via `.env` only |
+
+## Slash Commands
+
+| Command | Description |
+|---|---|
+| `/new` | Start a new session |
+| `/clear` | Clear the current conversation context |
+| `/help` | Show available commands |
+| `/model [name]` | Show or set the current model |
+| `/session` | Show current session ID |
+| `/sessions` | List all sessions (current marked with `(current)`) |
+| `/resume <id>` | Switch to a session (short ID prefix matching) |
+| `/continue <id>` | Inherit working memory from an old session |
+| `/exit` | Exit the application |
+
+## 📚 Docs
+
+- [Architecture](./ARCHITECTURE.md) — layered design, module map, event flow
+- [Changelog](./CHANGELOG.md) — versioned release notes
+- [PLAN.md](./PLAN.md) — MVP task plan (42 tasks, all complete)
+- [Manual test cases](./test_manual_MVP.md) — 41 acceptance scenarios
+
+## 🚢 Deployment
+
+### VPS (Ubuntu 22.04 + systemd + Caddy)
+
+```bash
+# 1. Install Node.js 20+, Caddy, git
+# 2. Clone and build
+cd /opt/aptbot
+git clone https://github.com/evan3060/aptbot.git .
+npm ci && npm run build
+
+# 3. Configure
+echo "CUSTOM_API_KEY=sk-..." > .env
+echo "APTBOT_AUTH_TOKEN=$(openssl rand -hex 32)" >> .env
+
+# 4. systemd service (listens on 127.0.0.1:8080)
+# 5. Caddy reverse proxy (auto TLS for your domain)
+```
+
+Node.js binds to `127.0.0.1`, Caddy terminates TLS on 443 and proxies to 8080. See the [deployment guide](./docs/deployment.md) (planned) for the full systemd unit and Caddyfile.
+
+### Local
+
+```bash
+npm run dev    # http://localhost:8080
+```
+
+## 🧪 Tests
+
+```bash
+npm test              # 43 files, 383 tests
+npx tsc --noEmit      # strict type check, 0 errors
+```
+
+E2E covers the full agent loop: basic conversation, tool calls, multi-turn context, persistence, working memory, error recovery, WebSocket resync, slash commands, compaction, and cross-session inheritance.
+
+## 🤝 Contribute
+
+PRs welcome. The codebase is intentionally small — 54 source files, ~5700 LOC.
+
+### Roadmap
+
+- **L1** — Per-browser session isolation (localStorage-based), multi-client sync
+- **L2** — IM channel integration (Telegram / Discord / Feishu)
+- **L3** — Cloudflare Pages + Workers light deployment
+- **Multi-modal** — image input/outputs
+- **MCP** — Model Context Protocol tool extensions
+
+## 📄 License
+
+MIT (see [LICENSE](./LICENSE) — planned).
+
+<div align="center">
+  <em>Built as a personal learning project. Thanks for visiting ✨ aptbot!</em>
+</div>
