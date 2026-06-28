@@ -60,6 +60,8 @@ export interface ServerConfig {
   port: number;
   deploy: 'local' | 'cf';
   authToken?: string;
+  /** 绑定地址，未指定时默认 0.0.0.0（LAN 可访问）。反代部署应设为 127.0.0.1 */
+  host?: string;
 }
 
 export interface ServerHandle {
@@ -168,6 +170,7 @@ Important constraints:
     port: config.port,
     bus,
     authToken: config.authToken,
+    host: config.host,
     serveHtml: createChatPageHtml('/ws'),
   });
 
@@ -372,8 +375,9 @@ const __filename = fileURLToPath(import.meta.url);
 if (process.argv[1] === __filename) {
   const PORT = parseInt(process.env.PORT ?? String(DEFAULT_PORT), 10);
   const AUTH_TOKEN = process.env.APTBOT_AUTH_TOKEN;
+  const HOST = process.env.HOST;
 
-  startServer({ port: PORT, deploy: 'local', authToken: AUTH_TOKEN }).catch((err) => {
+  startServer({ port: PORT, deploy: 'local', authToken: AUTH_TOKEN, host: HOST }).catch((err) => {
     console.error('[aptbot] Failed to start server:', err);
     process.exit(1);
   });

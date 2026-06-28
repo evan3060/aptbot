@@ -19,6 +19,8 @@ export interface WebSocketServerOptions {
   port: number;
   bus: MessageBus;
   authToken?: string;
+  /** 绑定地址，未指定时默认 0.0.0.0（LAN 可访问）。反代部署应设为 127.0.0.1 */
+  host?: string;
   /** 若提供，HTTP GET / 将返回此 HTML（用于服务最小化聊天页面） */
   serveHtml?: string;
 }
@@ -44,7 +46,7 @@ interface ConnectionState {
  */
 export function startWebSocketServer(options: WebSocketServerOptions): Promise<WebSocketServer> {
   return new Promise((resolve, reject) => {
-    const { port, bus, authToken, serveHtml } = options;
+    const { port, bus, authToken, serveHtml, host } = options;
     const httpServer = createServer((req, res) => {
       // 服务最小化聊天页面（部署用）
       if (serveHtml && req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) {
@@ -127,8 +129,8 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
       }
     }, WS_HEARTBEAT_INTERVAL_MS);
 
-    httpServer.listen(port, () => {
-      log.info('websocket server started', { port, connections: connections.size });
+    httpServer.listen(port, host, () => {
+      log.info('websocket server started', { port, host: host ?? '0.0.0.0', connections: connections.size });
       resolve({
         async stop(): Promise<void> {
           clearInterval(heartbeatInterval);
