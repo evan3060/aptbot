@@ -49,7 +49,9 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
     const { port, bus, authToken, serveHtml, host } = options;
     const httpServer = createServer((req, res) => {
       // 服务最小化聊天页面（部署用）
-      if (serveHtml && req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) {
+      // 用 pathname 匹配，忽略 query string（如 ?token=xxx）
+      const pathname = new URL(req.url ?? '/', `http://localhost:${port}`).pathname;
+      if (serveHtml && req.method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         res.end(serveHtml);
         return;
