@@ -227,12 +227,12 @@ export interface SessionRepo {
 **Behavior:** 每个 WebSocket connection 携带 `?session=<sessionId>`，服务器在 `ConnectionState` 中记录 sessionKey。`broadcast()` 仅向 sessionKey 匹配的 connection 发送，避免串扰。`SessionMetadata` 新增 `userId` 字段，session 创建时打标签。`listSessions()` 支持按 userId 过滤，使用户只能看到自己的 sessions。连接时自动 `channelManager.bindSession(sessionKey, wsChannel)`。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：连接带 session 参数时绑定、不带时生成、不同 session 的 connection 不互相收到事件、listSessions 按 userId 过滤
-- [ ] 验证失败：`npm run test -- tests/access/websocket-session-routing.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] `requesting-code-review` skill 审查
-- [ ] 提交：`feat: route envelopes by sessionKey and associate sessions with users`
+- [x] 编写失败测试覆盖：连接带 session 参数时绑定、不带时生成、不同 session 的 connection 不互相收到事件、listSessions 按 userId 过滤
+- [x] 验证失败：`npm run test -- tests/access/websocket-session-routing.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] `requesting-code-review` skill 审查
+- [x] 提交：`feat: route envelopes by sessionKey and associate sessions with users`
 
 ### Task 6: localStorage 持久化 + session_changed 事件 + 登录页面
 

@@ -182,6 +182,12 @@ Important constraints:
     onSessionBound: (sessionKey) => {
       channelManager.bindSession(sessionKey, wsChannel);
     },
+    // Task 5 C2 fix: sessionKey 无剩余连接时解绑，避免 channelManager.bindings 无限增长
+    onSessionUnbound: (sessionKey) => {
+      channelManager.unbindSession(sessionKey, wsChannel);
+    },
+    // Task 5 C2 fix: 传入 sessionStorage 用于 ?session= ownership 检查
+    sessionStorage: storage,
   });
 
   // C8 修复：注册 WebSocket Channel 并绑定 sessionKey，使出站事件能路由到 WS 客户端

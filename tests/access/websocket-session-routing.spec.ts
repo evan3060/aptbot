@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, beforeEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -7,9 +7,8 @@ import WebSocket from 'ws';
 import {
   startWebSocketServer,
   type WebSocketServer,
-  type WebSocketServerOptions,
 } from '../../src/access/websocket-server.js';
-import { FileStorage } from '../../src/infrastructure/storage/file-storage.js';
+import { FileStorage, SessionAlreadyClaimedError } from '../../src/infrastructure/storage/file-storage.js';
 import { createSessionRepo, type SessionRepo } from '../../src/core/memory/session-repo.js';
 import { createUserStorage, type UserStorage } from '../../src/infrastructure/user-storage.js';
 import { InMemoryMessageBus } from '../../src/bus/message-bus.js';
@@ -331,16 +330,19 @@ describe('Task 5: WebSocket sessionKey 路由 + session-user 关联', () => {
       expect(user2.some((s) => s.id === s2.id)).toBe(true);
     });
 
-    it('open(id, userId) 对已存在的 session 文件 claim 到指定 user', async () => {
+    it('open(id, userId) 对已 claim 到其他 user 的 session 抛 SessionAlreadyClaimedError', async () => {
       // 先用 user-1 创建
       const s1 = await repo.create('user-1');
       await s1.append({ type: 'message', id: 'm1', message: { role: 'user', content: 'a' } as any, timestamp: Date.now() });
 
-      // user-2 open 同一 session — 应 claim 到 user-2（或拒绝？此处采用覆盖语义）
-      // 注：实际生产中 open 应优先验证 ownership，此处测试 claim 行为
-      await repo.open(s1.id, 'user-2');
+      // user-2 open 同一 session — I8 fix 后抛错而非覆盖
+      await expect(repo.open(s1.id, 'user-2')).rejects.toBeInstanceOf(SessionAlreadyClaimedError);
+
+      // 原 owner 仍可访问
+      const user1Sessions = await repo.list('user-1');
+      expect(user1Sessions.some((s) => s.id === s1.id)).toBe(true);
       const user2Sessions = await repo.list('user-2');
-      expect(user2Sessions.some((s) => s.id === s1.id)).toBe(true);
+      expect(user2Sessions.some((s) => s.id === s1.id)).toBe(false);
     });
 
     it('updateLabel 调用 storage.updateSessionLabel', async () => {
@@ -381,6 +383,210 @@ describe('Task 5: WebSocket sessionKey 路由 + session-user 关联', () => {
       server!.broadcast(makeEnvelope('my-session', 1));
       const event = await waitForMessage(ws);
       expect(event.event.text).toBe('delta-1');
+    });
+  });
+
+  /**
+   * Code review fixes — C1 (writeMeta race via lock + atomic write),
+   * C2 (?session= ownership check), I4/I5 (cleanup on close),
+   * I6 (multi-client same session), I7 (regression test for identifyUser change),
+   * I8 (claimSession cross-user refuses), I10 (deleteSession removes meta).
+   */
+  describe('code review fixes', () => {
+    let storage: FileStorage;
+    let userStorage: UserStorage;
+    let sessionsDir: string;
+
+    beforeEach(() => {
+      sessionsDir = join(tmpDir, 'sessions');
+      mkdirSync(sessionsDir);
+      storage = new FileStorage(sessionsDir);
+      userStorage = createUserStorage(tmpDir);
+    });
+
+    it('I7: userStorage + authToken + 无 token → 拒绝连接（regression）', async () => {
+      server = await startWebSocketServer({
+        port: TEST_PORT,
+        bus: new InMemoryMessageBus(),
+        authToken: 'shared-secret',
+        userStorage,
+        fallbackSessionKey: 'fallback',
+      });
+
+      // 无 token 连接应被拒绝（即使有 userStorage）
+      const ws = new WebSocket(`ws://localhost:${TEST_PORT}`);
+      clients.push(ws);
+      const result = await new Promise<{ rejected: boolean; errorCode?: string }>((resolve) => {
+        const timer = setTimeout(() => resolve({ rejected: false }), 2000);
+        ws.once('close', () => { clearTimeout(timer); resolve({ rejected: true }); });
+        ws.once('message', (data) => {
+          try {
+            const msg = JSON.parse(data.toString());
+            if (msg.code === 'auth_failed') {
+              clearTimeout(timer);
+              resolve({ rejected: true, errorCode: msg.code });
+            }
+          } catch { /* ignore */ }
+        });
+      });
+      expect(result.rejected).toBe(true);
+    });
+
+    it('I6: 两个客户端连接同一 ?session= 都收到 broadcast', async () => {
+      server = await startWebSocketServer({
+        port: TEST_PORT,
+        bus: new InMemoryMessageBus(),
+        fallbackSessionKey: 'fallback',
+      });
+
+      // 不需 userStorage — 用 simple connect 避免 firstMessage 超时
+      const connectSimple = (sessionKey: string): Promise<WebSocket> => new Promise((resolve, reject) => {
+        const ws = new WebSocket(`ws://localhost:${TEST_PORT}?session=${sessionKey}`);
+        ws.once('open', () => resolve(ws));
+        ws.once('error', reject);
+      });
+      const ws1 = await connectSimple('shared-session');
+      clients.push(ws1);
+      const ws2 = await connectSimple('shared-session');
+      clients.push(ws2);
+
+      server!.broadcast(makeEnvelope('shared-session', 1));
+      const [recv1, recv2] = await Promise.all([
+        waitForMessage(ws1),
+        waitForMessage(ws2),
+      ]);
+      expect(recv1.event.text).toBe('delta-1');
+      expect(recv2.event.text).toBe('delta-1');
+    });
+
+    it('I8: claimSession 跨用户 claim 抛 SessionAlreadyClaimedError', async () => {
+      const sid = randomUUID();
+      writeFileSync(join(sessionsDir, `${sid}.jsonl`), '');
+      await storage.claimSession(sid, 'user-1');
+      // 同用户重复 claim：不抛错
+      await storage.claimSession(sid, 'user-1');
+      // 跨用户 claim：抛错
+      await expect(storage.claimSession(sid, 'user-2')).rejects.toBeInstanceOf(SessionAlreadyClaimedError);
+      // 原 owner 仍可访问
+      const user1Sessions = await storage.listSessions('user-1');
+      expect(user1Sessions.some((s) => s.id === sid)).toBe(true);
+      const user2Sessions = await storage.listSessions('user-2');
+      expect(user2Sessions.some((s) => s.id === sid)).toBe(false);
+    });
+
+    it('I10: deleteSession 同时删除 .meta.json sidecar', async () => {
+      const sid = randomUUID();
+      writeFileSync(join(sessionsDir, `${sid}.jsonl`), '');
+      await storage.claimSession(sid, 'user-1');
+      const metaPath = join(sessionsDir, `${sid}.meta.json`);
+      expect(existsSync(metaPath)).toBe(true);
+
+      await storage.deleteSession(sid);
+      expect(existsSync(metaPath)).toBe(false);
+      expect(existsSync(join(sessionsDir, `${sid}.jsonl`))).toBe(false);
+    });
+
+    it('C1: 并发 claimSession + updateSessionLabel 不丢数据（lock 防竞态）', async () => {
+      const sid = randomUUID();
+      writeFileSync(join(sessionsDir, `${sid}.jsonl`), '');
+
+      // 并发执行 claim 和 updateLabel
+      await Promise.all([
+        storage.claimSession(sid, 'user-1'),
+        storage.updateSessionLabel(sid, 'my-label'),
+      ]);
+
+      // 两者都应保留（加锁防读改写竞态）
+      const sessions = await storage.listSessions();
+      const target = sessions.find((s) => s.id === sid);
+      expect(target?.userId).toBe('user-1');
+      expect(target?.label).toBe('my-label');
+    });
+
+    it('C2: 用户 A 的 session 被 user B 通过 ?session= 访问时拒绝', async () => {
+      const userA = await userStorage.register('alice', 'pass');
+      const userB = await userStorage.register('bob', 'pass');
+
+      // userA 先 claim 一个 session
+      const sid = randomUUID();
+      writeFileSync(join(sessionsDir, `${sid}.jsonl`), '');
+      await storage.claimSession(sid, userA.userId);
+
+      server = await startWebSocketServer({
+        port: TEST_PORT,
+        bus: new InMemoryMessageBus(),
+        userStorage,
+        sessionStorage: storage,
+        fallbackSessionKey: 'fallback',
+      });
+
+      // userB 尝试连接 userA 的 session
+      const ws = new WebSocket(`ws://localhost:${TEST_PORT}?session=${sid}&token=${userB.token}`);
+      clients.push(ws);
+      const result = await new Promise<{ rejected: boolean; code?: string }>((resolve) => {
+        const timer = setTimeout(() => resolve({ rejected: false }), 2000);
+        ws.once('close', () => { clearTimeout(timer); resolve({ rejected: true }); });
+        ws.once('message', (data) => {
+          try {
+            const msg = JSON.parse(data.toString());
+            if (msg.code === 'session_ownership_mismatch') {
+              clearTimeout(timer);
+              resolve({ rejected: true, code: msg.code });
+            }
+          } catch { /* ignore */ }
+        });
+      });
+      expect(result.rejected).toBe(true);
+      expect(result.code).toBe('session_ownership_mismatch');
+    });
+
+    it('C2: 同用户在多设备访问同一 session 允许', async () => {
+      const user = await userStorage.register('alice', 'pass');
+      const sid = randomUUID();
+      writeFileSync(join(sessionsDir, `${sid}.jsonl`), '');
+      await storage.claimSession(sid, user.userId);
+
+      server = await startWebSocketServer({
+        port: TEST_PORT,
+        bus: new InMemoryMessageBus(),
+        userStorage,
+        sessionStorage: storage,
+        fallbackSessionKey: 'fallback',
+      });
+
+      // 同一 user 用同一 token 在两个连接访问同一 session — 都应成功
+      const { ws: ws1, firstMessage: m1 } = await connectWithSession(TEST_PORT, sid, user.token);
+      clients.push(ws1);
+      const { ws: ws2, firstMessage: m2 } = await connectWithSession(TEST_PORT, sid, user.token);
+      clients.push(ws2);
+      const [msg1, msg2] = await Promise.all([m1, m2]);
+      expect(msg1.type).toBe('user_identified');
+      expect(msg2.type).toBe('user_identified');
+      expect(msg1.userId).toBe(user.userId);
+      expect(msg2.userId).toBe(user.userId);
+    });
+
+    it('I4/I5: 所有连接关闭后 ringBuffer 与 channelManager binding 清理', async () => {
+      const boundKeys: string[] = [];
+      const unboundKeys: string[] = [];
+      server = await startWebSocketServer({
+        port: TEST_PORT,
+        bus: new InMemoryMessageBus(),
+        fallbackSessionKey: 'fallback',
+        onSessionBound: (k) => { boundKeys.push(k); },
+        onSessionUnbound: (k) => { unboundKeys.push(k); },
+      });
+
+      const { ws: ws1 } = await connectWithSession(TEST_PORT, 'ephemeral-session');
+      clients.push(ws1);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(boundKeys).toContain('ephemeral-session');
+
+      // 关闭连接
+      ws1.close();
+      clients.length = 0;
+      await new Promise((r) => setTimeout(r, 150));
+      expect(unboundKeys).toContain('ephemeral-session');
     });
   });
 });

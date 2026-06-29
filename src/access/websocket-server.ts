@@ -4,6 +4,7 @@ import { WebSocketServer as WsServer, WebSocket } from 'ws';
 import { createLogger } from '../infrastructure/logger.js';
 import type { MessageBus, InboundMessage, AgentEventEnvelope } from '../bus/types.js';
 import { type UserStorage, UsernameExistsError } from '../infrastructure/user-storage.js';
+import type { StorageAdapter } from '../infrastructure/storage/file-storage.js';
 
 const log = createLogger('websocket-server');
 
@@ -31,6 +32,10 @@ export interface WebSocketServerOptions {
   fallbackSessionKey?: string;
   /** Task 5: 连接建立并绑定 sessionKey 后触发（用于 channelManager.bindSession） */
   onSessionBound?: (sessionKey: string, ws: WebSocket) => void;
+  /** Task 5 C2 fix: 连接关闭且 sessionKey 无剩余连接时触发（用于 channelManager.unbindSession + ringBuffer 清理） */
+  onSessionUnbound?: (sessionKey: string) => void;
+  /** Task 5 C2 fix: session 存储引用，启用后 ?session= 会进行 ownership 检查 */
+  sessionStorage?: StorageAdapter;
 }
 
 export interface WebSocketServer {
@@ -113,7 +118,7 @@ async function identifyUser(
  */
 export function startWebSocketServer(options: WebSocketServerOptions): Promise<WebSocketServer> {
   return new Promise((resolve, reject) => {
-    const { port, bus, authToken, serveHtml, host, userStorage, fallbackSessionKey, onSessionBound } = options;
+    const { port, bus, authToken, serveHtml, host, userStorage, fallbackSessionKey, onSessionBound, onSessionUnbound, sessionStorage } = options;
     const httpServer = createServer((req, res) => {
       const pathname = new URL(req.url ?? '/', `http://localhost:${port}`).pathname;
 
@@ -137,6 +142,8 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
     const connections = new Map<WebSocket, ConnectionState>();
     // Task 5: per-sessionKey ring buffer，避免跨 session 重放
     const ringBuffers = new Map<string, AgentEventEnvelope[]>();
+    // Task 5 C2 fix: 跟踪每个 sessionKey 的活跃连接数，归零时触发 onSessionUnbound
+    const sessionRefCount = new Map<string, number>();
 
     function getRingBuffer(sessionKey: string): AgentEventEnvelope[] {
       let buf = ringBuffers.get(sessionKey);
@@ -145,6 +152,30 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
         ringBuffers.set(sessionKey, buf);
       }
       return buf;
+    }
+
+    function incSessionRef(sessionKey: string): void {
+      const c = sessionRefCount.get(sessionKey) ?? 0;
+      sessionRefCount.set(sessionKey, c + 1);
+    }
+
+    function decSessionRef(sessionKey: string): void {
+      const c = (sessionRefCount.get(sessionKey) ?? 0) - 1;
+      if (c <= 0) {
+        sessionRefCount.delete(sessionKey);
+        // I4/I5 fix: 无剩余连接时清理 ringBuffer，避免内存泄漏
+        ringBuffers.delete(sessionKey);
+        // 通知 server.ts 解绑 channelManager
+        if (onSessionUnbound) {
+          try {
+            onSessionUnbound(sessionKey);
+          } catch (err) {
+            log.error('onSessionUnbound callback failed', { error: String(err), sessionKey });
+          }
+        }
+      } else {
+        sessionRefCount.set(sessionKey, c);
+      }
     }
 
     wss.on('connection', (ws, req) => {
@@ -163,13 +194,41 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
       ws.on('message', earlyMessageHandler);
 
       // Task 4: 异步识别用户身份
-      identifyUser(token, authToken, userStorage).then((identity) => {
+      identifyUser(token, authToken, userStorage).then(async (identity) => {
         if (closed) return; // 连接已在认证期间关闭
 
         if (identity === null) {
           safeSend(ws, { type: 'error', code: 'auth_failed', message: 'Invalid or missing auth token' });
           ws.close();
           return;
+        }
+
+        // Task 5 C2 fix: ownership 检查 — 若 sessionStorage 与 userStorage 都提供，且 ?session= 显式指定，
+        // 验证 session 当前 owner 与连接用户匹配（未 claim 时允许并自动 claim）
+        if (sessionStorage && userStorage && url.searchParams.has('session')) {
+          const currentOwner = await sessionStorage.getSessionOwner(sessionKey);
+          if (currentOwner && currentOwner !== identity.userId) {
+            log.warn('session ownership mismatch, rejecting', {
+              sessionKey,
+              currentOwner,
+              attemptedUser: identity.userId,
+            });
+            safeSend(ws, { type: 'error', code: 'session_ownership_mismatch', message: 'Session belongs to another user' });
+            ws.close();
+            return;
+          }
+          // 未 claim 或同 user — 自动 claim
+          try {
+            await sessionStorage.claimSession(sessionKey, identity.userId);
+          } catch (err) {
+            // 并发场景下可能 SessionAlreadyClaimedError — 再次检查
+            const owner = await sessionStorage.getSessionOwner(sessionKey);
+            if (owner && owner !== identity.userId) {
+              safeSend(ws, { type: 'error', code: 'session_ownership_mismatch', message: 'Session belongs to another user' });
+              ws.close();
+              return;
+            }
+          }
         }
 
         // Connection limit
@@ -188,6 +247,7 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
           sessionKey,
         };
         connections.set(ws, state);
+        incSessionRef(sessionKey);
 
         // 移除早期消息缓冲处理器，切换到正式处理器
         ws.removeListener('message', earlyMessageHandler);
@@ -223,12 +283,15 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
 
         ws.on('close', () => {
           connections.delete(ws);
-          log.info('connection closed', { connections: connections.size });
+          // I4/I5 fix: 引用计数减一，归零时清理 ringBuffer + 通知 server.ts unbind
+          decSessionRef(sessionKey);
+          log.info('connection closed', { connections: connections.size, sessionKey });
         });
 
         ws.on('error', (err) => {
           log.error('connection error', { error: String(err) });
           connections.delete(ws);
+          decSessionRef(sessionKey);
         });
 
         // Task 5: 触发 onSessionBound 回调，让 server.ts 调用 channelManager.bindSession
@@ -279,6 +342,7 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
           }
           connections.clear();
           ringBuffers.clear();
+          sessionRefCount.clear();
           wss.close();
           await new Promise<void>((r) => httpServer.close(() => r()));
         },
