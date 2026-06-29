@@ -113,7 +113,7 @@ WebUI 由 WebSocket 服务器内联提供——无需单独构建步骤。启动
 
 ## 🏗️ 架构
 
-aptbot 自底向上分层：每层仅依赖其下层。
+aptbot 自底向上分层：core → bus → infrastructure → access，加 `shared/` 跨层共享。依赖方向严格向下，核心层完全不感知接入层存在。
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -129,9 +129,32 @@ aptbot 自底向上分层：每层仅依赖其下层。
 │  infrastructure                                 │
 │  Config · Logger · JSONL · FileStorage · Process │
 └─────────────────────────────────────────────────┘
+        │
+        ▼
+   shared/ (commands · ui-state)  跨层共享
 ```
 
-完整的模块映射、事件流图与设计决策见 [ARCHITECTURE.md](./ARCHITECTURE.md)。
+### 架构特色
+
+1. **严格分层与单向依赖** — 四层架构加 `shared/` 跨层共享。核心层从不反向引用 access/bus（grep 验证：0 处引用）。新增一个 IM 渠道只需在接入层写一个 `Channel` 实现，总线层和核心层零改动。对比 nanobot 将 channel/IM/工具紧密耦合在同一进程空间。
+
+2. **事件驱动总线与多渠道会话共享** — 所有出站事件（token 增量、工具进度、错误）以类型化 `AgentEventEnvelope` 流经 `ChannelManager`，按 `sessionKey` 路由。CLI、WebUI、未来 IM 频道可以独立订阅同一会话、互不阻塞。对比 pi-agent 纯 CLI 无渠道概念、nanobot 每个 channel 独立处理消息流——"一次 agent 调用、多端同步消费"是架构级差异。
+
+3. **无状态生成器与有状态会话分离** — `AgentLoop` 是纯 async 生成器（无副作用、无持久化，输入输出全在参数和 `yield` 中）。有状态的关注点（存储、steering 注入、生命周期）由外层 `AgentSession` 管理。这种分离让核心循环可独立测试和组合——未来子代理或跨进程恢复只需从 Session 层拆出 Harness，不动循环本身。
+
+4. **运行时多态注入而非编译分支** — 部署适配不靠构建变体，而是通过运行时注入不同的 `StorageAdapter` / `ToolRegistry` 实例，配置在启动时一次性加载。本地全功能、演示环境最小工具集、未来云端分布式存储——同一份代码，不同注入。比 nanobot 的"环境变量 + if 分支"更干净，比 GenericAgent 的"无抽象直接写"更可维护。
+
+### 设计模式特色
+
+1. **外置分层重试——循环只报告，上层决策** — 错误不内嵌在循环逻辑中，而是按类型分发：网络超时在 Provider 层自动重试，工具错误返回给语言模型让其自行决定，致命错误直接终止且不持久化（防"400 中毒"——错误 turn 永久保存）。对比 nanobot 400 行主循环内置 5 种恢复路径，aptbot 的循环保持简洁，错误策略可独立演进。
+
+2. **细粒度事件流驱动 UI——从后端到前端的统一语言** — 每个 token 增量、工具调用进度、思考过程都是独立事件，UI 通过 reducer 消费事件流更新状态。流式渲染、中途打断、多端同步不是"额外功能"而是事件流的自然消费方式。对比 GenericAgent 用 generator yield 字符串、nanobot 用粗粒度 hook 回调，aptbot 的类型化事件让前端开发有完整类型推导，不靠猜。
+
+3. **声明式注册表 + 工厂模式——扩展即声明** — `Tool`、`Command`、`Channel` 通过注册表声明式注册，新增一个工具只需实现接口并注册；`Provider` 则通过 config 声明 + 工厂函数创建，新增一个 Provider 只需写一个声明（baseUrl、envVar、models）。对比 GenericAgent 将所有工具硬编码在一个 JSON 文件中、nanobot 用装饰器加运行时反射，aptbot 在编译时就有完整类型，IDE 补全、重构安全。
+
+4. **会话可变引用——运行中无中断切换** — `SessionRef` 允许 `/new`、`/resume` 命令在 agent 运行中切换当前会话，`ChannelManager` 重新绑定 `sessionKey` 即可，无需重启循环或断开连接。这种"引用可变、循环不变"的模式让会话管理成为即时操作而非生命周期事件。对比 pi-agent 的 session 不可变、nanobot 需重启 agent loop，aptbot 的体验更流畅。
+
+完整的模块映射、事件流图与设计决策见 [ARCHITECTURE.md](./ARCHITECTURE.md)。与 pi-agent / nanobot / GenericAgent 的详细架构对比见 [docs/comparison-pi-nanobot-ga.md](./docs/comparison-pi-nanobot-ga.md)。
 
 ## ✨ 功能特性
 

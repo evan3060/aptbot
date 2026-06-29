@@ -113,7 +113,7 @@ The WebUI is served inline by the WebSocket server — no separate build step. J
 
 ## 🏗️ Architecture
 
-aptbot is layered bottom-up: each layer depends only on the layer below.
+aptbot is layered bottom-up: core → bus → infrastructure → access, with `shared/` cross-layer utilities. Dependencies flow strictly downward — the core layer is completely unaware of the access layer's existence.
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -129,9 +129,32 @@ aptbot is layered bottom-up: each layer depends only on the layer below.
 │  infrastructure                                 │
 │  Config · Logger · JSONL · FileStorage · Process │
 └─────────────────────────────────────────────────┘
+        │
+        ▼
+   shared/ (commands · ui-state)  cross-layer
 ```
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full module map, event flow diagram, and design decisions.
+### Architectural Highlights
+
+1. **Strict Layering & Unidirectional Dependency** — A four-layer architecture with `shared/` for cross-layer utilities. The core layer never imports from access/bus (verified by grep: 0 references). Adding an IM channel only requires a new `Channel` implementation in the access layer — bus and core remain untouched. Compare nanobot, which couples channels/IM/tools in the same process space.
+
+2. **Event-Driven Bus & Multi-Channel Session Sharing** — All outbound events (token deltas, tool progress, errors) flow as typed `AgentEventEnvelope` through `ChannelManager`, routed by `sessionKey`. CLI, WebUI, and future IM channels can subscribe to the same conversation independently without blocking each other. Compare pi-agent (pure CLI, no channel concept) and nanobot (each channel processes its own message stream) — "one agent invocation, multi-end synced consumption" is an architectural-level difference.
+
+3. **Stateless Generator vs Stateful Session** — `AgentLoop` is a pure async generator (no side effects, no persistence — inputs/outputs all in parameters and `yield`). Stateful concerns (storage, steering injection, lifecycle) live in `AgentSession` outside the loop. This separation makes the core loop independently testable and composable — future subagents or cross-process recovery only need to extract a Harness from the Session layer, leaving the loop untouched.
+
+4. **Runtime Injection, Not Build Variants** — Deployment adaptation is done via runtime injection of different `StorageAdapter` / `ToolRegistry` instances, with config loaded once at startup. Local full-feature, demo minimal toolset, future cloud distributed storage — same codebase, different injections. Cleaner than nanobot's "env vars + if branches", more maintainable than GenericAgent's "no abstraction, just write it".
+
+### Design Patterns
+
+1. **Externalized Layered Retry — Loop Reports, Upper Layer Decides** — Errors are not embedded in loop logic but dispatched by type: network timeouts auto-retry at the Provider layer, tool errors return to the LLM to decide, fatal errors terminate without persisting (preventing "400 poisoning" — a bad turn saved forever). Compare nanobot's 400-line main loop with 5 recovery paths baked in — aptbot's loop stays clean, error strategies evolve independently.
+
+2. **Fine-Grained Event Stream → UI — A Unified Language Backend to Frontend** — Every token delta, tool call progress, and thought step is an independent event. UI updates state by consuming the event stream via a reducer. Streaming rendering, mid-turn interruption, multi-end sync are natural consumption patterns of the event stream, not "extra features". Compare GenericAgent's `generator yield` of strings and nanobot's coarse-grained hook callbacks — aptbot's typed events give the frontend complete type inference, not guesswork.
+
+3. **Declarative Registry + Factory — Extension as Declaration** — `Tool`, `Command`, `Channel` are registered via declarative registries; adding a tool only requires implementing the interface and registering. `Provider` uses config declaration + factory creation — adding a provider only requires writing a declaration (baseUrl, envVar, models). Compare GenericAgent's hardcoded JSON tool list and nanobot's decorator + runtime reflection — aptbot has complete compile-time types, IDE autocomplete, and refactor safety.
+
+4. **Mutable Session Reference — No-Interrupt Switching Mid-Run** — `SessionRef` allows `/new`, `/resume` to switch the current session while the agent is running — `ChannelManager` rebinds `sessionKey` without restarting the loop or disconnecting. This "reference mutable, loop immutable" pattern makes session management an instant operation rather than a lifecycle event. Compare pi-agent's immutable session and nanobot's agent-loop restart — aptbot's experience is smoother.
+
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full module map, event flow diagram, and design decisions. See [docs/comparison-pi-nanobot-ga.md](./docs/comparison-pi-nanobot-ga.md) for a detailed comparison with pi-agent / nanobot / GenericAgent.
 
 ## ✨ Features
 
