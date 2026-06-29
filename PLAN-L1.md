@@ -316,12 +316,12 @@ interface CommandContext {
 **Behavior:** 修复当前 inbound loop 的 fire-and-forget 问题（[server.ts:349](file:///Users/evan/projects/aptbot/src/server.ts#L349) 的 `void (async ...)`）。同一 sessionKey 的消息 await 串行处理，避免 agent 响应交错；不同 sessionKey 并行处理，互不阻塞。无 `turn_busy` 响应，消息自然排队等待。JSONL per-sessionId mutex（已存在）作为数据安全兜底。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：同 session 两条消息串行执行、不同 session 并行执行、turn 完成后 runningTurns 清理
-- [ ] 验证失败：`npm run test -- tests/server/inbound-serialization.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] `requesting-code-review` skill 审查
-- [ ] 提交：`feat: serialize inbound messages per sessionKey`
+- [x] 编写失败测试覆盖：同 session 两条消息串行执行、不同 session 并行执行、turn 完成后 runningTurns 清理
+- [x] 验证失败：`npm run test -- tests/server/inbound-serialization.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] `requesting-code-review` skill 审查
+- [x] 提交：`feat: serialize inbound messages per sessionKey`
 
 ### Task 8: ring buffer 历史回放
 
