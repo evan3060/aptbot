@@ -423,8 +423,8 @@ interface CommandContext {
 - [x] 验证失败：`npm run test -- tests/access/chat-page-sidebar.spec.ts` → FAIL
 - [x] 实现
 - [x] 验证通过：Exit Code 0
-- [ ] `requesting-code-review` skill 审查
-- [ ] 提交：`feat: add session sidebar with Codex-style layout`
+- [x] `requesting-code-review` skill 审查
+- [x] 提交：`feat: add session sidebar with Codex-style layout`
 
 ---
 
