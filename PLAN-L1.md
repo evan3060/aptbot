@@ -1,6 +1,6 @@
 # aptbot L1 Implementation Plan
 
-> 🚧 **L1 IN PLANNING** — 基于 spec `docs/superpowers/specs/2026-06-29-l1-user-system-multi-client-design.md` 生成。前置 MVP 已于 2026-06-28 封仓（见 [PLAN.md](./PLAN.md)）。
+> ✅ **L1 COMPLETED** — 用户系统 + 多客户端同步 + Codex 风格侧边栏 + 会话重命名实现完成，全量回归 584 tests / tsc 0 errors 通过，用户已验收通过。基于 spec `docs/superpowers/specs/2026-06-29-l1-user-system-multi-client-design.md` 与 `docs/superpowers/specs/2026-06-29-session-rename-design.md` 生成。前置 MVP 已于 2026-06-28 封仓（见 [PLAN.md](./PLAN.md)）。下一迭代见 [PLAN-L2.md](./PLAN-L2.md)。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -483,12 +483,12 @@ interface CommandContext {
 **Behavior:** L1 封仓前的完整回归验证。使用 `finishing-a-development-branch` skill 执行封仓流程。
 
 **TDD Cycle:**
-- [ ] `npm test` 全绿
-- [ ] `npx tsc --noEmit` 0 错误
-- [ ] VPS 多浏览器手工验证
-- [ ] `finishing-a-development-branch` skill 执行封仓流程（文档同步 + 工作区清理 + 合并决策）
-- [ ] 更新 PLAN-L1.md 顶部状态为 `✅ L1 COMPLETED`
-- [ ] 提交：`feat(l1): complete L1 with user system and multi-client sync`
+- [x] `npm test` 全绿（58 files / 584 tests）
+- [x] `npx tsc --noEmit` 0 错误
+- [x] VPS 多浏览器手工验证（用户验收通过，含会话重命名 + agent session ownership 修复）
+- [x] `finishing-a-development-branch` skill 执行封仓流程（文档同步 + 工作区清理 + 合并决策）
+- [x] 更新 PLAN-L1.md 顶部状态为 `✅ L1 COMPLETED`
+- [x] 提交：`feat(l1): complete L1 with user system and multi-client sync`
 
 ---
 
