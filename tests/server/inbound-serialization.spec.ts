@@ -79,8 +79,9 @@ describe('Task 7: per-sessionKey 串行化', () => {
         slashHandler,
       );
 
-      // 两条消息共 4 个事件
-      for (let i = 0; i < 4; i++) {
+      // 跨客户端同步修复：每条消息 3 个事件（user_message + agent_start + turn_end）
+      // 两条消息共 6 个事件
+      for (let i = 0; i < 6; i++) {
         await bus.consumeOutbound();
       }
       await new Promise((r) => setTimeout(r, 50));
@@ -161,8 +162,9 @@ describe('Task 7: per-sessionKey 串行化', () => {
         slashHandler,
       );
 
-      // 3 条消息共 6 个事件
-      for (let i = 0; i < 6; i++) {
+      // 跨客户端同步修复：每条消息 3 个事件（user_message + agent_start + turn_end）
+      // 3 条消息共 9 个事件
+      for (let i = 0; i < 9; i++) {
         await bus.consumeOutbound();
       }
       await new Promise((r) => setTimeout(r, 50));
@@ -371,10 +373,13 @@ describe('Task 7: per-sessionKey 串行化', () => {
         envelopes.push(env);
       }
 
-      // 应至少收到 3 个 envelope：1 个 error + agent_start + turn_end
-      expect(envelopes.length).toBeGreaterThanOrEqual(3);
-      // 第一个应为 error
-      expect(envelopes[0].event.type).toBe('error');
+      // 跨客户端同步修复：每条消息先 emit user_message，再进入 agent
+      // 事件序列：user_message(1) → error(1, catch) → user_message(2) → agent_start(2) → turn_end(2)
+      expect(envelopes.length).toBeGreaterThanOrEqual(5);
+      // 第一个应为 user_message（agent 处理前 emit）
+      expect(envelopes[0].event.type).toBe('user_message');
+      // 第二个应为 error（第一条消息 agent 抛错后 catch emit）
+      expect(envelopes[1].event.type).toBe('error');
       // 后续应有 agent_start 和 turn_end（第二条消息正常处理）
       const eventTypes = envelopes.map((e) => e.event.type);
       expect(eventTypes).toContain('agent_start');

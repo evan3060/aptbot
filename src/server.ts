@@ -178,6 +178,8 @@ Important constraints:
     userStorage,
     // Task 5: 客户端未携带 ?session= 时绑定到 server 当前活跃 sessionId
     fallbackSessionKey: sessionId,
+    // 验收修复：提供 agent 当前内部 sessionId，供 user_identified 事件对齐前端 localStorage
+    getCurrentSessionId: () => sessionRef.currentKey,
     // Task 5: 每个新连接绑定其 sessionKey 到 wsChannel，使 dispatch 能路由到该 session
     onSessionBound: (sessionKey) => {
       channelManager.bindSession(sessionKey, wsChannel);
@@ -188,6 +190,10 @@ Important constraints:
     },
     // Task 5 C2 fix: 传入 sessionStorage 用于 ?session= ownership 检查
     sessionStorage: storage,
+    // 会话重命名后广播 session_renamed 控制消息到同 session 其他客户端
+    onSessionRenamed: (sid, label) => {
+      wsServer.sendToSessionKey(sid, { type: 'session_renamed', sessionId: sid, label });
+    },
   });
 
   // C8 修复：注册 WebSocket Channel 并绑定 sessionKey，使出站事件能路由到 WS 客户端
@@ -224,6 +230,7 @@ Important constraints:
   void runInboundLoop(bus, sessionRef, watchdog, slashHandler, sessionFactory, (oldKey, newId) => {
     // Task 6: /new 或 /resume 后，向旧 sessionKey 的 connection 推送 session_changed
     // 客户端收到后更新 localStorage 并用 ?session=newId 重连
+    log.info('onNewSession: sending session_changed', { oldKey: oldKey.slice(0, 8), newId: newId.slice(0, 8) });
     channelManager.bindSession(newId, wsChannel);
     wsServer.sendToSessionKey(oldKey, { type: 'session_changed', sessionId: newId });
   });
@@ -386,6 +393,9 @@ export async function runInboundLoop(
           }
 
           // 正常 agent 处理
+          // 验收修复：agent 处理前 emit user_message 事件，使其他客户端能同步看到用户发送的消息
+          const senderClientId = msg.metadata.clientId as string | undefined;
+          await emit(senderSessionKey, chatId, channelName, { type: 'user_message', text, senderId: senderClientId ?? '' });
           for await (const event of sessionRef.current.run(text)) {
             await emit(senderSessionKey, chatId, channelName, event);
           }

@@ -170,8 +170,8 @@ describe('WebSocket presence indicator (Task 9)', () => {
     expect(html).toContain("msg.type === 'presence'");
     // 验证读取 onlineCount 字段
     expect(html).toMatch(/onlineCount/);
-    // 验证包含 "人在线" 中文指示器文本
-    expect(html).toMatch(/人在线/);
+    // 验证包含 "个客户端在线" 中文指示器文本
+    expect(html).toMatch(/个客户端在线/);
     // 验证 N>1 时显示指示器的逻辑
     expect(html).toMatch(/onlineCount\s*>\s*1/);
   });

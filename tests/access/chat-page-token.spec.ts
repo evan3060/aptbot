@@ -117,20 +117,29 @@ describe('Task 1: chat-page token 记忆与自动携带', () => {
     });
   });
 
-  describe('UI 行为：无 token 时显示鉴权提示', () => {
+  describe('UI 行为：无 token 时未登录状态', () => {
     const html = createChatPageHtml('/ws');
 
-    it('包含鉴权提示文案', () => {
-      expect(html).toContain('Authentication required.');
+    it('显示未登录文本', () => {
+      expect(html).toContain('未登录');
     });
 
-    it('禁用发送按钮和输入框', () => {
+    it('显示登录按钮', () => {
+      expect(html).toContain('id="auth-btn"');
+    });
+
+    it('无 token 时不连接 WS（connect 函数检查 token）', () => {
+      expect(html).toContain("if (!token)");
+      expect(html).toContain("setStatus('未登录'");
+    });
+
+    it('无 token 时禁用发送按钮和输入框', () => {
       expect(html).toContain('sendBtn.disabled = true');
       expect(html).toContain('inputEl.disabled = true');
     });
 
-    it('设置 placeholder 为 authentication required', () => {
-      expect(html).toContain("'authentication required'");
+    it('placeholder 为请先登录', () => {
+      expect(html).toContain("'请先登录'");
     });
   });
 });

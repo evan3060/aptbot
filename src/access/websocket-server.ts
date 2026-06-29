@@ -30,12 +30,16 @@ export interface WebSocketServerOptions {
   userStorage?: UserStorage;
   /** Task 5: 连接未携带 ?session= 时使用的默认 sessionKey（通常为 server 当前活跃 sessionId） */
   fallbackSessionKey?: string;
+  /** 获取 agent 当前内部 sessionId（用于 user_identified 事件和历史查询对齐） */
+  getCurrentSessionId?: () => string;
   /** Task 5: 连接建立并绑定 sessionKey 后触发（用于 channelManager.bindSession） */
   onSessionBound?: (sessionKey: string, ws: WebSocket) => void;
   /** Task 5 C2 fix: 连接关闭且 sessionKey 无剩余连接时触发（用于 channelManager.unbindSession + ringBuffer 清理） */
   onSessionUnbound?: (sessionKey: string) => void;
   /** Task 5 C2 fix: session 存储引用，启用后 ?session= 会进行 ownership 检查 */
   sessionStorage?: StorageAdapter;
+  /** 会话重命名后触发，用于广播 session_renamed 控制消息到同 session 其他连接 */
+  onSessionRenamed?: (sessionId: string, label: string) => void;
 }
 
 export interface WebSocketServer {
@@ -53,6 +57,7 @@ interface ConnectionState {
   userId: string;       // Task 4: 从 token 解析或匿名生成
   username?: string;    // Task 4: 注册用户有 username，匿名用户无
   sessionKey?: string;  // Task 5 填充
+  clientId: string;     // 验收修复：每连接唯一 ID，用于 user_message 事件区分发送者
 }
 
 /** Task 8: 出站事件 ring buffer 条目，附带 timestamp 用于历史回放合并排序 */
@@ -132,20 +137,24 @@ async function identifyUser(
  */
 export function startWebSocketServer(options: WebSocketServerOptions): Promise<WebSocketServer> {
   return new Promise((resolve, reject) => {
-    const { port, bus, authToken, serveHtml, host, userStorage, fallbackSessionKey, onSessionBound, onSessionUnbound, sessionStorage } = options;
+    const { port, bus, authToken, serveHtml, host, userStorage, fallbackSessionKey, getCurrentSessionId, onSessionBound, onSessionUnbound, sessionStorage, onSessionRenamed } = options;
     const httpServer = createServer((req, res) => {
       const pathname = new URL(req.url ?? '/', `http://localhost:${port}`).pathname;
 
       // Task 3: 认证 API 端点
       if (userStorage && pathname.startsWith('/api/')) {
-        handleAuthApi(req, res, pathname, userStorage, sessionStorage);
+        handleAuthApi(req, res, pathname, userStorage, sessionStorage, onSessionRenamed);
         return;
       }
 
       // 服务最小化聊天页面（部署用）
       // 用 pathname 匹配，忽略 query string（如 ?token=xxx）
       if (serveHtml && req.method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.writeHead(200, {
+          'content-type': 'text/html; charset=utf-8',
+          // 验收修复：禁止缓存，确保用户每次访问拿到最新 HTML（避免旧版前端逻辑残留）
+          'cache-control': 'no-cache, no-store, must-revalidate',
+        });
         res.end(serveHtml);
         return;
       }
@@ -258,28 +267,49 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
 
         // Task 5 C2 fix: ownership 检查 — 若 sessionStorage 与 userStorage 都提供，且 ?session= 显式指定，
         // 验证 session 当前 owner 与连接用户匹配（未 claim 时允许并自动 claim）
+        // 例外：当 sessionKey === agentSessionId 时，agent session 是共享单实例，
+        // 应该转移给当前登录用户，跳过严格 ownership 检查并 force claim
+        const agentSessionIdForCheck = getCurrentSessionId ? getCurrentSessionId() : undefined;
         if (sessionStorage && userStorage && url.searchParams.has('session')) {
+          const isAgentSharedSession = sessionKey === agentSessionIdForCheck;
           const currentOwner = await sessionStorage.getSessionOwner(sessionKey);
-          if (currentOwner && currentOwner !== identity.userId) {
-            log.warn('session ownership mismatch, rejecting', {
-              sessionKey,
-              currentOwner,
-              attemptedUser: identity.userId,
-            });
-            safeSend(ws, { type: 'error', code: 'session_ownership_mismatch', message: 'Session belongs to another user' });
-            ws.close();
-            return;
-          }
-          // 未 claim 或同 user — 自动 claim
-          try {
-            await sessionStorage.claimSession(sessionKey, identity.userId);
-          } catch (err) {
-            // 并发场景下可能 SessionAlreadyClaimedError — 再次检查
-            const owner = await sessionStorage.getSessionOwner(sessionKey);
-            if (owner && owner !== identity.userId) {
+          if (isAgentSharedSession) {
+            // agent 共享 session：强制转移给当前登录用户（覆盖旧 owner）
+            if (currentOwner && currentOwner !== identity.userId) {
+              log.info('agent session ownership transfer', {
+                sessionKey,
+                oldOwner: currentOwner,
+                newOwner: identity.userId,
+              });
+            }
+            try {
+              await sessionStorage.forceClaimSession(sessionKey, identity.userId);
+            } catch (err) {
+              log.warn('forceClaimSession failed for agent session', { sessionKey, error: String(err) });
+            }
+          } else {
+            // 普通 session：严格 ownership 检查
+            if (currentOwner && currentOwner !== identity.userId) {
+              log.warn('session ownership mismatch, rejecting', {
+                sessionKey,
+                currentOwner,
+                attemptedUser: identity.userId,
+              });
               safeSend(ws, { type: 'error', code: 'session_ownership_mismatch', message: 'Session belongs to another user' });
               ws.close();
               return;
+            }
+            // 未 claim 或同 user — 自动 claim
+            try {
+              await sessionStorage.claimSession(sessionKey, identity.userId);
+            } catch (err) {
+              // 并发场景下可能 SessionAlreadyClaimedError — 再次检查
+              const owner = await sessionStorage.getSessionOwner(sessionKey);
+              if (owner && owner !== identity.userId) {
+                safeSend(ws, { type: 'error', code: 'session_ownership_mismatch', message: 'Session belongs to another user' });
+                ws.close();
+                return;
+              }
             }
           }
         }
@@ -298,6 +328,7 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
           userId: identity.userId,
           username: identity.username,
           sessionKey,
+          clientId: randomUUID(),
         };
         connections.set(ws, state);
         incSessionRef(sessionKey);
@@ -306,8 +337,18 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
         ws.removeListener('message', earlyMessageHandler);
 
         // Task 4: 有 userStorage 时发送 user_identified 事件
+        // 验收修复：携带 agent 真实 sessionId，使前端能对齐 localStorage 并查询正确的历史文件
         if (userStorage) {
-          safeSend(ws, { type: 'user_identified', userId: identity.userId, username: identity.username });
+          const agentSessionId = getCurrentSessionId ? getCurrentSessionId() : undefined;
+          // 将 agent 当前 sessionId claim 给该用户（使 history API ownership 检查通过）
+          if (agentSessionId && sessionStorage && agentSessionId !== sessionKey) {
+            try {
+              await sessionStorage.claimSession(agentSessionId, identity.userId);
+            } catch (err) {
+              log.warn('failed to claim agent session for user', { agentSessionId, error: String(err) });
+            }
+          }
+          safeSend(ws, { type: 'user_identified', userId: identity.userId, username: identity.username, sessionId: agentSessionId, clientId: state.clientId });
         }
 
         // Task 9: presence 广播 — 通知同 sessionKey 的其他连接（不含自己）当前在线数
@@ -506,8 +547,13 @@ function replayHistory(
   ];
   merged.sort((a, b) => a.timestamp - b.timestamp);
 
-  // Apply historyLimit — take the last N messages (most recent)
-  const limited = merged.slice(-historyLimit);
+  // Apply historyLimit — 保留全部 inbound（用户消息是关键上下文），outbound 取最近 N 条
+  // 设计理由：流式 message_delta 可能产生大量 outbound 事件，若按总数 slice(-N) 会把
+  // 早期的 inbound 用户消息挤出回放窗口，导致历史上下文丢失。
+  const allInbound = merged.filter((m) => m.kind === 'inbound');
+  const allOutbound = merged.filter((m) => m.kind === 'outbound');
+  const limitedOutbound = allOutbound.slice(-historyLimit);
+  const limited = [...allInbound, ...limitedOutbound].sort((a, b) => a.timestamp - b.timestamp);
   if (limited.length === 0) return;
 
   const messages = limited.map((m) => {
@@ -585,10 +631,12 @@ function handleMessage(
       chatId: 'default',
       content,
       // Task 6 I2 fix: 携带发起方 sessionKey 和 userId，供 runInboundLoop 识别 /new 的来源连接
+      // 验收修复：携带 clientId，供 user_message 事件区分发送者（跨客户端同步）
       metadata: {
         sessionKey: state.sessionKey,
         userId: state.userId,
         username: state.username,
+        clientId: state.clientId,
       },
     };
     bus.publishInbound(inbound).catch((err) => {
@@ -610,6 +658,7 @@ async function handleAuthApi(
   pathname: string,
   userStorage: UserStorage,
   sessionStorage?: StorageAdapter,
+  onSessionRenamed?: (sessionId: string, label: string) => void,
 ): Promise<void> {
   const sendJson = (status: number, body: unknown) => {
     res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
@@ -681,6 +730,106 @@ async function handleAuthApi(
         return;
       }
       sendJson(200, { userId: user.userId, username: user.username });
+      return;
+    }
+
+    // GET /api/sessions/:id/messages — 返回 session 历史消息（仅 message 条目）
+    const messagesMatch = pathname.match(/^\/api\/sessions\/([a-f0-9-]{36})\/messages$/);
+    if (messagesMatch && req.method === 'GET') {
+      const sessionId = messagesMatch[1];
+      const url = new URL(req.url ?? '', `http://localhost`);
+      const queryToken = url.searchParams.get('token');
+      const authHeader = req.headers.authorization;
+      const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : null;
+      const token = queryToken ?? bearerToken;
+      if (!token) {
+        sendJson(401, { error: 'missing token' });
+        return;
+      }
+      const user = await userStorage.findByToken(token);
+      if (!user) {
+        sendJson(401, { error: 'invalid token' });
+        return;
+      }
+      if (!sessionStorage) {
+        sendJson(200, { messages: [] });
+        return;
+      }
+      const owner = await sessionStorage.getSessionOwner(sessionId);
+      if (!owner) {
+        sendJson(404, { error: 'session not found' });
+        return;
+      }
+      if (owner !== user.userId) {
+        sendJson(403, { error: 'forbidden' });
+        return;
+      }
+      const entries = await sessionStorage.readSession(sessionId);
+      const messages = entries.filter((e) => e.type === 'message');
+      sendJson(200, { messages });
+      return;
+    }
+
+    // 会话重命名：POST /api/sessions/:id/label
+    const labelMatch = pathname.match(/^\/api\/sessions\/([a-f0-9-]{36})\/label$/);
+    if (labelMatch) {
+      const sessionId = labelMatch[1];
+      if (req.method !== 'POST') {
+        sendJson(405, { error: 'method not allowed' });
+        return;
+      }
+      const url = new URL(req.url ?? '', 'http://localhost');
+      const queryToken = url.searchParams.get('token');
+      const authHeader = req.headers.authorization;
+      const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : null;
+      const token = queryToken ?? bearerToken;
+      if (!token) {
+        sendJson(401, { error: 'missing token' });
+        return;
+      }
+      const user = await userStorage.findByToken(token);
+      if (!user) {
+        sendJson(401, { error: 'invalid token' });
+        return;
+      }
+      if (!sessionStorage) {
+        sendJson(500, { error: 'session storage unavailable' });
+        return;
+      }
+      const owner = await sessionStorage.getSessionOwner(sessionId);
+      if (!owner) {
+        sendJson(404, { error: 'session not found' });
+        return;
+      }
+      if (owner !== user.userId) {
+        sendJson(403, { error: 'forbidden' });
+        return;
+      }
+      let body: unknown;
+      try {
+        body = await readJsonBody(req);
+      } catch (err) {
+        sendJson(err instanceof BodyTooLargeError ? 413 : 400, { error: 'invalid request body' });
+        return;
+      }
+      if (!body || typeof body !== 'object' || typeof (body as { label?: unknown }).label !== 'string') {
+        sendJson(400, { error: 'label must be a string' });
+        return;
+      }
+      const label = ((body as { label: string }).label).trim().slice(0, 100);
+      if (!label) {
+        sendJson(400, { error: 'label must be a non-empty string' });
+        return;
+      }
+      await sessionStorage.updateSessionLabel(sessionId, label);
+      if (onSessionRenamed) {
+        try {
+          onSessionRenamed(sessionId, label);
+        } catch (err) {
+          log.error('onSessionRenamed callback failed', { error: String(err), sessionId });
+        }
+      }
+      sendJson(200, { ok: true, label });
       return;
     }
 
