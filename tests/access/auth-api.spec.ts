@@ -96,6 +96,33 @@ describe('Task 3: HTTP 认证 API', () => {
       });
       expect(res.status).toBe(400);
     });
+
+    it('非字符串字段返回 400（Task 3 I3 输入校验）', async () => {
+      await startServer();
+      const res = await httpRequest(TEST_PORT, 'POST', '/api/register', {
+        username: 123,
+        password: 'pass',
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('空白用户名返回 400', async () => {
+      await startServer();
+      const res = await httpRequest(TEST_PORT, 'POST', '/api/register', {
+        username: '   ',
+        password: 'pass',
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('超长用户名返回 400（> 64 字符）', async () => {
+      await startServer();
+      const res = await httpRequest(TEST_PORT, 'POST', '/api/register', {
+        username: 'a'.repeat(65),
+        password: 'pass',
+      });
+      expect(res.status).toBe(400);
+    });
   });
 
   describe('POST /api/login', () => {

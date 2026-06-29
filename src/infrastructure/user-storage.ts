@@ -27,14 +27,26 @@ export interface UserStorage {
   findByUserId(userId: string): Promise<UserRecord | null>;
 }
 
+/** Task 3 I2: 专用错误类型，用于区分 409 与 500 */
+export class UsernameExistsError extends Error {
+  constructor(username: string) {
+    super(`username already exists: ${username}`);
+    this.name = 'UsernameExistsError';
+  }
+}
+
 const USERS_FILE = 'users.jsonl';
 const SCRYPT_KEYLEN = 64;
 const SCRYPT_SALT_LEN = 16;
+// Task 3 M1: 显式 scrypt 参数（OWASP 最低线）
+const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1 } as const;
+// Task 3 I4: dummy 密码用于拉平 login 时序（用户不存在时也跑一次 scrypt）
+const DUMMY_PASSWORD_HASH = hashPassword('__dummy__');
 
 /** scrypt 哈希密码，返回 "salt:hash" 格式（均为 hex） */
 function hashPassword(password: string): string {
   const salt = randomBytes(SCRYPT_SALT_LEN);
-  const hash = scryptSync(password, salt, SCRYPT_KEYLEN);
+  const hash = scryptSync(password, salt, SCRYPT_KEYLEN, SCRYPT_PARAMS);
   return `${salt.toString('hex')}:${hash.toString('hex')}`;
 }
 
@@ -44,9 +56,17 @@ function verifyPassword(password: string, stored: string): boolean {
   if (!saltHex || !hashHex) return false;
   const salt = Buffer.from(saltHex, 'hex');
   const expectedHash = Buffer.from(hashHex, 'hex');
-  const actualHash = scryptSync(password, salt, SCRYPT_KEYLEN);
+  const actualHash = scryptSync(password, salt, SCRYPT_KEYLEN, SCRYPT_PARAMS);
   if (actualHash.length !== expectedHash.length) return false;
   return timingSafeEqual(actualHash, expectedHash);
+}
+
+/** Task 3 I5: 常量时间比较 token */
+function safeEqualToken(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
 }
 
 /** 生成 32 字节随机 token（hex 编码，64 字符） */
@@ -59,51 +79,57 @@ export function createUserStorage(dataDir: string): UserStorage {
   // per-file lock key，避免与 session JSONL 锁冲突
   const lockKey = `users-jsonl`;
 
-  async function readAllUsers(): Promise<UserRecord[]> {
+  async function readAllUsersUnlocked(): Promise<UserRecord[]> {
     if (!existsSync(usersPath)) return [];
-    return withJsonlLock(lockKey, async () => {
-      await repairJsonl(usersPath);
-      const result = await readJsonlTolerant(usersPath);
-      return result.entries as UserRecord[];
-    });
+    await repairJsonl(usersPath);
+    const result = await readJsonlTolerant(usersPath);
+    return result.entries as UserRecord[];
   }
 
-  async function appendUser(record: UserRecord): Promise<void> {
-    return withJsonlLock(lockKey, () => appendJsonl(usersPath, record));
+  async function appendUserUnlocked(record: UserRecord): Promise<void> {
+    await appendJsonl(usersPath, record);
   }
 
   return {
     async register(username: string, password: string): Promise<UserRecord> {
-      const users = await readAllUsers();
-      if (users.some((u) => u.username === username)) {
-        throw new Error(`username already exists: ${username}`);
-      }
-      const record: UserRecord = {
-        userId: randomUUID(),
-        username,
-        passwordHash: hashPassword(password),
-        token: generateToken(),
-        createdAt: Date.now(),
-      };
-      await appendUser(record);
-      return record;
+      // Task 3 I1 修复：read + append 在同一锁闭包内，避免 TOCTOU 竞态
+      return withJsonlLock(lockKey, async () => {
+        const users = await readAllUsersUnlocked();
+        if (users.some((u) => u.username === username)) {
+          throw new UsernameExistsError(username);
+        }
+        const record: UserRecord = {
+          userId: randomUUID(),
+          username,
+          passwordHash: hashPassword(password),
+          token: generateToken(),
+          createdAt: Date.now(),
+        };
+        await appendUserUnlocked(record);
+        return record;
+      });
     },
 
     async login(username: string, password: string): Promise<UserRecord | null> {
-      const users = await readAllUsers();
+      const users = await withJsonlLock(lockKey, readAllUsersUnlocked);
       const user = users.find((u) => u.username === username);
-      if (!user) return null;
+      // Task 3 I4 修复：用户不存在时跑 dummy scrypt 拉平时序
+      if (!user) {
+        verifyPassword(password, DUMMY_PASSWORD_HASH);
+        return null;
+      }
       if (!verifyPassword(password, user.passwordHash)) return null;
       return user;
     },
 
     async findByToken(token: string): Promise<UserRecord | null> {
-      const users = await readAllUsers();
-      return users.find((u) => u.token === token) ?? null;
+      const users = await withJsonlLock(lockKey, readAllUsersUnlocked);
+      // Task 3 I5: 常量时间比较 token
+      return users.find((u) => safeEqualToken(u.token, token)) ?? null;
     },
 
     async findByUserId(userId: string): Promise<UserRecord | null> {
-      const users = await readAllUsers();
+      const users = await withJsonlLock(lockKey, readAllUsersUnlocked);
       return users.find((u) => u.userId === userId) ?? null;
     },
   };

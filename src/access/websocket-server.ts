@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { WebSocketServer as WsServer, WebSocket } from 'ws';
 import { createLogger } from '../infrastructure/logger.js';
 import type { MessageBus, InboundMessage, AgentEventEnvelope } from '../bus/types.js';
-import type { UserStorage } from '../infrastructure/user-storage.js';
+import { type UserStorage, UsernameExistsError } from '../infrastructure/user-storage.js';
 
 const log = createLogger('websocket-server');
 
@@ -276,27 +276,48 @@ async function handleAuthApi(
 
   try {
     if (pathname === '/api/register' && req.method === 'POST') {
-      const body = await readJsonBody(req);
-      if (!body.username || !body.password) {
-        sendJson(400, { error: 'username and password required' });
+      let body;
+      try {
+        body = await readJsonBody(req);
+      } catch (err) {
+        sendJson(err instanceof BodyTooLargeError ? 413 : 400, { error: 'invalid request body' });
+        return;
+      }
+      // Task 3 I3: 类型与长度校验
+      const validation = validateCredentials(body);
+      if (!validation.ok) {
+        sendJson(400, { error: validation.error });
         return;
       }
       try {
-        const user = await userStorage.register(body.username, body.password);
+        const user = await userStorage.register(validation.username, validation.password);
         sendJson(200, { userId: user.userId, username: user.username, token: user.token });
       } catch (err) {
-        sendJson(409, { error: String(err) });
+        // Task 3 I2: 区分 409 与 500
+        if (err instanceof UsernameExistsError) {
+          sendJson(409, { error: 'username already exists' });
+        } else {
+          log.error('register failed', { error: String(err) });
+          sendJson(500, { error: 'internal server error' });
+        }
       }
       return;
     }
 
     if (pathname === '/api/login' && req.method === 'POST') {
-      const body = await readJsonBody(req);
-      if (!body.username || !body.password) {
-        sendJson(400, { error: 'username and password required' });
+      let body;
+      try {
+        body = await readJsonBody(req);
+      } catch (err) {
+        sendJson(err instanceof BodyTooLargeError ? 413 : 400, { error: 'invalid request body' });
         return;
       }
-      const user = await userStorage.login(body.username, body.password);
+      const validation = validateCredentials(body);
+      if (!validation.ok) {
+        sendJson(400, { error: validation.error });
+        return;
+      }
+      const user = await userStorage.login(validation.username, validation.password);
       if (!user) {
         sendJson(401, { error: 'invalid credentials' });
         return;
@@ -328,13 +349,41 @@ async function handleAuthApi(
   }
 }
 
-function readJsonBody(req: IncomingMessage): Promise<any> {
+/** Task 3 I3: 输入校验 — 类型、长度、空白检查 */
+const USERNAME_MAX = 64;
+const PASSWORD_MAX = 256;
+function validateCredentials(body: unknown): { ok: true; username: string; password: string } | { ok: false; error: string } {
+  if (!body || typeof body !== 'object') {
+    return { ok: false, error: 'invalid request body' };
+  }
+  const { username, password } = body as Record<string, unknown>;
+  if (typeof username !== 'string' || typeof password !== 'string') {
+    return { ok: false, error: 'username and password must be strings' };
+  }
+  const trimmedUsername = username.trim();
+  if (trimmedUsername.length === 0 || trimmedUsername.length > USERNAME_MAX) {
+    return { ok: false, error: `username must be 1-${USERNAME_MAX} characters` };
+  }
+  if (password.length === 0 || password.length > PASSWORD_MAX) {
+    return { ok: false, error: `password must be 1-${PASSWORD_MAX} characters` };
+  }
+  return { ok: true, username: trimmedUsername, password };
+}
+
+class BodyTooLargeError extends Error {
+  constructor() {
+    super('body too large');
+    this.name = 'BodyTooLargeError';
+  }
+}
+
+function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     let data = '';
     req.on('data', (chunk) => {
       data += chunk;
       if (data.length > 64 * 1024) {
-        reject(new Error('body too large'));
+        reject(new BodyTooLargeError());
         req.destroy();
       }
     });
