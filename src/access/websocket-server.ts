@@ -1,7 +1,8 @@
-import { createServer } from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { WebSocketServer as WsServer, WebSocket } from 'ws';
 import { createLogger } from '../infrastructure/logger.js';
 import type { MessageBus, InboundMessage, AgentEventEnvelope } from '../bus/types.js';
+import type { UserStorage } from '../infrastructure/user-storage.js';
 
 const log = createLogger('websocket-server');
 
@@ -23,6 +24,8 @@ export interface WebSocketServerOptions {
   host?: string;
   /** 若提供，HTTP GET / 将返回此 HTML（用于服务最小化聊天页面） */
   serveHtml?: string;
+  /** Task 3: 用户存储，启用后支持 POST /api/register /api/login GET /api/me */
+  userStorage?: UserStorage;
 }
 
 export interface WebSocketServer {
@@ -46,11 +49,18 @@ interface ConnectionState {
  */
 export function startWebSocketServer(options: WebSocketServerOptions): Promise<WebSocketServer> {
   return new Promise((resolve, reject) => {
-    const { port, bus, authToken, serveHtml, host } = options;
+    const { port, bus, authToken, serveHtml, host, userStorage } = options;
     const httpServer = createServer((req, res) => {
+      const pathname = new URL(req.url ?? '/', `http://localhost:${port}`).pathname;
+
+      // Task 3: 认证 API 端点
+      if (userStorage && pathname.startsWith('/api/')) {
+        handleAuthApi(req, res, pathname, userStorage);
+        return;
+      }
+
       // 服务最小化聊天页面（部署用）
       // 用 pathname 匹配，忽略 query string（如 ?token=xxx）
-      const pathname = new URL(req.url ?? '/', `http://localhost:${port}`).pathname;
       if (serveHtml && req.method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         res.end(serveHtml);
@@ -245,4 +255,96 @@ function handleMessage(
       log.error('failed to publish inbound', { error: String(err) });
     });
   }
+}
+
+/**
+ * Task 3: 处理认证 API 端点
+ * - POST /api/register { username, password } → { userId, username, token }
+ * - POST /api/login    { username, password } → { userId, username, token }
+ * - GET  /api/me       Authorization: Bearer <token> → { userId, username }
+ */
+async function handleAuthApi(
+  req: IncomingMessage,
+  res: ServerResponse,
+  pathname: string,
+  userStorage: UserStorage,
+): Promise<void> {
+  const sendJson = (status: number, body: unknown) => {
+    res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(body));
+  };
+
+  try {
+    if (pathname === '/api/register' && req.method === 'POST') {
+      const body = await readJsonBody(req);
+      if (!body.username || !body.password) {
+        sendJson(400, { error: 'username and password required' });
+        return;
+      }
+      try {
+        const user = await userStorage.register(body.username, body.password);
+        sendJson(200, { userId: user.userId, username: user.username, token: user.token });
+      } catch (err) {
+        sendJson(409, { error: String(err) });
+      }
+      return;
+    }
+
+    if (pathname === '/api/login' && req.method === 'POST') {
+      const body = await readJsonBody(req);
+      if (!body.username || !body.password) {
+        sendJson(400, { error: 'username and password required' });
+        return;
+      }
+      const user = await userStorage.login(body.username, body.password);
+      if (!user) {
+        sendJson(401, { error: 'invalid credentials' });
+        return;
+      }
+      sendJson(200, { userId: user.userId, username: user.username, token: user.token });
+      return;
+    }
+
+    if (pathname === '/api/me' && req.method === 'GET') {
+      const authHeader = req.headers.authorization;
+      if (!authHeader?.startsWith('Bearer ')) {
+        sendJson(401, { error: 'missing token' });
+        return;
+      }
+      const token = authHeader.slice('Bearer '.length);
+      const user = await userStorage.findByToken(token);
+      if (!user) {
+        sendJson(401, { error: 'invalid token' });
+        return;
+      }
+      sendJson(200, { userId: user.userId, username: user.username });
+      return;
+    }
+
+    sendJson(404, { error: 'not found' });
+  } catch (err) {
+    log.error('auth api error', { error: String(err), pathname });
+    sendJson(500, { error: 'internal server error' });
+  }
+}
+
+function readJsonBody(req: IncomingMessage): Promise<any> {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', (chunk) => {
+      data += chunk;
+      if (data.length > 64 * 1024) {
+        reject(new Error('body too large'));
+        req.destroy();
+      }
+    });
+    req.on('end', () => {
+      try {
+        resolve(data ? JSON.parse(data) : {});
+      } catch (e) {
+        reject(e);
+      }
+    });
+    req.on('error', reject);
+  });
 }
