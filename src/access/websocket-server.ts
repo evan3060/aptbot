@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { WebSocketServer as WsServer, WebSocket } from 'ws';
 import { createLogger } from '../infrastructure/logger.js';
 import type { MessageBus, InboundMessage, AgentEventEnvelope } from '../bus/types.js';
@@ -38,6 +39,60 @@ interface ConnectionState {
   messageTimestamps: number[];
   rateLimitWarnings: number;
   isAlive: boolean;
+  userId: string;       // Task 4: 从 token 解析或匿名生成
+  username?: string;    // Task 4: 注册用户有 username，匿名用户无
+  sessionKey?: string;  // Task 5 填充
+}
+
+/** Task 4: 共享 authToken 的固定 userId */
+const SHARED_USER_ID = '__shared__';
+
+/**
+ * Task 4: 识别用户身份
+ * 优先级：用户 token > authToken > 匿名 UUID
+ * 返回 null 表示认证失败（应拒绝连接）
+ */
+async function identifyUser(
+  token: string | null,
+  authToken: string | undefined,
+  userStorage: UserStorage | undefined,
+): Promise<{ userId: string; username?: string } | null> {
+  if (!token) {
+    // 无 token：有 userStorage 时生成匿名 UUID；无 userStorage 且有 authToken 时拒绝；都无时接受为匿名
+    if (userStorage) {
+      return { userId: randomUUID() };
+    }
+    if (authToken) {
+      return null; // 要求 token 但未提供
+    }
+    return { userId: randomUUID() }; // 开发模式：无任何认证
+  }
+
+  // 有 token：先尝试用户 token
+  if (userStorage) {
+    const user = await userStorage.findByToken(token);
+    if (user) {
+      return { userId: user.userId, username: user.username };
+    }
+  }
+
+  // 用户 token 无效：尝试 authToken
+  if (authToken && token === authToken) {
+    return { userId: SHARED_USER_ID };
+  }
+
+  // 有 userStorage 时，无效 token 拒绝（不回退匿名）
+  if (userStorage) {
+    return null;
+  }
+
+  // 无 userStorage 但有 authToken：token 不匹配则拒绝
+  if (authToken) {
+    return null;
+  }
+
+  // 无 userStorage 无 authToken：不应到达此处（token 为非空但无验证机制），按匿名处理
+  return { userId: randomUUID() };
 }
 
 /**
@@ -76,55 +131,74 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
 
     wss.on('connection', (ws, req) => {
       const url = new URL(req.url ?? '', `http://localhost:${port}`);
+      const token = url.searchParams.get('token');
 
-      // Auth check
-      if (authToken) {
-        const token = url.searchParams.get('token');
-        if (token !== authToken) {
+      // Task 4: 异步识别用户身份
+      identifyUser(token, authToken, userStorage).then((identity) => {
+        if (identity === null) {
           safeSend(ws, { type: 'error', code: 'auth_failed', message: 'Invalid or missing auth token' });
           ws.close();
           return;
         }
-      }
 
-      // Connection limit
-      if (connections.size >= WS_MAX_CONNECTIONS) {
-        safeSend(ws, { type: 'error', code: 'max_connections', message: 'Server at capacity' });
-        ws.close();
-        return;
-      }
-
-      const state: ConnectionState = {
-        messageTimestamps: [],
-        rateLimitWarnings: 0,
-        isAlive: true,
-      };
-      connections.set(ws, state);
-
-      // I1 修复：resync 协议 — 客户端携带 lastEventSeq 重连时重放缓冲事件
-      const lastEventSeqStr = url.searchParams.get('lastEventSeq');
-      if (lastEventSeqStr !== null) {
-        const lastEventSeq = parseInt(lastEventSeqStr, 10);
-        if (!Number.isNaN(lastEventSeq)) {
-          replayBufferedEvents(ws, ringBuffer, lastEventSeq);
+        // Connection limit
+        if (connections.size >= WS_MAX_CONNECTIONS) {
+          safeSend(ws, { type: 'error', code: 'max_connections', message: 'Server at capacity' });
+          ws.close();
+          return;
         }
-      }
 
-      // C11 修复：heartbeat — pong 回来标记存活
-      ws.on('pong', () => {
-        state.isAlive = true;
-      });
+        const state: ConnectionState = {
+          messageTimestamps: [],
+          rateLimitWarnings: 0,
+          isAlive: true,
+          userId: identity.userId,
+          username: identity.username,
+        };
+        connections.set(ws, state);
 
-      ws.on('message', (data) => {
-        handleMessage(ws, state, data as Buffer, bus);
-      });
+        // Task 4: 有 userStorage 时发送 user_identified 事件
+        if (userStorage) {
+          safeSend(ws, { type: 'user_identified', userId: identity.userId, username: identity.username });
+        }
 
-      ws.on('close', () => {
-        connections.delete(ws);
-      });
+        // I1 修复：resync 协议 — 客户端携带 lastEventSeq 重连时重放缓冲事件
+        const lastEventSeqStr = url.searchParams.get('lastEventSeq');
+        if (lastEventSeqStr !== null) {
+          const lastEventSeq = parseInt(lastEventSeqStr, 10);
+          if (!Number.isNaN(lastEventSeq)) {
+            replayBufferedEvents(ws, ringBuffer, lastEventSeq);
+          }
+        }
 
-      ws.on('error', () => {
-        connections.delete(ws);
+        // C11 修复：heartbeat — pong 回来标记存活
+        ws.on('pong', () => {
+          state.isAlive = true;
+        });
+
+        ws.on('message', (data) => {
+          handleMessage(ws, state, data as Buffer, bus);
+        });
+
+        ws.on('close', () => {
+          connections.delete(ws);
+          log.info('connection closed', { connections: connections.size });
+        });
+
+        ws.on('error', (err) => {
+          log.error('connection error', { error: String(err) });
+          connections.delete(ws);
+        });
+
+        log.info('connection established', {
+          connections: connections.size,
+          userId: identity.userId,
+          username: identity.username,
+        });
+      }).catch((err) => {
+        log.error('user identification failed', { error: String(err) });
+        safeSend(ws, { type: 'error', code: 'auth_failed', message: 'Authentication failed' });
+        ws.close();
       });
     });
 
