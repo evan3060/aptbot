@@ -450,6 +450,9 @@ describe('Task 5: WebSocket sessionKey 路由 + session-user 关联', () => {
       const ws2 = await connectSimple('shared-session');
       clients.push(ws2);
 
+      // Task 9: ws2 加入会触发 presence 广播给 ws1，先消费掉再等待 broadcast
+      await waitForMessage(ws1);
+
       server!.broadcast(makeEnvelope('shared-session', 1));
       const [recv1, recv2] = await Promise.all([
         waitForMessage(ws1),

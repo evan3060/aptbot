@@ -206,6 +206,31 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
       }
     }
 
+    /**
+     * Task 9: 向同 sessionKey 的所有活跃 connection 直发 presence 事件（排除触发者自己）。
+     * 不经过 bus / ChannelManager，由 wsServer 直接发送。
+     * onlineCount = 当前 sessionKey 的活跃 connection 数（含触发者，但触发者不收到）。
+     * 设计理由：触发者无需被通知自己加入；其他连接需要知道在线人数变化。
+     * 连接关闭时调用，触发者已从 connections 删除，自然不会收到。
+     */
+    function broadcastPresence(sessionKey: string, excludeWs?: WebSocket): void {
+      let onlineCount = 0;
+      for (const [, state] of connections) {
+        if (state.sessionKey === sessionKey) onlineCount++;
+      }
+      const payload = JSON.stringify({ type: 'presence', onlineCount });
+      for (const [ws, state] of connections) {
+        if (ws === excludeWs) continue;
+        if (state.sessionKey === sessionKey && ws.readyState === WebSocket.OPEN) {
+          try {
+            ws.send(payload);
+          } catch (err) {
+            log.warn('presence send failed for one connection', { error: String(err) });
+          }
+        }
+      }
+    }
+
     wss.on('connection', (ws, req) => {
       const url = new URL(req.url ?? '', `http://localhost:${port}`);
       const token = url.searchParams.get('token');
@@ -285,6 +310,9 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
           safeSend(ws, { type: 'user_identified', userId: identity.userId, username: identity.username });
         }
 
+        // Task 9: presence 广播 — 通知同 sessionKey 的其他连接（不含自己）当前在线数
+        broadcastPresence(sessionKey, ws);
+
         // I1 修复：resync 协议 — 客户端携带 lastEventSeq 重连时重放缓冲事件
         // Task 5: 仅重放该 sessionKey 的 buffer
         // Task 8: historyLimit 优先触发历史回放（inbound + outbound 合并）
@@ -318,6 +346,8 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
 
         ws.on('close', () => {
           connections.delete(ws);
+          // Task 9: presence 广播 — 通知剩余连接当前在线数
+          broadcastPresence(sessionKey);
           // I4/I5 fix: 引用计数减一，归零时清理 ringBuffer + 通知 server.ts unbind
           decSessionRef(sessionKey);
           log.info('connection closed', { connections: connections.size, sessionKey });

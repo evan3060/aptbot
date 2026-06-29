@@ -142,6 +142,16 @@ export function createChatPageHtml(wsPath: string): string {
     0%, 100% { opacity: 0.3; }
     50% { opacity: 1; }
   }
+  #presence {
+    text-align: center;
+    padding: 4px;
+    color: #6b7280;
+    font-size: 12px;
+    background: #f9fafb;
+    border-top: 1px solid #e5e7eb;
+    display: none;
+  }
+  #presence.show { display: block; }
 </style>
 </head>
 <body>
@@ -151,6 +161,7 @@ export function createChatPageHtml(wsPath: string): string {
 </header>
 <div id="messages"></div>
 <div id="working">assistant working</div>
+<div id="presence"></div>
 <div id="input-bar">
   <input id="input" type="text" placeholder="type a message... (Enter to send)" autocomplete="off" />
   <button id="send">Send</button>
@@ -162,6 +173,7 @@ export function createChatPageHtml(wsPath: string): string {
   var sendBtn = document.getElementById('send');
   var statusEl = document.getElementById('status');
   var workingEl = document.getElementById('working');
+  var presenceEl = document.getElementById('presence');
   var currentAssistantMsg = null;
   var currentAssistantText = '';
   var lastEventSeq = 0;
@@ -350,6 +362,18 @@ export function createChatPageHtml(wsPath: string): string {
         ws.close();
       }
       connect();
+      return;
+    }
+    // Task 9: presence 事件 — 更新在线人数指示器（N>1 时显示，N<=1 时隐藏）
+    if (msg.type === 'presence') {
+      if (presenceEl) {
+        if (msg.onlineCount > 1) {
+          presenceEl.textContent = msg.onlineCount + ' 人在线';
+          presenceEl.classList.add('show');
+        } else {
+          presenceEl.classList.remove('show');
+        }
+      }
       return;
     }
     if (msg.type === 'event' && msg.event) {

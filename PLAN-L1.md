@@ -380,10 +380,10 @@ interface CommandContext {
 **Behavior:** 多客户端场景下，用户能感知其他设备的在线状态。避免重复发送消息（看到对方设备在线时知道会话已被打开）。presence 事件由 wsServer 直发，不污染 AgentEvent 命名空间。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：新连接触发 presence 广播、断开时触发、onlineCount 正确、页面指示器显示
-- [ ] 验证失败：`npm run test -- tests/access/websocket-presence.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
+- [x] 编写失败测试覆盖：新连接触发 presence 广播、断开时触发、onlineCount 正确、页面指示器显示
+- [x] 验证失败：`npm run test -- tests/access/websocket-presence.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
 - [ ] `requesting-code-review` skill 审查
 - [ ] 提交：`feat: presence indicator for multi-client sessions`
 
