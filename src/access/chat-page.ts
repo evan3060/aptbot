@@ -240,9 +240,17 @@ export function createChatPageHtml(wsPath: string): string {
     else { workingEl.classList.remove('show'); sendBtn.disabled = false; }
   }
 
-  // 从 URL 读取 token
-  var urlParams = new URLSearchParams(window.location.search);
-  var token = urlParams.get('token') || '';
+  // 从 URL 或 sessionStorage 读取 token（Task 1: token 记忆与自动携带）
+  // 逻辑与 src/access/chat-page-token.ts 的 resolveToken 保持一致
+  var TOKEN_KEY = 'aptbot:token';
+  var urlToken = new URLSearchParams(window.location.search).get('token');
+  var token = null;
+  if (urlToken) {
+    sessionStorage.setItem(TOKEN_KEY, urlToken);
+    token = urlToken;
+  } else {
+    token = sessionStorage.getItem(TOKEN_KEY) || null;
+  }
 
   function buildWsUrl() {
     var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -252,6 +260,14 @@ export function createChatPageHtml(wsPath: string): string {
     if (lastEventSeq > 0) params.set('lastEventSeq', String(lastEventSeq));
     var qs = params.toString();
     return qs ? base + '?' + qs : base;
+  }
+
+  // 无 token 时显示鉴权提示并禁止发送
+  if (!token) {
+    appendErrorMsg('Authentication required. Please provide a token via ?token=<your-token>');
+    sendBtn.disabled = true;
+    inputEl.disabled = true;
+    inputEl.placeholder = 'authentication required';
   }
 
   var ws = null;
