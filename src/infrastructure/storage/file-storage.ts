@@ -1,4 +1,4 @@
-import { readdirSync, statSync, unlinkSync, existsSync } from 'node:fs';
+import { readdirSync, statSync, unlinkSync, existsSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   appendJsonl,
@@ -21,13 +21,27 @@ export function generateEntryId(prefix: string): string {
   return `${prefix}${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/**
+ * Task 5: session 元数据 sidecar 文件结构。
+ * 与 `<sessionId>.jsonl` 同目录，文件名 `<sessionId>.meta.json`。
+ * 用于持久化 userId / label 等元信息，不混入 JSONL entries。
+ */
+interface SessionMetaFile {
+  userId?: string;
+  label?: string;
+}
+
 export interface StorageAdapter {
   readSession(id: string): Promise<SessionEntry[]>;
   appendSession(id: string, entry: SessionEntry): Promise<void>;
-  listSessions(): Promise<SessionMetadata[]>;
+  listSessions(userId?: string): Promise<SessionMetadata[]>;
   readWorkingMemory(sessionId: string): Promise<string | null>;
   writeWorkingMemory(sessionId: string, keyInfo: string): Promise<void>;
   deleteSession(id: string): Promise<void>;
+  /** Task 5: 将 session claim 到指定 user（幂等，写入 sidecar .meta.json） */
+  claimSession(id: string, userId: string): Promise<void>;
+  /** Task 5: 更新 session label（写入 sidecar .meta.json） */
+  updateSessionLabel(id: string, label: string): Promise<void>;
 }
 
 /**
@@ -48,6 +62,34 @@ export class FileStorage implements StorageAdapter {
     return join(this.sessionsDir, `${id}.jsonl`);
   }
 
+  /** Task 5: sidecar .meta.json 路径 */
+  private resolveMetaPath(id: string): string {
+    if (!isValidSessionId(id)) {
+      throw new Error(`invalid sessionId: ${id}`);
+    }
+    return join(this.sessionsDir, `${id}.meta.json`);
+  }
+
+  /** Task 5: 读取 sidecar 元数据，文件不存在返回空对象 */
+  private readMeta(id: string): SessionMetaFile {
+    const path = this.resolveMetaPath(id);
+    if (!existsSync(path)) return {};
+    try {
+      const content = readFileSync(path, 'utf-8');
+      return JSON.parse(content) as SessionMetaFile;
+    } catch {
+      return {};
+    }
+  }
+
+  /** Task 5: 写入 sidecar 元数据（merge 语义） */
+  private writeMeta(id: string, patch: SessionMetaFile): void {
+    const existing = this.readMeta(id);
+    const merged: SessionMetaFile = { ...existing, ...patch };
+    const path = this.resolveMetaPath(id);
+    writeFileSync(path, JSON.stringify(merged, null, 2), 'utf-8');
+  }
+
   async readSession(id: string): Promise<SessionEntry[]> {
     const path = this.resolvePath(id);
     if (!existsSync(path)) return [];
@@ -65,7 +107,7 @@ export class FileStorage implements StorageAdapter {
     await withJsonlLock(id, () => appendJsonl(path, entry));
   }
 
-  async listSessions(): Promise<SessionMetadata[]> {
+  async listSessions(userId?: string): Promise<SessionMetadata[]> {
     if (!existsSync(this.sessionsDir)) return [];
     const files = readdirSync(this.sessionsDir).filter((f) => f.endsWith('.jsonl'));
     const metas: SessionMetadata[] = [];
@@ -74,10 +116,15 @@ export class FileStorage implements StorageAdapter {
       if (!isValidSessionId(id)) continue;
       const path = join(this.sessionsDir, file);
       const stat = statSync(path);
+      const meta = this.readMeta(id);
+      // Task 5: 若指定 userId 过滤，跳过不属于该用户的 session（未 claim 也不返回）
+      if (userId !== undefined && meta.userId !== userId) continue;
       metas.push({
         id,
         createdAt: Math.floor(stat.birthtimeMs),
         updatedAt: Math.floor(stat.mtimeMs),
+        userId: meta.userId,
+        label: meta.label,
       });
     }
     // 按 updatedAt 降序
@@ -110,6 +157,27 @@ export class FileStorage implements StorageAdapter {
     if (existsSync(path)) {
       unlinkSync(path);
     }
+    // 同步删除 sidecar meta
+    const metaPath = this.resolveMetaPath(id);
+    if (existsSync(metaPath)) {
+      unlinkSync(metaPath);
+    }
     // 幂等：文件不存在不抛错
+  }
+
+  /** Task 5: claim session 到指定 user（幂等） */
+  async claimSession(id: string, userId: string): Promise<void> {
+    if (!isValidSessionId(id)) {
+      throw new Error(`invalid sessionId: ${id}`);
+    }
+    this.writeMeta(id, { userId });
+  }
+
+  /** Task 5: 更新 session label */
+  async updateSessionLabel(id: string, label: string): Promise<void> {
+    if (!isValidSessionId(id)) {
+      throw new Error(`invalid sessionId: ${id}`);
+    }
+    this.writeMeta(id, { label });
   }
 }

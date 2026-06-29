@@ -49,12 +49,12 @@
 **Behavior:** VPS 部署后用户需每次带 `?token=` 参数访问，体验不佳。改为首次访问带 token 后记忆，后续刷新或重连自动携带。`sessionStorage` 随标签页关闭而清除，符合安全预期。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：URL token 存入 sessionStorage、刷新后从 sessionStorage 读取、无 token 时显示提示
-- [ ] 验证失败：`npm run test -- tests/access/chat-page-token.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] `requesting-code-review` skill 审查
-- [ ] 提交：`feat: persist auth token in sessionStorage for chat page`
+- [x] 编写失败测试覆盖：URL token 存入 sessionStorage、刷新后从 sessionStorage 读取、无 token 时显示提示
+- [x] 验证失败：`npm run test -- tests/access/chat-page-token.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] `requesting-code-review` skill 审查
+- [x] 提交：`feat: persist auth token in sessionStorage for chat page`
 
 ### Task 2: 部署文档补齐
 
@@ -70,9 +70,9 @@
 **Behavior:** MVP 封仓时部署指南标注"planned"，VPS 部署后已有实践经验，补齐为正式文档。
 
 **TDD Cycle:**
-- [ ] 更新 `docs/deployment.md` 内容
-- [ ] 更新 README 中 Deployment 章节的链接
-- [ ] 提交：`docs: complete VPS deployment guide with practices`
+- [x] 更新 `docs/deployment.md` 内容
+- [x] 更新 README 中 Deployment 章节的链接
+- [x] 提交：`docs: complete VPS deployment guide with practices`
 
 ---
 
@@ -117,12 +117,12 @@ export interface UserStorage {
 **Behavior:** 建立用户系统基础。注册时校验用户名唯一性，密码用 scrypt 哈希存储。登录验证密码后返回 token。`/api/me` 通过 token 查询用户信息。HTTP API 与 WebSocket 共用同一个 httpServer 实例。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：注册成功、重复用户名注册失败、登录成功、错误密码登录失败、token 查询用户、API 端点集成
-- [ ] 验证失败：`npm run test -- tests/infrastructure/user-storage.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] `requesting-code-review` skill 审查
-- [ ] 提交：`feat: add user model, storage, and auth API`
+- [x] 编写失败测试覆盖：注册成功、重复用户名注册失败、登录成功、错误密码登录失败、token 查询用户、API 端点集成
+- [x] 验证失败：`npm run test -- tests/infrastructure/user-storage.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] `requesting-code-review` skill 审查
+- [x] 提交：`feat: add user model, storage, and auth API`
 
 ### Task 4: 认证中间件 + 匿名用户
 
@@ -162,12 +162,12 @@ interface WebSocketServerOptions {
 **Behavior:** WebSocket 连接时通过 token 识别用户身份。注册用户 token 返回对应 userId；VPS 部署的 authToken 作为共享 token，所有连接归为 `__shared__` 用户；无 token 时生成匿名 UUID。`?token=` 兼容现有 authToken 机制（authToken 优先级低于用户 token）。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：用户 token 认证、authToken 共享认证、匿名 UUID 生成、无 userStorage 时回退 authToken
-- [ ] 验证失败：`npm run test -- tests/access/websocket-auth.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] `requesting-code-review` skill 审查
-- [ ] 提交：`feat: add auth middleware with anonymous user support`
+- [x] 编写失败测试覆盖：用户 token 认证、authToken 共享认证、匿名 UUID 生成、无 userStorage 时回退 authToken
+- [x] 验证失败：`npm run test -- tests/access/websocket-auth.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] `requesting-code-review` skill 审查
+- [x] 提交：`feat: add auth middleware with anonymous user support`
 
 ---
 

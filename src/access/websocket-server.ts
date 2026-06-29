@@ -27,6 +27,10 @@ export interface WebSocketServerOptions {
   serveHtml?: string;
   /** Task 3: 用户存储，启用后支持 POST /api/register /api/login GET /api/me */
   userStorage?: UserStorage;
+  /** Task 5: 连接未携带 ?session= 时使用的默认 sessionKey（通常为 server 当前活跃 sessionId） */
+  fallbackSessionKey?: string;
+  /** Task 5: 连接建立并绑定 sessionKey 后触发（用于 channelManager.bindSession） */
+  onSessionBound?: (sessionKey: string, ws: WebSocket) => void;
 }
 
 export interface WebSocketServer {
@@ -59,21 +63,23 @@ function safeEqualAuthToken(a: string, b: string): boolean {
  * Task 4: 识别用户身份
  * 优先级：用户 token > authToken > 匿名 UUID
  * 返回 null 表示认证失败（应拒绝连接）
+ *
+ * Task 5 修正：authToken 存在时（部署模式），无论是否有 userStorage 都要求 token。
+ * userStorage 不绕过 authToken 的强制要求。仅当无 authToken 时才接受匿名连接。
  */
 async function identifyUser(
   token: string | null,
   authToken: string | undefined,
   userStorage: UserStorage | undefined,
 ): Promise<{ userId: string; username?: string } | null> {
+  // 有 authToken 时（部署模式），必须提供 token
+  if (authToken && !token) {
+    return null;
+  }
+
+  // 无 token 且无 authToken：开发模式，接受匿名
   if (!token) {
-    // 无 token：有 userStorage 时生成匿名 UUID；无 userStorage 且有 authToken 时拒绝；都无时接受为匿名
-    if (userStorage) {
-      return { userId: randomUUID() };
-    }
-    if (authToken) {
-      return null; // 要求 token 但未提供
-    }
-    return { userId: randomUUID() }; // 开发模式：无任何认证
+    return { userId: randomUUID() };
   }
 
   // 有 token：先尝试用户 token
@@ -89,13 +95,8 @@ async function identifyUser(
     return { userId: SHARED_USER_ID };
   }
 
-  // 有 userStorage 时，无效 token 拒绝（不回退匿名）
-  if (userStorage) {
-    return null;
-  }
-
-  // 无 userStorage 但有 authToken：token 不匹配则拒绝
-  if (authToken) {
+  // 有 userStorage 或 authToken 时，无效 token 拒绝
+  if (userStorage || authToken) {
     return null;
   }
 
@@ -112,7 +113,7 @@ async function identifyUser(
  */
 export function startWebSocketServer(options: WebSocketServerOptions): Promise<WebSocketServer> {
   return new Promise((resolve, reject) => {
-    const { port, bus, authToken, serveHtml, host, userStorage } = options;
+    const { port, bus, authToken, serveHtml, host, userStorage, fallbackSessionKey, onSessionBound } = options;
     const httpServer = createServer((req, res) => {
       const pathname = new URL(req.url ?? '/', `http://localhost:${port}`).pathname;
 
@@ -134,12 +135,23 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
     });
     const wss = new WsServer({ server: httpServer });
     const connections = new Map<WebSocket, ConnectionState>();
-    // I1+I2 修复：per-server ring buffer，存储最近 WS_OUTBOUND_BUFFER_MAX 条 envelope 供重连重放
-    const ringBuffer: AgentEventEnvelope[] = [];
+    // Task 5: per-sessionKey ring buffer，避免跨 session 重放
+    const ringBuffers = new Map<string, AgentEventEnvelope[]>();
+
+    function getRingBuffer(sessionKey: string): AgentEventEnvelope[] {
+      let buf = ringBuffers.get(sessionKey);
+      if (!buf) {
+        buf = [];
+        ringBuffers.set(sessionKey, buf);
+      }
+      return buf;
+    }
 
     wss.on('connection', (ws, req) => {
       const url = new URL(req.url ?? '', `http://localhost:${port}`);
       const token = url.searchParams.get('token');
+      // Task 5: 解析 ?session=，未提供时使用 fallbackSessionKey
+      const sessionKey = url.searchParams.get('session') ?? fallbackSessionKey ?? randomUUID();
 
       // Task 4 I1/I2 修复：同步注册 close 监听器，防止 identifyUser 期间断开导致泄漏
       let closed = false;
@@ -173,6 +185,7 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
           isAlive: true,
           userId: identity.userId,
           username: identity.username,
+          sessionKey,
         };
         connections.set(ws, state);
 
@@ -185,11 +198,12 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
         }
 
         // I1 修复：resync 协议 — 客户端携带 lastEventSeq 重连时重放缓冲事件
+        // Task 5: 仅重放该 sessionKey 的 buffer
         const lastEventSeqStr = url.searchParams.get('lastEventSeq');
         if (lastEventSeqStr !== null) {
           const lastEventSeq = parseInt(lastEventSeqStr, 10);
           if (!Number.isNaN(lastEventSeq)) {
-            replayBufferedEvents(ws, ringBuffer, lastEventSeq);
+            replayBufferedEvents(ws, getRingBuffer(sessionKey), lastEventSeq);
           }
         }
 
@@ -217,10 +231,20 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
           connections.delete(ws);
         });
 
+        // Task 5: 触发 onSessionBound 回调，让 server.ts 调用 channelManager.bindSession
+        if (onSessionBound) {
+          try {
+            onSessionBound(sessionKey, ws);
+          } catch (err) {
+            log.error('onSessionBound callback failed', { error: String(err) });
+          }
+        }
+
         log.info('connection established', {
           connections: connections.size,
           userId: identity.userId,
           username: identity.username,
+          sessionKey,
         });
       }).catch((err) => {
         log.error('user identification failed', { error: String(err) });
@@ -254,7 +278,7 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
             ws.terminate();
           }
           connections.clear();
-          ringBuffer.length = 0;
+          ringBuffers.clear();
           wss.close();
           await new Promise<void>((r) => httpServer.close(() => r()));
         },
@@ -262,15 +286,16 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
           return connections.size;
         },
         broadcast(envelope: AgentEventEnvelope): void {
-          // I1+I2 修复：push to ring buffer (evict oldest if at cap)
+          // Task 5: 仅向 sessionKey 匹配的 connection 发送，避免跨 session 串扰
+          const ringBuffer = getRingBuffer(envelope.sessionKey);
           ringBuffer.push(envelope);
           if (ringBuffer.length > WS_OUTBOUND_BUFFER_MAX) {
             ringBuffer.shift();
           }
-          // 广播 {type:'event', seq, event} wrapper 给所有已连接客户端
+          // 广播 {type:'event', seq, event} wrapper 给 sessionKey 匹配的客户端
           const payload = JSON.stringify({ type: 'event', seq: envelope.seq, event: envelope.event });
-          for (const [ws] of connections) {
-            if (ws.readyState === WebSocket.OPEN) {
+          for (const [ws, state] of connections) {
+            if (state.sessionKey === envelope.sessionKey && ws.readyState === WebSocket.OPEN) {
               ws.send(payload);
             }
           }

@@ -19,6 +19,8 @@ export interface SessionMetadata {
   readonly updatedAt: number;
   readonly label?: string;
   readonly passedSessions?: number;
+  /** Task 5: session 所属用户（未 claim 时为 undefined） */
+  readonly userId?: string;
 }
 
 export interface Session {

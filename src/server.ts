@@ -1,5 +1,6 @@
 import { loadConfig, resolveApiKey } from './infrastructure/config-loader.js';
 import { FileStorage, type StorageAdapter } from './infrastructure/storage/file-storage.js';
+import { createUserStorage, type UserStorage } from './infrastructure/user-storage.js';
 import type { ProviderConfig } from './infrastructure/config-types.js';
 import { createToolRegistry } from './core/tool/types.js';
 import { bashTool } from './core/tool/tools/bash.js';
@@ -120,6 +121,8 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
   const aptbotConfig = await loadConfig();
   const sessionsDir = `${aptbotConfig.dataDir}/sessions`;
   const storage = new FileStorage(sessionsDir);
+  // Task 5: 用户存储 — 始终创建，供 /api/register /api/login /api/me 与 WS 认证使用
+  const userStorage: UserStorage = createUserStorage(aptbotConfig.dataDir);
 
   const registry = createToolRegistry();
   registry.register(bashTool);
@@ -172,6 +175,13 @@ Important constraints:
     authToken: config.authToken,
     host: config.host,
     serveHtml: createChatPageHtml('/ws'),
+    userStorage,
+    // Task 5: 客户端未携带 ?session= 时绑定到 server 当前活跃 sessionId
+    fallbackSessionKey: sessionId,
+    // Task 5: 每个新连接绑定其 sessionKey 到 wsChannel，使 dispatch 能路由到该 session
+    onSessionBound: (sessionKey) => {
+      channelManager.bindSession(sessionKey, wsChannel);
+    },
   });
 
   // C8 修复：注册 WebSocket Channel 并绑定 sessionKey，使出站事件能路由到 WS 客户端
