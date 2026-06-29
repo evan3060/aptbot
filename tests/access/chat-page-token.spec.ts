@@ -80,6 +80,11 @@ describe('Task 1: chat-page token 记忆与自动携带', () => {
       const url = buildWsUrl('wss://example.com/ws', 't', 42);
       expect(url).toContain('lastEventSeq=42');
     });
+
+    it('Task 6 I1 fix: lastEventSeq=0 时也包含 lastEventSeq 参数', () => {
+      const url = buildWsUrl('wss://example.com/ws', 't', 0);
+      expect(url).toContain('lastEventSeq=0');
+    });
   });
 
   describe('防漂移：chat-page.ts 内联 JS 与纯函数逻辑同步', () => {
@@ -104,9 +109,11 @@ describe('Task 1: chat-page token 记忆与自动携带', () => {
       expect(setItemIdx).toBeGreaterThan(onopenIdx);
     });
 
-    it('内联 JS buildWsUrl 逻辑：token 存在时附加参数', () => {
+    it('内联 JS buildWsUrl 逻辑：token 存在时附加参数，lastEventSeq 总是附加', () => {
       expect(html).toContain('params.set(\'token\', token)');
       expect(html).toContain('params.set(\'lastEventSeq\'');
+      // Task 6 I1 fix: lastEventSeq 总是 set（不再有 > 0 条件）
+      expect(html).not.toContain('if (lastEventSeq > 0) params.set');
     });
   });
 

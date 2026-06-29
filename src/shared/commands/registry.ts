@@ -32,7 +32,7 @@ export interface CommandRegistry {
 }
 
 /**
- * §8.2 / §8.4 createCommandRegistry: 创建带 7 个内置命令的注册表。
+ * §8.2 / §8.4 createCommandRegistry: 创建带 10 个内置命令的注册表。
  * resolve 解析 `/cmd args` 或别名，未知命令返回 null。
  */
 export function createCommandRegistry(): CommandRegistry {
@@ -248,7 +248,9 @@ const resumeCommand: Command = {
 /**
  * Task 6: /label <名称> — 设置当前 session 的 label。
  * 通过 storage.updateSessionLabel 持久化到 sidecar .meta.json。
+ * Task 6 M4 fix: label 长度限制 100 字符，防止 listSessions 返回过大。
  */
+const LABEL_MAX_LENGTH = 100;
 const labelCommand: Command = {
   name: 'label',
   description: 'Set the current session label',
@@ -256,7 +258,7 @@ const labelCommand: Command = {
     if (args.length === 0) {
       return { output: 'Usage: /label <name>' };
     }
-    const label = args.join(' ');
+    const label = args.join(' ').slice(0, LABEL_MAX_LENGTH);
     await ctx.storage.updateSessionLabel(ctx.sessionId, label);
     return { output: `Session label set: ${label}` };
   },

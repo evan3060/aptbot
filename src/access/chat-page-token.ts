@@ -45,11 +45,14 @@ export function persistToken(token: string): void {
 /**
  * 构建 WebSocket 连接 URL，附加 token 和 lastEventSeq 参数。
  * token 为 null 时省略 token 参数。
+ *
+ * Task 6 I1 fix: 总是带 lastEventSeq（包括 0），确保 session_changed 重连时
+ * 服务端能 replay 新 sessionKey 的 ring buffer。
  */
 export function buildWsUrl(base: string, token: string | null, lastEventSeq: number): string {
   const params = new URLSearchParams();
   if (token) params.set('token', token);
-  if (lastEventSeq > 0) params.set('lastEventSeq', String(lastEventSeq));
+  params.set('lastEventSeq', String(lastEventSeq));
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
 }

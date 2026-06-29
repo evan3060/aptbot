@@ -236,10 +236,16 @@ export interface SessionRepo {
 
 ### Task 6: localStorage 持久化 + session_changed 事件 + 登录页面
 
+> **Scope adjustment (code review):** 登录/注册页面 UI 与 `CommandContext.userId` 接线 deferred to Task 11 (E2E 用户认证 + session 隔离)。本 Task 聚焦 sessionId 持久化、session_changed 事件、/label 命令。
+> **Design deviation (I5):** `sendToConnection(ws, msg)` 改为 `sendToSessionKey(sessionKey, msg)` — 支持多标签页同 session 场景，更符合 per-sessionKey 路由模型。
+
 **Files:**
 - Modify: `src/access/chat-page.ts`
+- Modify: `src/access/chat-page-token.ts` (I1 fix: buildWsUrl 总是带 lastEventSeq)
+- Create: `src/access/chat-page-session.ts` (纯函数，可测试)
 - Modify: `src/server.ts`
 - Modify: `src/shared/commands/registry.ts`
+- Modify: `src/access/websocket-server.ts` (sendToSessionKey + replay lastEventSeq=0 语义)
 - Test: `tests/access/chat-page-session.spec.ts`
 - Test: `tests/server/session-changed-event.spec.ts`
 

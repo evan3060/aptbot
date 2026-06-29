@@ -328,20 +328,26 @@ export async function runInboundLoop(
       if (slashHandler && text.startsWith('/')) {
         const resolved = slashHandler.registry.resolve(text);
         if (resolved) {
+          // Task 6 I2 fix: 从 metadata 读取发起方 sessionKey/userId（websocket-server 写入）
+          // 用于精确定位 session_changed 应推送到的连接，而非使用全局 sessionRef.currentKey
+          const senderSessionKey = (msg.metadata.sessionKey as string | undefined) ?? sessionRef.currentKey;
+          const senderUserId = msg.metadata.userId as string | undefined;
+          if (senderUserId && slashHandler) slashHandler.ctx.userId = senderUserId;
+
           void (async () => {
             watchdog.markTurnStart();
             try {
               const result: CommandResult = await resolved.command.execute(resolved.args, slashHandler.ctx);
               // /new 或 /sessions <id>：重建 session，使后续消息进入全新上下文
               if (result.action === 'new_session' && sessionFactory) {
-                const oldKey = sessionRef.currentKey;
+                const oldKey = senderSessionKey;
                 const newId = result.continueSessionId ?? randomUUID();
                 sessionRef.current = sessionFactory(newId);
                 sessionRef.currentKey = newId;
                 if (slashHandler) slashHandler.ctx.sessionId = newId;
-                // Task 6: 通知 server 推送 session_changed 到旧 sessionKey 的 connection
+                // Task 6: 通知 server 推送 session_changed 到发起方 sessionKey 的 connection
                 onNewSession?.(oldKey, newId);
-                loopLog.info('session switched', { oldSessionKey: oldKey, newSessionKey: newId, resumed: !!result.continueSessionId });
+                loopLog.info('session switched', { senderSessionKey: oldKey, newSessionKey: newId, resumed: !!result.continueSessionId });
               }
               // 所有命令都发送完整 turn 事件序列，确保客户端清除 working 状态
               const turnId = createTurnId();

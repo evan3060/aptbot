@@ -282,7 +282,9 @@ export function createChatPageHtml(wsPath: string): string {
     var params = new URLSearchParams();
     if (token) params.set('token', token);
     if (sessionId) params.set('session', sessionId);
-    if (lastEventSeq > 0) params.set('lastEventSeq', String(lastEventSeq));
+    // Task 6 I1 fix: 总是带 lastEventSeq（包括 0），确保 session_changed 重连时
+    // 服务端能 replay 新 sessionKey 的 ring buffer（/new 后的确认 turn 事件）
+    params.set('lastEventSeq', String(lastEventSeq));
     var qs = params.toString();
     return qs ? base + '?' + qs : base;
   }
@@ -340,9 +342,11 @@ export function createChatPageHtml(wsPath: string): string {
       try { localStorage.setItem(SESSION_ID_KEY, msg.sessionId); } catch (e) { /* localStorage 不可用降级 */ }
       sessionId = msg.sessionId;
       lastEventSeq = 0;  // 新 session 重置 seq
-      // 关闭旧连接并重连到新 session
+      // Task 6 M2 fix: 关闭旧连接并清理所有监听器，防止缓冲帧触发递归 session_changed
       if (ws) {
-        ws.onclose = null;  // 阻止自动重连旧 session
+        ws.onclose = null;
+        ws.onmessage = null;
+        ws.onerror = null;
         ws.close();
       }
       connect();

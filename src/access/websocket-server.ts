@@ -367,11 +367,16 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
           }
         },
         // Task 6: 向指定 sessionKey 的 connection 发送原始消息（控制消息，不进 ring buffer）
+        // Task 6 M7 fix: 每个 ws.send 单独 try/catch，防止一个 socket 异常中断其他连接的投递
         sendToSessionKey(sessionKey: string, msg: unknown): void {
           const payload = JSON.stringify(msg);
           for (const [ws, state] of connections) {
             if (state.sessionKey === sessionKey && ws.readyState === WebSocket.OPEN) {
-              ws.send(payload);
+              try {
+                ws.send(payload);
+              } catch (err) {
+                log.warn('sendToSessionKey failed for one connection', { error: String(err) });
+              }
             }
           }
         },
@@ -385,9 +390,19 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
 /**
  * I1 修复：重放 ring buffer 中 seq > lastEventSeq 的 envelope。
  * 若 lastEventSeq 过旧（小于 buffer 最旧 seq - 1），发送 resync_required。
+ *
+ * Task 6 I1 fix: lastEventSeq=0 表示客户端为全新连接（如 session_changed 重连到新 sessionKey），
+ * 此时回放整个 buffer 而非触发 resync，确保 /new 后的确认 turn 事件能送达。
  */
 function replayBufferedEvents(ws: WebSocket, ringBuffer: AgentEventEnvelope[], lastEventSeq: number): void {
   if (ringBuffer.length === 0) return;
+  // lastEventSeq=0：全新连接，回放所有 buffer 内容
+  if (lastEventSeq === 0) {
+    for (const env of ringBuffer) {
+      safeSend(ws, { type: 'event', seq: env.seq, event: env.event });
+    }
+    return;
+  }
   const oldestSeq = ringBuffer[0].seq;
   // 若客户端的 lastEventSeq 与 buffer 最旧 seq 之间有缺口，事件已丢失
   if (lastEventSeq < oldestSeq - 1) {
@@ -452,7 +467,12 @@ function handleMessage(
       senderId: 'ws-client',
       chatId: 'default',
       content,
-      metadata: {},
+      // Task 6 I2 fix: 携带发起方 sessionKey 和 userId，供 runInboundLoop 识别 /new 的来源连接
+      metadata: {
+        sessionKey: state.sessionKey,
+        userId: state.userId,
+        username: state.username,
+      },
     };
     bus.publishInbound(inbound).catch((err) => {
       log.error('failed to publish inbound', { error: String(err) });
