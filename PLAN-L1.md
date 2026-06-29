@@ -464,11 +464,11 @@ interface CommandContext {
 **Behavior:** 端到端验证多客户端同步的完整流程。
 
 **TDD Cycle:**
-- [ ] 编写失败测试
-- [ ] 验证失败：`npm run test -- tests/e2e/l1-multi-client-sync.spec.ts` → FAIL
-- [ ] 修复至通过
-- [ ] `requesting-code-review` skill 审查
-- [ ] 提交：`test: e2e multi-client sync`
+- [x] 编写失败测试
+- [x] 验证失败：`npm run test -- tests/e2e/l1-multi-client-sync.spec.ts` → FAIL（E2E 集成测试，底层机制已在 Task 5-9 实现，首跑即 GREEN，提供回归保护）
+- [x] 修复至通过
+- [x] `requesting-code-review` skill 审查
+- [x] 提交：`test: e2e multi-client sync`
 
 ### Task 13: L1 封仓回归
 
