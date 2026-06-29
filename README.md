@@ -1,9 +1,9 @@
 <div align="center">
   <p>
-    <img src="https://img.shields.io/badge/tests-383%20passed-brightgreen" alt="Tests">
+    <img src="https://img.shields.io/badge/tests-584%20passed-brightgreen" alt="Tests">
     <img src="https://img.shields.io/badge/TypeScript-strict-blue" alt="TypeScript">
     <img src="https://img.shields.io/badge/node-%3E%3D20-green" alt="Node">
-    <img src="https://img.shields.io/badge/version-0.1.0--mvp-orange" alt="Version">
+    <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="Version">
     <img src="https://img.shields.io/badge/license-MIT-yellow" alt="License">
   </p>
   <p>
@@ -12,9 +12,9 @@
   </p>
 </div>
 
-🤖 **aptbot** is a personal learning and work assistant agent with a small, readable core. It runs a single-model ReAct loop with bash/read/edit tools, persists sessions to JSONL, and ships both a CLI (Ink) and a WebUI (Lit + Web Components) over WebSocket.
+🤖 **aptbot** is a personal learning and work assistant agent with a small, readable core. It runs a single-model ReAct loop with bash/read/edit tools, persists sessions to JSONL, and ships both a CLI (Ink) and a WebUI (Lit + Web Components) over WebSocket. v0.2.0 adds a user system (registration/login), multi-client real-time sync, and a Codex-style session sidebar with rename support.
 
-> **Status:** v0.1.0 MVP — 42 tasks done, 383 tests passing. Currently single-user, local/VPS deployment.
+> **Status:** v0.2.0 (L1) — 58 files / 584 tests passing. Multi-user, local/VPS deployment.
 
 ## Start Here
 
@@ -25,12 +25,14 @@
 | Deploy to a VPS with TLS | [Deployment](#-deployment) |
 | Understand the layered architecture | [Architecture](./ARCHITECTURE.md) |
 | See what changed between versions | [Changelog](./CHANGELOG.md) |
-| Review the MVP task plan | [PLAN.md](./PLAN.md) |
+| Review the L1 task plan | [PLAN-L1.md](./PLAN-L1.md) |
+| Preview the L2 roadmap | [PLAN-L2.md](./PLAN-L2.md) |
 
 ## 💡 Why aptbot
 
 - **Small core**: a readable ReAct loop, not a framework. The whole agent layer is ~3 files.
 - **Dual entry**: CLI (Ink) and WebUI (Lit) share the same `coreReducer` state machine.
+- **Multi-client sync**: per-sessionKey ring buffer + presence broadcast; multiple tabs see the same conversation in real time.
 - **Persistent sessions**: JSONL append-only with corruption-tolerant parsing and auto-repair.
 - **Hardened boundaries**: TTFB/chunk dual-clock streaming, 30s bash hard timeout, 2MB read limit, per-file edit mutex.
 - **Own your stack**: inspect every line, self-host on a $5 VPS, no platform lock-in.
@@ -111,7 +113,7 @@ The WebUI is served inline by the WebSocket server — no separate build step. J
 
 ## 🏗️ Architecture
 
-aptbot is layered bottom-up: each layer depends only on the layer below.
+aptbot is layered bottom-up: core → bus → infrastructure → access, with `shared/` cross-layer utilities. Dependencies flow strictly downward — the core layer is completely unaware of the access layer's existence.
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -127,9 +129,32 @@ aptbot is layered bottom-up: each layer depends only on the layer below.
 │  infrastructure                                 │
 │  Config · Logger · JSONL · FileStorage · Process │
 └─────────────────────────────────────────────────┘
+        │
+        ▼
+   shared/ (commands · ui-state)  cross-layer
 ```
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full module map, event flow diagram, and design decisions.
+### Architectural Highlights
+
+1. **Strict Layering & Unidirectional Dependency** — A four-layer architecture with `shared/` for cross-layer utilities. The core layer never imports from access/bus (verified by grep: 0 references). Adding an IM channel only requires a new `Channel` implementation in the access layer — bus and core remain untouched. Compare nanobot, which couples channels/IM/tools in the same process space.
+
+2. **Event-Driven Bus & Multi-Channel Session Sharing** — All outbound events (token deltas, tool progress, errors) flow as typed `AgentEventEnvelope` through `ChannelManager`, routed by `sessionKey`. CLI, WebUI, and future IM channels can subscribe to the same conversation independently without blocking each other. Compare pi-agent (pure CLI, no channel concept) and nanobot (each channel processes its own message stream) — "one agent invocation, multi-end synced consumption" is an architectural-level difference.
+
+3. **Stateless Generator vs Stateful Session** — `AgentLoop` is a pure async generator (no side effects, no persistence — inputs/outputs all in parameters and `yield`). Stateful concerns (storage, steering injection, lifecycle) live in `AgentSession` outside the loop. This separation makes the core loop independently testable and composable — future subagents or cross-process recovery only need to extract a Harness from the Session layer, leaving the loop untouched.
+
+4. **Runtime Injection, Not Build Variants** — Deployment adaptation is done via runtime injection of different `StorageAdapter` / `ToolRegistry` instances, with config loaded once at startup. Local full-feature, demo minimal toolset, future cloud distributed storage — same codebase, different injections. Cleaner than nanobot's "env vars + if branches", more maintainable than GenericAgent's "no abstraction, just write it".
+
+### Design Patterns
+
+1. **Externalized Layered Retry — Loop Reports, Upper Layer Decides** — Errors are not embedded in loop logic but dispatched by type: network timeouts auto-retry at the Provider layer, tool errors return to the LLM to decide, fatal errors terminate without persisting (preventing "400 poisoning" — a bad turn saved forever). Compare nanobot's 400-line main loop with 5 recovery paths baked in — aptbot's loop stays clean, error strategies evolve independently.
+
+2. **Fine-Grained Event Stream → UI — A Unified Language Backend to Frontend** — Every token delta, tool call progress, and thought step is an independent event. UI updates state by consuming the event stream via a reducer. Streaming rendering, mid-turn interruption, multi-end sync are natural consumption patterns of the event stream, not "extra features". Compare GenericAgent's `generator yield` of strings and nanobot's coarse-grained hook callbacks — aptbot's typed events give the frontend complete type inference, not guesswork.
+
+3. **Declarative Registry + Factory — Extension as Declaration** — `Tool`, `Command`, `Channel` are registered via declarative registries; adding a tool only requires implementing the interface and registering. `Provider` uses config declaration + factory creation — adding a provider only requires writing a declaration (baseUrl, envVar, models). Compare GenericAgent's hardcoded JSON tool list and nanobot's decorator + runtime reflection — aptbot has complete compile-time types, IDE autocomplete, and refactor safety.
+
+4. **Mutable Session Reference — No-Interrupt Switching Mid-Run** — `SessionRef` allows `/new`, `/resume` to switch the current session while the agent is running — `ChannelManager` rebinds `sessionKey` without restarting the loop or disconnecting. This "reference mutable, loop immutable" pattern makes session management an instant operation rather than a lifecycle event. Compare pi-agent's immutable session and nanobot's agent-loop restart — aptbot's experience is smoother.
+
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full module map, event flow diagram, and design decisions. See [docs/comparison-pi-nanobot-ga.md](./docs/comparison-pi-nanobot-ga.md) for a detailed comparison with pi-agent / nanobot / GenericAgent.
 
 ## ✨ Features
 
@@ -139,9 +164,12 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full module map, event flow dia
 | Tools | `bash` (30s SIGTERM→SIGKILL) · `read` (2MB limit) · `edit` (per-file mutex) · `update_working_memory` |
 | Memory | JSONL append-only · corruption-tolerant parse · `fs.truncateSync` auto-repair · Compaction at 80% context |
 | Sessions | `/sessions` list with `(current)` marker · `/resume <short-id>` prefix matching · auto-restore last session on restart |
+| User system (v0.2.0) | `scrypt` password hashing · Bearer token auth · per-user session ownership · `POST /api/register` / `POST /api/login` / `GET /api/me` |
+| Multi-client sync (v0.2.0) | per-sessionKey message serialization · ring buffer history replay · presence broadcast · `session_changed` control message |
+| Session sidebar (v0.2.0) | Codex-style left panel · relative time · 3-dot menu · inline rename (Enter/Esc) · cross-client `session_renamed` broadcast |
 | Providers | `openai-completions` · `openai-responses` · `anthropic-messages` · dual-clock TTFB 5s + chunk 1.5s · 401/403/400 fatal, 429/5xx retry |
 | WebSocket | Inbound limits 64KB / 10 msg/s · heartbeat 60s · resync protocol · dead-letter queue |
-| Safety | systemPrompt forbids kill / source-mod / `data/sessions/` access · API key via `.env` only |
+| Safety | systemPrompt forbids kill / source-mod / `data/sessions/` access · API key via `.env` only · session ownership prevents cross-user access |
 
 ## Slash Commands
 
@@ -155,6 +183,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full module map, event flow dia
 | `/sessions` | List all sessions (current marked with `(current)`) |
 | `/resume <id>` | Switch to a session (short ID prefix matching) |
 | `/continue <id>` | Inherit working memory from an old session |
+| `/label <text>` | Rename the current session (v0.2.0+) |
 | `/exit` | Exit the application |
 
 ## 📚 Docs
@@ -162,7 +191,9 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full module map, event flow dia
 - [Architecture](./ARCHITECTURE.md) — layered design, module map, event flow
 - [Deployment](./docs/deployment.md) — VPS deployment with systemd + nginx/Caddy
 - [Changelog](./CHANGELOG.md) — versioned release notes
-- [PLAN.md](./PLAN.md) — MVP task plan (42 tasks, all complete)
+- [PLAN-L1.md](./PLAN-L1.md) — L1 task plan (user system + multi-client sync, complete)
+- [PLAN-L2.md](./PLAN-L2.md) — L2 roadmap (reliability + IM integration, planned)
+- [Comparison](./docs/comparison-pi-nanobot-ga.md) — architecture comparison with pi-agent / nanobot / GenericAgent
 
 ## 🚢 Deployment
 
@@ -194,21 +225,21 @@ npm run dev    # http://localhost:8080
 ## 🧪 Tests
 
 ```bash
-npm test              # 43 files, 383 tests
+npm test              # 58 files, 584 tests
 npx tsc --noEmit      # strict type check, 0 errors
 ```
 
-E2E covers the full agent loop: basic conversation, tool calls, multi-turn context, persistence, working memory, error recovery, WebSocket resync, slash commands, compaction, and cross-session inheritance.
+E2E covers the full agent loop: basic conversation, tool calls, multi-turn context, persistence, working memory, error recovery, WebSocket resync, slash commands, compaction, cross-session inheritance, user registration/login, session ownership isolation, and multi-client real-time sync.
 
 ## 🤝 Contribute
 
-PRs welcome. The codebase is intentionally small — 54 source files, ~5700 LOC.
+PRs welcome. The codebase is intentionally small — 70+ source files, ~8000 LOC.
 
 ### Roadmap
 
-- **L1** — Per-browser session isolation (localStorage-based), multi-client sync
-- **L2** — IM channel integration (Telegram / Discord / Feishu)
-- **L3** — Cloudflare Pages + Workers light deployment
+- **L1 ✅ (v0.2.0)** — User system (registration/login), per-browser session isolation, multi-client sync, Codex-style sidebar, session rename
+- **L2** — Reliability (ring buffer sharding, JSONL history persistence, HttpOnly cookie), extensibility (MixinProvider failover, config hot-reload, hook system), UX (CLI overlay/diff, WebUI split to Cloudflare Pages), IM integration (Telegram as first channel)
+- **L3** — FallbackProvider + circuit breaker, OAuth, session branching, cross-session long-term memory, Feishu/DingTalk integration, AgentHarness + subagent management
 - **Multi-modal** — image input/outputs
 - **MCP** — Model Context Protocol tool extensions
 

@@ -166,7 +166,8 @@ describe('WebSocketServer', () => {
 
   // I1+I2 回归测试：broadcast 发送 {type:'event', seq, event} wrapper
   it('broadcast wraps envelope as {type:event, seq, event} (I1)', async () => {
-    server = await startWebSocketServer({ port: TEST_PORT, bus });
+    // Task 5: 加 fallbackSessionKey='s1' 与 makeEnvelope 的 sessionKey 匹配
+    server = await startWebSocketServer({ port: TEST_PORT, bus, fallbackSessionKey: 's1' });
     const ws = await connect(TEST_PORT);
     clients.push(ws);
 
@@ -179,7 +180,8 @@ describe('WebSocketServer', () => {
 
   // I1+I2 回归测试：reconnect with lastEventSeq replays buffered events
   it('replays buffered events on reconnect with lastEventSeq (I1+I2)', async () => {
-    server = await startWebSocketServer({ port: TEST_PORT, bus });
+    // Task 5: 加 fallbackSessionKey='s1' 与 makeEnvelope 的 sessionKey 匹配
+    server = await startWebSocketServer({ port: TEST_PORT, bus, fallbackSessionKey: 's1' });
 
     // 第一个客户端连接
     const ws1 = await connect(TEST_PORT);
@@ -212,7 +214,8 @@ describe('WebSocketServer', () => {
 
     // 用 lastEventSeq=2 重连 —— 先注册 message listener 再等待 open，
     // 因为 server 的 replay 在 connection handler 中同步发送（早于 client open 事件）
-    const ws2 = new WebSocket(`ws://localhost:${TEST_PORT}?lastEventSeq=2`);
+    // Task 5: 显式 ?session=s1 确保绑定到同一 sessionKey
+    const ws2 = new WebSocket(`ws://localhost:${TEST_PORT}?session=s1&lastEventSeq=2`);
     clients.push(ws2);
     const msgs2: any[] = [];
     const replayDone = new Promise<void>((resolve) => {
@@ -237,16 +240,18 @@ describe('WebSocketServer', () => {
 
   // I1 回归测试：lastEventSeq 过旧时发送 resync_required
   it('sends resync_required when lastEventSeq is too old (I1)', async () => {
-    server = await startWebSocketServer({ port: TEST_PORT, bus });
+    // Task 5: 加 fallbackSessionKey='s1' 与 makeEnvelope 的 sessionKey 匹配
+    server = await startWebSocketServer({ port: TEST_PORT, bus, fallbackSessionKey: 's1' });
 
-    // 广播超过 buffer 容量 + 2 条事件，驱逐 seq 0 和 1
-    for (let i = 0; i < WS_OUTBOUND_BUFFER_MAX + 2; i++) {
+    // 广播超过 buffer 容量 + 5 条事件，驱逐 seq 0..4
+    for (let i = 0; i < WS_OUTBOUND_BUFFER_MAX + 5; i++) {
       server!.broadcast(makeEnvelope(i, 'message_delta'));
     }
 
-    // buffer 现在包含 seq 2..1001 (seq 0, 1 被驱逐)
-    // 用 lastEventSeq=0 连接 (seq 1 丢失 → resync_required)
-    const ws = new WebSocket(`ws://localhost:${TEST_PORT}?lastEventSeq=0`);
+    // buffer 现在包含 seq 5..1004 (seq 0..4 被驱逐)
+    // Task 6 I1 fix: lastEventSeq=0 现在表示"全新连接，回放所有"，不再触发 resync
+    // 要触发 resync，需用 lastEventSeq > 0 且 < oldestSeq - 1，如 lastEventSeq=3 (3 < 5-1=4)
+    const ws = new WebSocket(`ws://localhost:${TEST_PORT}?session=s1&lastEventSeq=3`);
     clients.push(ws);
     const msg = await new Promise<any>((resolve, reject) => {
       ws.once('message', (data) => resolve(JSON.parse(data.toString())));
@@ -254,5 +259,32 @@ describe('WebSocketServer', () => {
       setTimeout(() => reject(new Error('message timeout')), 1000);
     });
     expect(msg.type).toBe('resync_required');
+  });
+
+  // Task 6 I1 fix: lastEventSeq=0 表示全新连接，回放整个 buffer（不触发 resync）
+  it('replays entire buffer when lastEventSeq=0 (Task 6 I1 fix)', async () => {
+    server = await startWebSocketServer({ port: TEST_PORT, bus, fallbackSessionKey: 's1' });
+
+    // 广播 3 条事件
+    server!.broadcast(makeEnvelope(10, 'agent_start'));
+    server!.broadcast(makeEnvelope(11, 'turn_start'));
+    server!.broadcast(makeEnvelope(12, 'turn_end'));
+
+    // 用 lastEventSeq=0 连接 — 应回放所有 3 条，不触发 resync
+    const ws = new WebSocket(`ws://localhost:${TEST_PORT}?session=s1&lastEventSeq=0`);
+    clients.push(ws);
+    const msgs: any[] = [];
+    await new Promise<void>((resolve) => {
+      let count = 0;
+      ws.on('message', (data) => {
+        msgs.push(JSON.parse(data.toString()));
+        count++;
+        if (count >= 3) resolve();
+      });
+      setTimeout(resolve, 1000);
+    });
+    expect(msgs.length).toBe(3);
+    expect(msgs[0].seq).toBe(10);
+    expect(msgs[2].seq).toBe(12);
   });
 });

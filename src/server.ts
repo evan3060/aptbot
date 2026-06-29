@@ -1,5 +1,6 @@
 import { loadConfig, resolveApiKey } from './infrastructure/config-loader.js';
 import { FileStorage, type StorageAdapter } from './infrastructure/storage/file-storage.js';
+import { createUserStorage, type UserStorage } from './infrastructure/user-storage.js';
 import type { ProviderConfig } from './infrastructure/config-types.js';
 import { createToolRegistry } from './core/tool/types.js';
 import { bashTool } from './core/tool/tools/bash.js';
@@ -120,6 +121,8 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
   const aptbotConfig = await loadConfig();
   const sessionsDir = `${aptbotConfig.dataDir}/sessions`;
   const storage = new FileStorage(sessionsDir);
+  // Task 5: 用户存储 — 始终创建，供 /api/register /api/login /api/me 与 WS 认证使用
+  const userStorage: UserStorage = createUserStorage(aptbotConfig.dataDir);
 
   const registry = createToolRegistry();
   registry.register(bashTool);
@@ -172,6 +175,25 @@ Important constraints:
     authToken: config.authToken,
     host: config.host,
     serveHtml: createChatPageHtml('/ws'),
+    userStorage,
+    // Task 5: 客户端未携带 ?session= 时绑定到 server 当前活跃 sessionId
+    fallbackSessionKey: sessionId,
+    // 验收修复：提供 agent 当前内部 sessionId，供 user_identified 事件对齐前端 localStorage
+    getCurrentSessionId: () => sessionRef.currentKey,
+    // Task 5: 每个新连接绑定其 sessionKey 到 wsChannel，使 dispatch 能路由到该 session
+    onSessionBound: (sessionKey) => {
+      channelManager.bindSession(sessionKey, wsChannel);
+    },
+    // Task 5 C2 fix: sessionKey 无剩余连接时解绑，避免 channelManager.bindings 无限增长
+    onSessionUnbound: (sessionKey) => {
+      channelManager.unbindSession(sessionKey, wsChannel);
+    },
+    // Task 5 C2 fix: 传入 sessionStorage 用于 ?session= ownership 检查
+    sessionStorage: storage,
+    // 会话重命名后广播 session_renamed 控制消息到同 session 其他客户端
+    onSessionRenamed: (sid, label) => {
+      wsServer.sendToSessionKey(sid, { type: 'session_renamed', sessionId: sid, label });
+    },
   });
 
   // C8 修复：注册 WebSocket Channel 并绑定 sessionKey，使出站事件能路由到 WS 客户端
@@ -205,8 +227,12 @@ Important constraints:
     ctx: { sessionId, model: model.id, storage },
   };
 
-  void runInboundLoop(bus, sessionRef, watchdog, slashHandler, sessionFactory, (newId) => {
+  void runInboundLoop(bus, sessionRef, watchdog, slashHandler, sessionFactory, (oldKey, newId) => {
+    // Task 6: /new 或 /resume 后，向旧 sessionKey 的 connection 推送 session_changed
+    // 客户端收到后更新 localStorage 并用 ?session=newId 重连
+    log.info('onNewSession: sending session_changed', { oldKey: oldKey.slice(0, 8), newId: newId.slice(0, 8) });
     channelManager.bindSession(newId, wsChannel);
+    wsServer.sendToSessionKey(oldKey, { type: 'session_changed', sessionId: newId });
   });
   void channelManager.runDispatchLoop();
 
@@ -285,16 +311,32 @@ export async function runInboundLoop(
   watchdog: { markTurnStart: () => void; markTurnEnd: () => void },
   slashHandler?: SlashCommandHandler,
   sessionFactory?: SessionFactory,
-  onNewSession?: (newSessionId: string) => void,
+  /** Task 6: /new 或 /resume 后触发，参数为 (oldKey, newId)，用于推送 session_changed 事件 */
+  onNewSession?: (oldKey: string, newId: string) => void,
 ): Promise<void> {
   const loopLog = createLogger('inbound-loop');
   let seq = 0;
 
   /**
-   * 发送单个 AgentEvent envelope 到出站队列
+   * Task 7: per-sessionKey 串行化。
+   * 维护每个 sessionKey 的当前 turn Promise，新消息 await 前一个 turn 完成后再处理。
+   * 不同 sessionKey 并行；同一 sessionKey 串行，避免 agent 响应交错。
+   * turn 完成后从 map 中清理，防止内存泄漏。
    */
-  async function emit(chatId: string, channel: string, event: AgentEventEnvelope['event']): Promise<void> {
-    await bus.publishOutbound({ sessionKey: sessionRef.currentKey, chatId, channel, event, seq: seq++ });
+  const runningTurns = new Map<string, Promise<void>>();
+
+  /**
+   * 发送单个 AgentEvent envelope 到出站队列。
+   * Task 7 I15 fix: sessionKey 使用传入的 senderSessionKey 而非全局 sessionRef.currentKey，
+   * 使多客户端场景下事件能正确路由到发起方连接。
+   */
+  async function emit(
+    sessionKey: string,
+    chatId: string,
+    channel: string,
+    event: AgentEventEnvelope['event'],
+  ): Promise<void> {
+    await bus.publishOutbound({ sessionKey, chatId, channel, event, seq: seq++ });
   }
 
   for (;;) {
@@ -303,61 +345,84 @@ export async function runInboundLoop(
       const text = msg.content;
       const chatId = msg.chatId;
       const channelName = msg.channel;
+      // Task 6 I2 + Task 7 I15: 从 metadata 读取发起方 sessionKey，用于串行化分组和 envelope 路由
+      const senderSessionKey = (msg.metadata.sessionKey as string | undefined) ?? sessionRef.currentKey;
+      const senderUserId = msg.metadata.userId as string | undefined;
 
-      // Slash 命令拦截：在 agent 之前处理 / 开头的输入
-      if (slashHandler && text.startsWith('/')) {
-        const resolved = slashHandler.registry.resolve(text);
-        if (resolved) {
-          void (async () => {
-            watchdog.markTurnStart();
-            try {
+      // Task 7: 按 sessionKey 串行化 — await 前一个 turn 完成后再处理当前消息
+      // C1 fix: 吞掉前一个 turn 的 rejection，防止级联跳过后续 turn 与 unhandled rejection
+      const prev = (runningTurns.get(senderSessionKey) ?? Promise.resolve()).catch(() => undefined);
+      const next = prev.then(async () => {
+        // I5 fix: ctx.userId 在链内设置，避免并行 sessionKey 间的竞态
+        if (senderUserId && slashHandler) slashHandler.ctx.userId = senderUserId;
+        try {
+          watchdog.markTurnStart();
+        } catch (e) {
+          loopLog.warn('markTurnStart failed', { error: String(e) });
+        }
+        try {
+          // Slash 命令拦截：在 agent 之前处理 / 开头的输入
+          if (slashHandler && text.startsWith('/')) {
+            const resolved = slashHandler.registry.resolve(text);
+            if (resolved) {
               const result: CommandResult = await resolved.command.execute(resolved.args, slashHandler.ctx);
-              // /new 或 /sessions <id>：重建 session，使后续消息进入全新上下文
+              // /new 或 /resume：重建 session，使后续消息进入全新上下文
               if (result.action === 'new_session' && sessionFactory) {
-                const oldKey = sessionRef.currentKey;
+                const oldKey = senderSessionKey;
                 const newId = result.continueSessionId ?? randomUUID();
                 sessionRef.current = sessionFactory(newId);
                 sessionRef.currentKey = newId;
                 if (slashHandler) slashHandler.ctx.sessionId = newId;
-                onNewSession?.(newId);
-                loopLog.info('session switched', { oldSessionKey: oldKey, newSessionKey: newId, resumed: !!result.continueSessionId });
+                // Task 6: 通知 server 推送 session_changed 到发起方 sessionKey 的 connection
+                onNewSession?.(oldKey, newId);
+                loopLog.info('session switched', { senderSessionKey: oldKey, newSessionKey: newId, resumed: !!result.continueSessionId });
               }
               // 所有命令都发送完整 turn 事件序列，确保客户端清除 working 状态
               const turnId = createTurnId();
               const messageId = createMessageId();
-              await emit(chatId, channelName, { type: 'turn_start', turnId });
-              await emit(chatId, channelName, { type: 'message_start', messageId });
-              // 命令输出或 action 描述作为消息文本
+              await emit(senderSessionKey, chatId, channelName, { type: 'turn_start', turnId });
+              await emit(senderSessionKey, chatId, channelName, { type: 'message_start', messageId });
               const outputText = describeCommandResult(result);
               if (outputText) {
-                await emit(chatId, channelName, { type: 'message_delta', text: outputText });
+                await emit(senderSessionKey, chatId, channelName, { type: 'message_delta', text: outputText });
               }
-              await emit(chatId, channelName, { type: 'message_end', messageId, stopReason: DEFAULT_STOP_REASON });
-              await emit(chatId, channelName, { type: 'turn_end', turnId });
-            } catch (err) {
-              loopLog.error('slash command failed', { error: String(err) });
-              await emit(chatId, channelName, { type: 'error', message: `Command failed: ${String(err)}`, retryable: false });
-            } finally {
-              watchdog.markTurnEnd();
+              await emit(senderSessionKey, chatId, channelName, { type: 'message_end', messageId, stopReason: DEFAULT_STOP_REASON });
+              await emit(senderSessionKey, chatId, channelName, { type: 'turn_end', turnId });
+              return;
             }
-          })();
-          continue; // 不传给 agent
-        }
-      }
+          }
 
-      // 正常 agent 处理
-      void (async () => {
-        watchdog.markTurnStart();
-        try {
+          // 正常 agent 处理
+          // 验收修复：agent 处理前 emit user_message 事件，使其他客户端能同步看到用户发送的消息
+          const senderClientId = msg.metadata.clientId as string | undefined;
+          await emit(senderSessionKey, chatId, channelName, { type: 'user_message', text, senderId: senderClientId ?? '' });
           for await (const event of sessionRef.current.run(text)) {
-            await emit(chatId, channelName, event);
+            await emit(senderSessionKey, chatId, channelName, event);
           }
         } catch (err) {
-          loopLog.error('agent run failed', { error: String(err) });
+          loopLog.error('turn failed', { sessionKey: senderSessionKey, error: String(err) });
+          // C1 fix: catch 块内的 emit 单独 try/catch，防止 catch 自身抛错导致 turn promise reject
+          try {
+            await emit(senderSessionKey, chatId, channelName, { type: 'error', message: String(err), retryable: false });
+          } catch (emitErr) {
+            loopLog.error('error-emit failed', { sessionKey: senderSessionKey, error: String(emitErr) });
+          }
         } finally {
-          watchdog.markTurnEnd();
+          // C1 fix: finally 内 markTurnEnd 防御性 try/catch，防止覆盖 turn 的完成值
+          try {
+            watchdog.markTurnEnd();
+          } catch (e) {
+            loopLog.warn('markTurnEnd failed', { error: String(e) });
+          }
         }
-      })();
+      });
+      runningTurns.set(senderSessionKey, next);
+      // C1 fix: cleanup 的 finally 也加 catch，防止 unhandled rejection
+      void next.finally(() => {
+        if (runningTurns.get(senderSessionKey) === next) {
+          runningTurns.delete(senderSessionKey);
+        }
+      }).catch(() => undefined);
     } catch (err) {
       loopLog.error('inbound loop error', { error: String(err) });
     }

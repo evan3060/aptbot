@@ -2,6 +2,90 @@
 
 本文件记录 aptbot 各版本变更。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.2.0] - 2026-06-29
+
+L1 迭代封仓：用户系统 + 多客户端同步 + Codex 风格侧边栏 + 会话重命名。13 任务 + 会话重命名增强 + agent session ownership 修复，58 测试文件 / 584 测试通过 / `tsc` 0 错误。基于 [PLAN-L1.md](./PLAN-L1.md) 与设计 [docs/superpowers/specs/2026-06-29-l1-user-system-multi-client-design.md](./docs/superpowers/specs/2026-06-29-l1-user-system-multi-client-design.md) 实施。
+
+### Added
+
+#### Phase 0 — VPS 部署遗留补齐
+- `chat-page.ts` 首次连接成功后记忆 token 至 `sessionStorage`，刷新/重连自动携带，标签页关闭即清除
+- `docs/deployment.md` 补齐 VPS 实践（SSH 加固、sudoers 限定 systemctl/journalctl、Caddy 反代、WebSocket 鉴权）
+- README 中英文版本 Deployment 章节链接到 `docs/deployment.md`
+
+#### Phase 1 — 用户系统
+- `UserStorage` (`src/infrastructure/user-storage.ts`)：`scrypt` 密码哈希 + `users.jsonl` 持久化 + per-file mutex
+- HTTP 认证 API：`POST /api/register` / `POST /api/login` / `GET /api/me`（Bearer token）
+- WebSocket 认证中间件：用户 token > authToken > 匿名 UUID 三级身份识别，常量时间比较防时序攻击
+- I2 修复：连接建立早期缓冲消息，identifyUser 完成后切换正式处理器，防止认证期间消息丢失
+
+#### Phase 2 — 会话隔离与关联
+- `ConnectionState.sessionKey` 路由：`?session=<id>` 显式指定或服务端生成，`broadcast()` 仅向同 sessionKey 的 connection 发送
+- `SessionMetadata.userId` 字段 + `listSessions(userId?)` 按 owner 过滤
+- `claimSession` / `getSessionOwner` / `SessionAlreadyClaimedError` 严格 ownership 模型
+- localStorage `aptbot:sessionId` 持久化 + `session_changed` 事件 + WebSocket 重连
+- `sendToSessionKey(sessionKey, msg)` 控制消息直发通道（不进 ring buffer / 不走 AgentEvent union）
+- `/label` 命令 + `updateSessionLabel(id, label)` sidecar `.meta.json` 存储
+
+#### Phase 3 — 多客户端同步
+- per-sessionKey 入站消息串行化：`runningTurns: Map<sessionKey, Promise>` 同 session 排队、不同 session 并行，无 `turn_busy` 响应
+- ring buffer 历史回放：入站 + 出站双 buffer，新连接（`lastEventSeq=0`）合并排序回放最近 N 条（默认 20，可调 `?historyLimit=`）
+- presence 直发：连接建立/断开时 wsServer 直接向同 sessionKey 其他 connection 广播 `{ type: 'presence', onlineCount: N }`
+
+#### Phase 4 — UI 增强
+- 仿 Codex 左侧 session 侧边栏：260px 宽度、新会话按钮、相对时间、当前 session 高亮
+- `GET /api/sessions?token=` HTTP API：按 userId 过滤、updatedAt 降序
+- 底部用户信息（username / "匿名用户"）+ 登出按钮
+- 会话重命名（增强）：3-dot `⋮` 菜单 + inline 编辑 + Enter 保存 / Esc 取消
+- `POST /api/sessions/:id/label` 端点 + ownership 校验
+- `session_renamed` 控制消息通过 `sendToSessionKey` 广播给同 session 其他客户端，触发 `loadSessionList()` 刷新
+
+#### Phase 5 — 端到端验证
+- `tests/e2e/l1-auth-isolation.spec.ts`：注册/登录/token 校验/session 隔离完整流程
+- `tests/e2e/l1-multi-client-sync.spec.ts`：双客户端同 session 同步 + 历史回放 + presence + session_changed
+
+### Fixed
+
+- 修复 `session ownership mismatch, regenerating sessionId` 无限循环 — agent 共享单实例 session 跨用户切换时严格 ownership 拒绝导致前端死循环。新增 `forceClaimSession(id, userId)` 方法，当 `?session` 等于 agent 当前 sessionId 时强制转移 owner（覆盖旧 owner 不抛 `SessionAlreadyClaimedError`）
+- 修复 3-dot 菜单按钮未垂直居中（`align-items: center`）
+- 修复 3-dot 菜单按钮点击无反应（`e.stopPropagation()` + `menu-open` z-index 提升）
+- 修复会话切换时 `/resume` 未发送（MockWebSocket 缺静态常量 `OPEN=1`，仅为测试问题非代码 Bug）
+- 修复 `user_identified` 后 sessionId 变化必须重连 WS（避免 `sendToSessionKey(oldKey)` 失效）
+- 修复 I1：resync 协议 `lastEventSeq` 重连时正确回放 ring buffer
+- 修复 I4/I5：连接关闭且 sessionKey 无剩余连接时清理 ringBuffer 防内存泄漏
+- 修复 I8：`claimSession` 真正幂等（同用户重复 claim 是 no-op；跨用户 claim 抛错）
+- 修复 C1：claimSession 加 `withJsonlLock` 防并发读改写竞态
+- 修复 C2：`?session=` 显式指定时执行 ownership 检查（旧版仅 sessionStorage + userStorage 同时存在才校验）
+- 修复 M2：`session_changed` 关闭旧连接时清理所有监听器防止缓冲帧触发递归
+
+### Security
+
+- 密码哈希用 `crypto.scrypt` + 16 字节随机 salt
+- token 用 `crypto.randomBytes(32).toString('hex')`（64 字符）
+- authToken 常量时间比较 `timingSafeEqual` 防时序攻击
+- HTTP API 路径校验：sessionId 严格匹配 UUID v4 正则
+- Ownership 模型：session claim 后跨用户访问返回 403 forbidden
+- `X-Content-Type-Options: nosniff` + `Cache-Control: no-cache, no-store, must-revalidate` 防缓存旧 HTML
+- Agent session 共享单实例仅允许转移给当前登录用户（forceClaimSession），其他 session 保持严格 ownership
+
+### Test Coverage
+
+- 58 测试文件 / 584 用例全部通过
+- E2E 覆盖 L1 全部 12 项验收标准
+- 类型检查 `tsc --noEmit` 0 错误
+- 真实浏览器（headless Chrome + puppeteer）端到端验证：3 个回归 Bug 全部 PASS + 消息发送 PASS + 0 次 ownership_mismatch 循环
+
+### Release Finalization（封仓收尾）
+
+- `.gitignore` 补充 `.trae-cn/`（TRAE IDE 本地数据）
+- `PLAN-L1.md` 顶部状态更新为 `✅ L1 COMPLETED`，Task 13 全部 checkbox 完成
+- 设计文档归档至 `docs/superpowers/specs/`
+- 实施计划归档至 `docs/superpowers/plans/`
+- `package.json` 版本升至 `0.2.0`
+- 下一迭代计划 [PLAN-L2.md](./PLAN-L2.md) 已生成
+
+---
+
 ## [0.1.0-mvp] - 2026-06-28
 
 MVP 首个封仓版本。42 任务 / 54 源文件 / 5714 LOC src + 6289 LOC tests / 383 测试通过。

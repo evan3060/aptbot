@@ -36,6 +36,10 @@ describe('runInboundLoop watchdog wiring (I6)', () => {
       watchdog,
     );
 
+    // 跨客户端同步修复：agent 处理前先 emit user_message 事件
+    const env0 = await bus.consumeOutbound();
+    expect(env0.event.type).toBe('user_message');
+
     // 等待 outbound 事件出现
     const env = await bus.consumeOutbound();
     expect(env.event.type).toBe('agent_start');
@@ -152,6 +156,10 @@ describe('runInboundLoop slash command interception', () => {
     });
 
     const loopPromise = runInboundLoop(bus, { current: mockSession as never, currentKey: 's1' }, watchdog, slashHandler);
+
+    // 跨客户端同步修复：agent 处理前先 emit user_message 事件
+    const env0 = await bus.consumeOutbound();
+    expect(env0.event.type).toBe('user_message');
 
     const env = await bus.consumeOutbound();
     expect(env.event.type).toBe('agent_start');

@@ -19,6 +19,10 @@ export interface SessionMetadata {
   readonly updatedAt: number;
   readonly label?: string;
   readonly passedSessions?: number;
+  /** Task 5: session 所属用户（未 claim 时为 undefined） */
+  readonly userId?: string;
+  /** 首条用户消息摘要（无 label 时用于侧边栏默认显示） */
+  readonly preview?: string;
 }
 
 export interface Session {
