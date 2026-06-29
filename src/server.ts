@@ -341,12 +341,18 @@ export async function runInboundLoop(
       // Task 6 I2 + Task 7 I15: 从 metadata 读取发起方 sessionKey，用于串行化分组和 envelope 路由
       const senderSessionKey = (msg.metadata.sessionKey as string | undefined) ?? sessionRef.currentKey;
       const senderUserId = msg.metadata.userId as string | undefined;
-      if (senderUserId && slashHandler) slashHandler.ctx.userId = senderUserId;
 
       // Task 7: 按 sessionKey 串行化 — await 前一个 turn 完成后再处理当前消息
-      const prev = runningTurns.get(senderSessionKey) ?? Promise.resolve();
+      // C1 fix: 吞掉前一个 turn 的 rejection，防止级联跳过后续 turn 与 unhandled rejection
+      const prev = (runningTurns.get(senderSessionKey) ?? Promise.resolve()).catch(() => undefined);
       const next = prev.then(async () => {
-        watchdog.markTurnStart();
+        // I5 fix: ctx.userId 在链内设置，避免并行 sessionKey 间的竞态
+        if (senderUserId && slashHandler) slashHandler.ctx.userId = senderUserId;
+        try {
+          watchdog.markTurnStart();
+        } catch (e) {
+          loopLog.warn('markTurnStart failed', { error: String(e) });
+        }
         try {
           // Slash 命令拦截：在 agent 之前处理 / 开头的输入
           if (slashHandler && text.startsWith('/')) {
@@ -385,18 +391,28 @@ export async function runInboundLoop(
           }
         } catch (err) {
           loopLog.error('turn failed', { sessionKey: senderSessionKey, error: String(err) });
-          await emit(senderSessionKey, chatId, channelName, { type: 'error', message: String(err), retryable: false });
+          // C1 fix: catch 块内的 emit 单独 try/catch，防止 catch 自身抛错导致 turn promise reject
+          try {
+            await emit(senderSessionKey, chatId, channelName, { type: 'error', message: String(err), retryable: false });
+          } catch (emitErr) {
+            loopLog.error('error-emit failed', { sessionKey: senderSessionKey, error: String(emitErr) });
+          }
         } finally {
-          watchdog.markTurnEnd();
+          // C1 fix: finally 内 markTurnEnd 防御性 try/catch，防止覆盖 turn 的完成值
+          try {
+            watchdog.markTurnEnd();
+          } catch (e) {
+            loopLog.warn('markTurnEnd failed', { error: String(e) });
+          }
         }
       });
       runningTurns.set(senderSessionKey, next);
-      // turn 完成后清理 map（若当前 promise 仍是 map 中的值，避免覆盖更新的 turn）
+      // C1 fix: cleanup 的 finally 也加 catch，防止 unhandled rejection
       void next.finally(() => {
         if (runningTurns.get(senderSessionKey) === next) {
           runningTurns.delete(senderSessionKey);
         }
-      });
+      }).catch(() => undefined);
     } catch (err) {
       loopLog.error('inbound loop error', { error: String(err) });
     }
