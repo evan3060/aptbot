@@ -12,7 +12,15 @@
   </p>
 </div>
 
-🤖 **aptbot** is a personal learning and work assistant agent with a small, readable core. It runs a single-model ReAct loop with bash/read/edit tools, persists sessions to JSONL, and ships both a CLI (Ink) and a WebUI (Lit + Web Components) over WebSocket. v0.2.0 adds a user system (registration/login), multi-client real-time sync, and a Codex-style session sidebar with rename support.
+🤖 **aptbot — Your Personal AI Assistant**
+
+An open-source, self-hosted, fully customizable AI assistant that aspires to be an indispensable partner in your work and life.
+
+It's not just a chatbot. It's an agent that thinks, acts, and remembers — able to operate your local environment through tools (execute commands, read/write files, fetch web pages, query databases), able to remember your cross-session preferences and context, able to take over repetitive workflows upon your authorization, able to integrate into your work scenarios through CLI, WebUI, and IM multi-channel access, so your assistant responds wherever you feel most at home.
+
+It doesn't serve just you. Multi-user isolation lets family members and team members have their own session spaces on the same instance; multi-end real-time sync lets a conversation you start on your phone continue on your computer, and a workflow you launch in the terminal finish in the browser.
+
+**Long-term goal:** Starting from a concise, readable ReAct loop, gradually expand into a highly personalized, omnipotent personal work and life assistant — remembering your preferences, connecting your toolchain, learning your workflows, blending into your daily life. Ultimately, it doesn't just answer questions — it works for you proactively.
 
 > **Status:** v0.2.0 (L1) — 58 files / 584 tests passing. Multi-user, local/VPS deployment.
 
@@ -30,12 +38,37 @@
 
 ## 💡 Why aptbot
 
-- **Small core**: a readable ReAct loop, not a framework. The whole agent layer is ~3 files.
-- **Dual entry**: CLI (Ink) and WebUI (Lit) share the same `coreReducer` state machine.
-- **Multi-client sync**: per-sessionKey ring buffer + presence broadcast; multiple tabs see the same conversation in real time.
-- **Persistent sessions**: JSONL append-only with corruption-tolerant parsing and auto-repair.
-- **Hardened boundaries**: TTFB/chunk dual-clock streaming, 30s bash hard timeout, 2MB read limit, per-file edit mutex.
-- **Own your stack**: inspect every line, self-host on a $5 VPS, no platform lock-in.
+**Not a framework, not a SaaS, but "your" agent.**
+
+aptbot chose a different path: no subscriptions, no data lock-in, no hidden code. It presents the entire thinking process transparently to you, returns ownership of every bit of data to you, and hands the decision over every behavioral boundary to you.
+
+**Core philosophy:** Your data belongs to you, your tools are yours to decide, your customized assistant works your way. aptbot doesn't sell AI — it gives you an AI assistant that truly belongs to you.
+
+**Core features:**
+
+- **Transparent Thinking Process**
+  core is only ~3 files, a readable ReAct loop, not a framework. Every thought, every tool call, every decision is fully presented to you — you see how it works.
+
+- **Multi-Channel Access, One Conversation**
+  CLI, WebUI, and IM three channels access the same conversation. A conversation you start on your phone can continue on your computer; a workflow you launch in the terminal can finish in the browser. per-sessionKey ring buffer + presence broadcast makes multi-end real-time sync an architectural primitive, not an add-on.
+
+- **Multi-User Sharing, One Instance**
+  Multi-user isolation lets family and team members have their own session spaces on the same instance. One aptbot serves the whole family / whole team — no need for duplicate deployments.
+
+- **Session Persistence, Cross-Session Memory**
+  JSONL append-only persistence remembers your past context. Starting L2, a 3-layer memory architecture (short-term working memory / long-term episodic memory / procedural skill memory) will be introduced, with corruption-tolerant parsing and auto-repair ensuring memory is never lost.
+
+- **Multi-Model Redundancy, Always Available**
+  Primary + fallback provider auto-switch + circuit breaker. When a single provider fails, switch is seamless — your assistant is always online.
+
+- **Hardened Boundaries, Safe and Controllable**
+  TTFB/chunk dual-clock streaming control, 30s tool hard timeout, large file OOM protection, JSONL corruption repair. Every layer has protection, every operation has boundaries.
+
+- **Layered Architecture, Infinite Extensibility**
+  Strict four-layer architecture + declarative registry + Hook system (8 extension points). Adding an IM channel requires zero core changes; adding a tool is just declaring registration; adding a provider is just writing a config declaration.
+
+- **Dual Entry, Unified State Machine**
+  CLI (Ink) and WebUI (Lit) share the same coreReducer state machine. Streaming rendering, mid-turn interruption, multi-end sync are natural consumption patterns of the event stream, not extra features.
 
 ## 📦 Install
 
