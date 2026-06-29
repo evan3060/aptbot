@@ -443,11 +443,11 @@ interface CommandContext {
 **Behavior:** 端到端验证用户认证与 session 隔离的完整流程。
 
 **TDD Cycle:**
-- [ ] 编写失败测试
-- [ ] 验证失败：`npm run test -- tests/e2e/l1-auth-isolation.spec.ts` → FAIL
-- [ ] 修复至通过
-- [ ] `requesting-code-review` skill 审查
-- [ ] 提交：`test: e2e user auth and session isolation`
+- [x] 编写失败测试
+- [x] 验证失败：`npm run test -- tests/e2e/l1-auth-isolation.spec.ts` → FAIL
+- [x] 修复至通过
+- [x] `requesting-code-review` skill 审查
+- [x] 提交：`test: e2e user auth and session isolation`
 
 ### Task 12: E2E 多客户端同步
 
