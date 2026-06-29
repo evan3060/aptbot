@@ -54,8 +54,12 @@ function connectWithMessage(port: number, token?: string, timeoutMs = 2000): Pro
   });
 }
 
-/** 连接但不期望收到消息（用于错误 token 场景） */
-function connectExpectingClose(port: number, token?: string, timeoutMs = 1000): Promise<WebSocket> {
+/**
+ * M2 修复：连接并预期被服务器拒绝。
+ * 服务器拒绝表现为 close 或 error —— 任一发生即视为通过（resolve），
+ * 超时未关闭则视为失败（reject）。
+ */
+function connectExpectingRejection(port: number, token?: string, timeoutMs = 2000): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
     const params = new URLSearchParams();
     if (token) params.set('token', token);
@@ -63,20 +67,17 @@ function connectExpectingClose(port: number, token?: string, timeoutMs = 1000): 
     const url = `ws://localhost:${port}${qs ? `?${qs}` : ''}`;
     const ws = new WebSocket(url);
     const timer = setTimeout(() => {
-      reject(new Error('expected close but connection stayed open'));
+      reject(new Error('expected rejection but connection stayed open'));
     }, timeoutMs);
-    ws.once('open', () => {
-      // 连接 open 了，但预期会被关闭
-      ws.once('close', () => {
-        clearTimeout(timer);
-        reject(new Error('connection should have been rejected'));
-      });
-    });
-    ws.once('error', (err) => {
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
-      // error 表示连接被拒绝，符合预期
       resolve(ws);
-    });
+    };
+    ws.once('close', settle);
+    ws.once('error', settle);
   });
 }
 
@@ -165,8 +166,8 @@ describe('Task 4: WebSocket 认证中间件 + 匿名用户', () => {
     });
     clients.push(ws);
     expect(ws.readyState).toBe(WebSocket.OPEN);
-    // 错误 token 被拒绝
-    await expect(connectExpectingClose(TEST_PORT, 'wrong-token')).rejects.toThrow();
+    // 错误 token 被拒绝 — 服务器应在认证失败时关闭连接
+    await connectExpectingRejection(TEST_PORT, 'wrong-token');
   });
 
   it('无 userStorage 且无 authToken 时：任何连接都被接受（开发模式）', async () => {

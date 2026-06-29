@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { WebSocketServer as WsServer, WebSocket } from 'ws';
 import { createLogger } from '../infrastructure/logger.js';
 import type { MessageBus, InboundMessage, AgentEventEnvelope } from '../bus/types.js';
@@ -47,6 +47,14 @@ interface ConnectionState {
 /** Task 4: 共享 authToken 的固定 userId */
 const SHARED_USER_ID = '__shared__';
 
+/** Task 4 M1: 常量时间比较 authToken，防时序攻击 */
+function safeEqualAuthToken(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
+
 /**
  * Task 4: 识别用户身份
  * 优先级：用户 token > authToken > 匿名 UUID
@@ -76,8 +84,8 @@ async function identifyUser(
     }
   }
 
-  // 用户 token 无效：尝试 authToken
-  if (authToken && token === authToken) {
+  // 用户 token 无效：尝试 authToken（常量时间比较）
+  if (authToken && safeEqualAuthToken(token, authToken)) {
     return { userId: SHARED_USER_ID };
   }
 
@@ -133,8 +141,19 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
       const url = new URL(req.url ?? '', `http://localhost:${port}`);
       const token = url.searchParams.get('token');
 
+      // Task 4 I1/I2 修复：同步注册 close 监听器，防止 identifyUser 期间断开导致泄漏
+      let closed = false;
+      ws.once('close', () => { closed = true; });
+
+      // Task 4 I2 修复：提前缓冲 identifyUser 期间到达的消息
+      const earlyMessages: Buffer[] = [];
+      const earlyMessageHandler = (data: Buffer) => { earlyMessages.push(data); };
+      ws.on('message', earlyMessageHandler);
+
       // Task 4: 异步识别用户身份
       identifyUser(token, authToken, userStorage).then((identity) => {
+        if (closed) return; // 连接已在认证期间关闭
+
         if (identity === null) {
           safeSend(ws, { type: 'error', code: 'auth_failed', message: 'Invalid or missing auth token' });
           ws.close();
@@ -156,6 +175,9 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
           username: identity.username,
         };
         connections.set(ws, state);
+
+        // 移除早期消息缓冲处理器，切换到正式处理器
+        ws.removeListener('message', earlyMessageHandler);
 
         // Task 4: 有 userStorage 时发送 user_identified 事件
         if (userStorage) {
@@ -180,6 +202,11 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
           handleMessage(ws, state, data as Buffer, bus);
         });
 
+        // 重放缓冲的早期消息
+        for (const msg of earlyMessages) {
+          handleMessage(ws, state, msg, bus);
+        }
+
         ws.on('close', () => {
           connections.delete(ws);
           log.info('connection closed', { connections: connections.size });
@@ -197,8 +224,10 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
         });
       }).catch((err) => {
         log.error('user identification failed', { error: String(err) });
-        safeSend(ws, { type: 'error', code: 'auth_failed', message: 'Authentication failed' });
-        ws.close();
+        if (!closed) {
+          safeSend(ws, { type: 'error', code: 'auth_failed', message: 'Authentication failed' });
+          ws.close();
+        }
       });
     });
 
