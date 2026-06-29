@@ -2,6 +2,8 @@
 
 > 本文记录 aptbot 部署到 VPS 的完整流程，覆盖 systemd 进程管理、反向代理（nginx 或 Caddy）、TLS 签发、SSH 加固与 sudoers 配置。所有敏感字段以 `<placeholder>` 表示。
 
+> **当前部署版本：** v0.2.0（L1）。详见 [CHANGELOG.md](../CHANGELOG.md)。
+
 ## 部署架构
 
 ```
@@ -13,6 +15,8 @@
 - aptbot 以非 root 用户（`aptbot`）运行，由 systemd 管理
 - Node.js 绑定 `127.0.0.1:8080`，外部无法直连，必须经反向代理
 - 反向代理负责 TLS 终止、HTTP→HTTPS 重定向、WebSocket 升级
+- L1+：用户系统自动启用（`UserStorage` 默认开启，用户数据存 `data/users.jsonl`），无需额外 env 配置
+- L1+：Token 优先级 `URL ?token=` > 用户登录 token > `APTBOT_AUTH_TOKEN` > 匿名 UUID
 
 ## 1. 环境准备
 
@@ -283,8 +287,13 @@ sudo systemctl restart sshd
 # 以 aptbot 用户 SSH 登录（仅密钥）
 ssh aptbot@<your-vps-ip>
 
-# 更新部署
-cd /opt/aptbot && git pull && npm ci && npm run build && sudo systemctl restart aptbot
+# 更新部署（v0.2.0+ 切换到 l1-user-system 分支）
+cd /opt/aptbot && git fetch origin && git checkout l1-user-system && git pull origin l1-user-system
+# 注意：config/aptbot.json 含本地配置，git pull 前用 git stash 保留
+git stash push -m "preserve config" config/aptbot.json
+git pull origin l1-user-system
+git stash pop 2>/dev/null || cp /tmp/aptbot.json.backup config/aptbot.json  # 防止冲突
+npm ci && npm run build && sudo systemctl restart aptbot
 
 # 查看最近日志
 sudo journalctl -u aptbot --no-pager -n 50
@@ -292,8 +301,35 @@ sudo journalctl -u aptbot --no-pager -n 50
 # 实时日志
 sudo journalctl -u aptbot -f
 
-# 访问地址（需带 token）
-# https://<your-domain>/?token=<your-auth-token>
+# 访问地址（v0.2.0+ 支持注册/登录，无需 ?token=）
+# 老链接：https://<your-domain>/?token=<your-auth-token>
+# 新链接：https://<your-domain>/  → 注册新用户或登录已有账号
+```
+
+### 11.1 数据文件位置（v0.2.0+）
+
+| 文件 | 用途 | 清理策略 |
+|------|------|----------|
+| `data/users.jsonl` | 注册用户（scrypt 哈希密码 + token） | 永久保留 |
+| `data/sessions/*.jsonl` | 会话消息历史（per-sessionId） | 永久保留（L2 计划自动归档） |
+| `data/sessions/*.meta.json` | 会话元数据（owner / label） | 永久保留 |
+| `data/telegram_sessions.jsonl` | Telegram chatId 映射（L2+） | 永久保留 |
+
+> **重要：** Agent 进程不可直接读 `data/sessions/` 目录（受 Global Constraint 限制）。仅 `websocket-server.ts` 通过 `readHistoryForReplay` 受限路径访问，用于服务器重启后历史回放。
+
+### 11.2 切换分支/回滚
+
+```bash
+# 回滚到 v0.1.0（main 分支）
+cd /opt/aptbot
+git stash push -m "preserve config" config/aptbot.json
+git checkout main
+git stash pop 2>/dev/null || cp /tmp/aptbot.json.backup config/aptbot.json
+npm ci && npm run build && sudo systemctl restart aptbot
+
+# 切换到 L1+（l1-user-system 分支）
+git checkout l1-user-system && git pull origin l1-user-system
+npm ci && npm run build && sudo systemctl restart aptbot
 ```
 
 ## 12. 常见问题排查
@@ -340,6 +376,26 @@ sudo journalctl -u aptbot -f
 
 **修复：** 用 `which systemctl` 确认路径后更新 sudoers。
 
+### 问题：session ownership mismatch 无限循环（v0.2.0+）
+
+**现象：** 浏览器控制台反复出现 `session ownership mismatch, regenerating sessionId`，消息发不出去，`/api/sessions/:id/messages` 返回 403 Forbidden。
+
+**根因：** localStorage 中的 sessionId 是被旧用户 claim 的 agent 共享 session。新用户登录后，前端用该 sessionId 连接 WebSocket，server 端 ownership 检查拒绝（owner 是旧用户）→ 前端 regenerate 新 sessionId → server 返回 user_identified 带 agent sessionId → 前端用 agent sessionId 重连 → 再次拒绝 → 死循环。
+
+**修复：** v0.2.0 已修复。server 端检测到 `?session` 等于 agent 当前 sessionId 时，调用 `forceClaimSession` 强制转移 owner 给当前登录用户，跳过严格 ownership 检查。其他 session 保持严格 ownership。
+
+**应急处理（旧客户端缓存旧 sessionId）：**
+1. 浏览器 F12 → Application → Local Storage → 删除 `aptbot:sessionId`
+2. 刷新页面，让前端重新走 `?session=` 流程
+
+### 问题：HEAD 请求返回 404
+
+**现象：** `curl -I https://<your-domain>/` 返回 404，但浏览器访问正常。
+
+**根因：** aptbot HTTP 服务器仅在 `GET /` 时返回 chat-page HTML，未处理 HEAD 方法。这是已知行为，不影响浏览器（浏览器用 GET）。
+
+**修复：** 无需修复。如需 HEAD 探测，使用 `curl -s -o /dev/null -w "%{http_code}\n" https://<your-domain>/`（GET 方法）。
+
 ## 相关提交
 
 | commit | 说明 |
@@ -347,3 +403,6 @@ sudo journalctl -u aptbot -f
 | `73d5b2a` | fix: add HOST env var to bind loopback behind reverse proxy |
 | `d38309e` | fix: serve chat page when URL has query params like ?token= |
 | `af21d51` | feat: persist auth token in sessionStorage for chat page (L1 Task 1) |
+| `fb1d1ba` | feat: add session rename with 3-dot menu and cross-client sync |
+| `9fedcd4` | fix: break session ownership mismatch infinite loop |
+| `94e4145` | feat(l1): complete L1 with user system and multi-client sync |
