@@ -1,9 +1,9 @@
 <div align="center">
   <p>
-    <img src="https://img.shields.io/badge/tests-383%20passed-brightgreen" alt="Tests">
+    <img src="https://img.shields.io/badge/tests-584%20passed-brightgreen" alt="Tests">
     <img src="https://img.shields.io/badge/TypeScript-strict-blue" alt="TypeScript">
     <img src="https://img.shields.io/badge/node-%3E%3D20-green" alt="Node">
-    <img src="https://img.shields.io/badge/version-0.1.0--mvp-orange" alt="Version">
+    <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="Version">
     <img src="https://img.shields.io/badge/license-MIT-yellow" alt="License">
   </p>
   <p>
@@ -12,9 +12,9 @@
   </p>
 </div>
 
-🤖 **aptbot** 是一个个人学习与工作助手 agent，核心小巧可读。它运行单模型 ReAct 循环，内置 bash/read/edit 工具，将会话持久化到 JSONL，同时提供 CLI（Ink）和 WebUI（Lit + Web Components）双入口，基于 WebSocket 通信。
+🤖 **aptbot** 是一个个人学习与工作助手 agent，核心小巧可读。它运行单模型 ReAct 循环，内置 bash/read/edit 工具，将会话持久化到 JSONL，同时提供 CLI（Ink）和 WebUI（Lit + Web Components）双入口，基于 WebSocket 通信。v0.2.0 新增用户系统（注册/登录）、多客户端实时同步、Codex 风格侧边栏与会话重命名。
 
-> **状态：** v0.1.0 MVP — 42 项任务完成，383 个测试通过。当前为单用户、本地/VPS 部署。
+> **状态：** v0.2.0（L1）— 58 个文件 / 584 个测试通过。多用户、本地/VPS 部署。
 
 ## 从这里开始
 
@@ -25,12 +25,14 @@
 | 部署到 VPS 并启用 TLS | [部署](#-部署) |
 | 理解分层架构 | [架构](./ARCHITECTURE.md) |
 | 查看版本变更记录 | [更新日志](./CHANGELOG.md) |
-| 回顾 MVP 任务计划 | [PLAN.md](./PLAN.md) |
+| 回顾 L1 任务计划 | [PLAN-L1.md](./PLAN-L1.md) |
+| 预览 L2 路线图 | [PLAN-L2.md](./PLAN-L2.md) |
 
 ## 💡 为什么选 aptbot
 
 - **核心小**：一个可读的 ReAct 循环，不是框架。整个 agent 层只有 ~3 个文件。
 - **双入口**：CLI（Ink）和 WebUI（Lit）共享同一个 `coreReducer` 状态机。
+- **多客户端同步**：per-sessionKey ring buffer + presence 广播，多个标签页实时看到同一会话。
 - **会话持久化**：JSONL append-only，支持破损容错解析与自动修复。
 - **硬化的边界**：TTFB/chunk 双时钟流式控制、bash 30s 硬超时、read 2MB 限制、edit per-file mutex。
 - **掌控你的栈**：每一行都可审查，5 美元 VPS 即可自托管，无平台锁定。
@@ -139,9 +141,12 @@ aptbot 自底向上分层：每层仅依赖其下层。
 | 工具 | `bash`（30s SIGTERM→SIGKILL）· `read`（2MB 限制）· `edit`（per-file mutex）· `update_working_memory` |
 | 记忆 | JSONL append-only · 破损容错解析 · `fs.truncateSync` 自动修复 · 80% 上下文触发 Compaction |
 | 会话 | `/sessions` 列表带 `(current)` 标记 · `/resume <短ID>` 前缀匹配 · 重启后自动恢复最近会话 |
+| 用户系统（v0.2.0） | `scrypt` 密码哈希 · Bearer token 认证 · per-user session ownership · `POST /api/register` / `POST /api/login` / `GET /api/me` |
+| 多客户端同步（v0.2.0） | per-sessionKey 消息串行化 · ring buffer 历史回放 · presence 广播 · `session_changed` 控制消息 |
+| 会话侧边栏（v0.2.0） | Codex 风格左面板 · 相对时间 · 3-dot 菜单 · inline 重命名（Enter/Esc） · 跨客户端 `session_renamed` 广播 |
 | Provider | `openai-completions` · `openai-responses` · `anthropic-messages` · 双时钟 TTFB 5s + chunk 1.5s · 401/403/400 fatal，429/5xx 重试 |
 | WebSocket | 入站限制 64KB / 10 msg/s · 心跳 60s · resync 协议 · 死信队列 |
-| 安全 | systemPrompt 禁止 kill / source-mod / `data/sessions/` 访问 · API key 仅通过 `.env` |
+| 安全 | systemPrompt 禁止 kill / source-mod / `data/sessions/` 访问 · API key 仅通过 `.env` · session ownership 防跨用户访问 |
 
 ## 斜杠命令
 
@@ -155,6 +160,7 @@ aptbot 自底向上分层：每层仅依赖其下层。
 | `/sessions` | 列出所有会话（当前会话标记 `(current)`） |
 | `/resume <id>` | 切换会话（短 ID 前缀匹配） |
 | `/continue <id>` | 继承旧会话的 working memory |
+| `/label <text>` | 重命名当前会话（v0.2.0+） |
 | `/exit` | 退出应用 |
 
 ## 📚 文档
@@ -162,7 +168,9 @@ aptbot 自底向上分层：每层仅依赖其下层。
 - [架构文档](./ARCHITECTURE.md) — 分层设计、模块映射、事件流
 - [部署指南](./docs/deployment.md) — VPS 部署含 systemd + nginx/Caddy
 - [更新日志](./CHANGELOG.md) — 版本发布说明
-- [PLAN.md](./PLAN.md) — MVP 任务计划（42 项任务，全部完成）
+- [PLAN-L1.md](./PLAN-L1.md) — L1 任务计划（用户系统 + 多客户端同步，已完成）
+- [PLAN-L2.md](./PLAN-L2.md) — L2 路线图（可靠性 + IM 集成，已规划）
+- [架构对比](./docs/comparison-pi-nanobot-ga.md) — 与 pi-agent / nanobot / GenericAgent 的架构对比
 
 ## 🚢 部署
 
@@ -195,21 +203,21 @@ npm run dev    # http://localhost:8080
 ## 🧪 测试
 
 ```bash
-npm test              # 43 个文件，383 个测试
+npm test              # 58 个文件，584 个测试
 npx tsc --noEmit      # 严格类型检查，0 错误
 ```
 
-E2E 覆盖完整 agent 循环：基础对话、工具调用、多轮上下文、持久化、working memory、错误恢复、WebSocket resync、斜杠命令、Compaction、跨会话继承。
+E2E 覆盖完整 agent 循环：基础对话、工具调用、多轮上下文、持久化、working memory、错误恢复、WebSocket resync、斜杠命令、Compaction、跨会话继承、用户注册/登录、session ownership 隔离、多客户端实时同步。
 
 ## 🤝 贡献
 
-欢迎 PR。代码库刻意保持小巧——54 个源文件，~5700 行代码。
+欢迎 PR。代码库刻意保持小巧——70+ 个源文件，~8000 行代码。
 
 ### 路线图
 
-- **L1** — 浏览器级会话隔离（基于 localStorage）、多客户端同步
-- **L2** — IM 渠道集成（Telegram / Discord / 飞书）
-- **L3** — Cloudflare Pages + Workers 轻量部署
+- **L1 ✅（v0.2.0）** — 用户系统（注册/登录）、浏览器级会话隔离、多客户端同步、Codex 风格侧边栏、会话重命名
+- **L2** — 可靠性（ring buffer 分片、JSONL 历史持久化、HttpOnly cookie）、扩展性（MixinProvider 故障转移、配置热重载、hook 系统）、体验（CLI overlay/diff、WebUI 拆分到 Cloudflare Pages）、IM 集成（Telegram 作为首个渠道）
+- **L3** — FallbackProvider + 熔断器、OAuth、session 分支、跨会话长期记忆、飞书/钉钉集成、AgentHarness + 子代理管理
 - **多模态** — 图像输入/输出
 - **MCP** — Model Context Protocol 工具扩展
 
