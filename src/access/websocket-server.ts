@@ -55,6 +55,18 @@ interface ConnectionState {
   sessionKey?: string;  // Task 5 填充
 }
 
+/** Task 8: 出站事件 ring buffer 条目，附带 timestamp 用于历史回放合并排序 */
+interface BufferedEvent {
+  envelope: AgentEventEnvelope;
+  timestamp: number;
+}
+
+/** Task 8: 入站消息 ring buffer 条目 */
+interface BufferedInbound {
+  content: string;
+  timestamp: number;
+}
+
 /** Task 4: 共享 authToken 的固定 userId */
 const SHARED_USER_ID = '__shared__';
 
@@ -142,16 +154,28 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
     });
     const wss = new WsServer({ server: httpServer });
     const connections = new Map<WebSocket, ConnectionState>();
-    // Task 5: per-sessionKey ring buffer，避免跨 session 重放
-    const ringBuffers = new Map<string, AgentEventEnvelope[]>();
+    // Task 8: per-sessionKey 出站 ring buffer，存储 BufferedEvent（含 timestamp）
+    const ringBuffers = new Map<string, BufferedEvent[]>();
+    // Task 8: per-sessionKey 入站 ring buffer，存储 BufferedInbound
+    const inboundBuffers = new Map<string, BufferedInbound[]>();
     // Task 5 C2 fix: 跟踪每个 sessionKey 的活跃连接数，归零时触发 onSessionUnbound
     const sessionRefCount = new Map<string, number>();
 
-    function getRingBuffer(sessionKey: string): AgentEventEnvelope[] {
+    function getRingBuffer(sessionKey: string): BufferedEvent[] {
       let buf = ringBuffers.get(sessionKey);
       if (!buf) {
         buf = [];
         ringBuffers.set(sessionKey, buf);
+      }
+      return buf;
+    }
+
+    /** Task 8: 获取或创建入站 buffer */
+    function getInboundBuffer(sessionKey: string): BufferedInbound[] {
+      let buf = inboundBuffers.get(sessionKey);
+      if (!buf) {
+        buf = [];
+        inboundBuffers.set(sessionKey, buf);
       }
       return buf;
     }
@@ -167,6 +191,8 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
         sessionRefCount.delete(sessionKey);
         // I4/I5 fix: 无剩余连接时清理 ringBuffer，避免内存泄漏
         ringBuffers.delete(sessionKey);
+        // Task 8: 清理 inboundBuffer
+        inboundBuffers.delete(sessionKey);
         // 通知 server.ts 解绑 channelManager
         if (onSessionUnbound) {
           try {
@@ -261,8 +287,15 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
 
         // I1 修复：resync 协议 — 客户端携带 lastEventSeq 重连时重放缓冲事件
         // Task 5: 仅重放该 sessionKey 的 buffer
+        // Task 8: historyLimit 优先触发历史回放（inbound + outbound 合并）
         const lastEventSeqStr = url.searchParams.get('lastEventSeq');
-        if (lastEventSeqStr !== null) {
+        const historyLimitStr = url.searchParams.get('historyLimit');
+        if (historyLimitStr !== null) {
+          // Task 8: 历史回放 — 合并入站+出站消息，限制数量
+          const parsed = parseInt(historyLimitStr, 10);
+          const limit = Number.isNaN(parsed) || parsed <= 0 ? 20 : parsed;
+          replayHistory(ws, getInboundBuffer(sessionKey), getRingBuffer(sessionKey), limit);
+        } else if (lastEventSeqStr !== null) {
           const lastEventSeq = parseInt(lastEventSeqStr, 10);
           if (!Number.isNaN(lastEventSeq)) {
             replayBufferedEvents(ws, getRingBuffer(sessionKey), lastEventSeq);
@@ -275,12 +308,12 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
         });
 
         ws.on('message', (data) => {
-          handleMessage(ws, state, data as Buffer, bus);
+          handleMessage(ws, state, data as Buffer, bus, inboundBuffers);
         });
 
         // 重放缓冲的早期消息
         for (const msg of earlyMessages) {
-          handleMessage(ws, state, msg, bus);
+          handleMessage(ws, state, msg, bus, inboundBuffers);
         }
 
         ws.on('close', () => {
@@ -344,6 +377,7 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
           }
           connections.clear();
           ringBuffers.clear();
+          inboundBuffers.clear();
           sessionRefCount.clear();
           wss.close();
           await new Promise<void>((r) => httpServer.close(() => r()));
@@ -353,8 +387,9 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
         },
         broadcast(envelope: AgentEventEnvelope): void {
           // Task 5: 仅向 sessionKey 匹配的 connection 发送，避免跨 session 串扰
+          // Task 8: 存储 BufferedEvent（含 timestamp）供历史回放使用
           const ringBuffer = getRingBuffer(envelope.sessionKey);
-          ringBuffer.push(envelope);
+          ringBuffer.push({ envelope, timestamp: Date.now() });
           if (ringBuffer.length > WS_OUTBOUND_BUFFER_MAX) {
             ringBuffer.shift();
           }
@@ -393,28 +428,67 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
  *
  * Task 6 I1 fix: lastEventSeq=0 表示客户端为全新连接（如 session_changed 重连到新 sessionKey），
  * 此时回放整个 buffer 而非触发 resync，确保 /new 后的确认 turn 事件能送达。
+ *
+ * Task 8: ringBuffer 类型从 AgentEventEnvelope[] 改为 BufferedEvent[]（含 timestamp）。
  */
-function replayBufferedEvents(ws: WebSocket, ringBuffer: AgentEventEnvelope[], lastEventSeq: number): void {
+function replayBufferedEvents(ws: WebSocket, ringBuffer: BufferedEvent[], lastEventSeq: number): void {
   if (ringBuffer.length === 0) return;
   // lastEventSeq=0：全新连接，回放所有 buffer 内容
   if (lastEventSeq === 0) {
-    for (const env of ringBuffer) {
-      safeSend(ws, { type: 'event', seq: env.seq, event: env.event });
+    for (const buf of ringBuffer) {
+      safeSend(ws, { type: 'event', seq: buf.envelope.seq, event: buf.envelope.event });
     }
     return;
   }
-  const oldestSeq = ringBuffer[0].seq;
+  const oldestSeq = ringBuffer[0].envelope.seq;
   // 若客户端的 lastEventSeq 与 buffer 最旧 seq 之间有缺口，事件已丢失
   if (lastEventSeq < oldestSeq - 1) {
     safeSend(ws, { type: 'resync_required' });
     return;
   }
   // 重放 seq > lastEventSeq 的所有缓冲事件
-  for (const env of ringBuffer) {
-    if (env.seq > lastEventSeq) {
-      safeSend(ws, { type: 'event', seq: env.seq, event: env.event });
+  for (const buf of ringBuffer) {
+    if (buf.envelope.seq > lastEventSeq) {
+      safeSend(ws, { type: 'event', seq: buf.envelope.seq, event: buf.envelope.event });
     }
   }
+}
+
+/**
+ * Task 8: 历史回放 — 合并入站+出站消息，按 timestamp 排序，限制数量后发送。
+ * 回放消息格式：{ type: 'replay', replay: true, messages: [...] }
+ * 每条 message 标记 replay: true，kind 区分 inbound/outbound。
+ * 空历史时不发送 replay 消息。
+ */
+function replayHistory(
+  ws: WebSocket,
+  inboundBuffer: BufferedInbound[],
+  outboundBuffer: BufferedEvent[],
+  historyLimit: number,
+): void {
+  type MergedItem =
+    | { kind: 'inbound'; timestamp: number; content: string }
+    | { kind: 'outbound'; timestamp: number; event: AgentEventEnvelope['event']; seq: number };
+
+  const merged: MergedItem[] = [
+    ...inboundBuffer.map((m) => ({ kind: 'inbound' as const, timestamp: m.timestamp, content: m.content })),
+    ...outboundBuffer.map((b) => ({ kind: 'outbound' as const, timestamp: b.timestamp, event: b.envelope.event, seq: b.envelope.seq })),
+  ];
+  merged.sort((a, b) => a.timestamp - b.timestamp);
+
+  // Apply historyLimit — take the last N messages (most recent)
+  const limited = merged.slice(-historyLimit);
+  if (limited.length === 0) return;
+
+  const messages = limited.map((m) => {
+    const base = { kind: m.kind, timestamp: m.timestamp, replay: true };
+    if (m.kind === 'inbound') {
+      return { ...base, content: m.content };
+    }
+    return { ...base, event: m.event, seq: m.seq };
+  });
+
+  safeSend(ws, { type: 'replay', replay: true, messages });
 }
 
 function safeSend(ws: WebSocket, msg: unknown): void {
@@ -428,6 +502,7 @@ function handleMessage(
   state: ConnectionState,
   data: Buffer,
   bus: MessageBus,
+  inboundBuffers: Map<string, BufferedInbound[]>,
 ): void {
   let parsed: { type?: string; content?: string };
   try {
@@ -462,6 +537,18 @@ function handleMessage(
 
   // Publish valid inbound message to bus
   if (parsed.type === 'message' && content) {
+    // Task 8: 缓存入站消息到 inboundBuffer，供历史回放使用
+    if (state.sessionKey) {
+      let inboundBuffer = inboundBuffers.get(state.sessionKey);
+      if (!inboundBuffer) {
+        inboundBuffer = [];
+        inboundBuffers.set(state.sessionKey, inboundBuffer);
+      }
+      inboundBuffer.push({ content, timestamp: Date.now() });
+      if (inboundBuffer.length > WS_OUTBOUND_BUFFER_MAX) {
+        inboundBuffer.shift();
+      }
+    }
     const inbound: InboundMessage = {
       channel: 'websocket',
       senderId: 'ws-client',

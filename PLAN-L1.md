@@ -349,12 +349,12 @@ interface CommandContext {
 **Behavior:** 第二个浏览器打开同一会话时，能看到之前的对话历史，而非空白页面。利用内存 ring buffer，在连接建立时回放最近事件。不读 JSONL，不违反"agent 不可读 session 文件"约束。服务器重启后历史丢失（可接受）。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：新连接收到历史回放、historyLimit 参数生效、replay 标记正确、不同 sessionKey 历史不串扰
-- [ ] 验证失败：`npm run test -- tests/access/websocket-history-replay.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] `requesting-code-review` skill 审查
-- [ ] 提交：`feat: replay recent history on new websocket connection`
+- [x] 编写失败测试覆盖：新连接收到历史回放、historyLimit 参数生效、replay 标记正确、不同 sessionKey 历史不串扰
+- [x] 验证失败：`npm run test -- tests/access/websocket-history-replay.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] `requesting-code-review` skill 审查
+- [x] 提交：`feat: replay recent history on new websocket connection`
 
 ### Task 9: presence 指示器
 
