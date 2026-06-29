@@ -19,6 +19,8 @@ export interface CommandContext {
   sessionId: string;
   model: string;
   storage: StorageAdapter;
+  /** Task 6: 当前用户 ID，用于 session 归属过滤；匿名用户为临时 UUID */
+  userId?: string;
 }
 
 export interface CommandRegistry {
@@ -56,6 +58,7 @@ export function createCommandRegistry(): CommandRegistry {
   register(exitCommand);
   register(sessionsCommand);
   register(resumeCommand);
+  register(labelCommand);
 
   return {
     register,
@@ -114,6 +117,7 @@ const helpCommand: Command = {
       '  /sessions     - List all sessions',
       '  /resume <id>  - Resume a specific session',
       '  /continue <id> - Continue from a previous session',
+      '  /label <name> - Set the current session label',
       '  /exit         - Exit the application',
     ];
     return { output: lines.join('\n') };
@@ -238,5 +242,22 @@ const resumeCommand: Command = {
       return { output: `Ambiguous id, matches: ${matches.map((s) => s.id.slice(0, 8)).join(', ')}` };
     }
     return { action: 'new_session', continueSessionId: matches[0].id, resumeFromArg: true };
+  },
+};
+
+/**
+ * Task 6: /label <名称> — 设置当前 session 的 label。
+ * 通过 storage.updateSessionLabel 持久化到 sidecar .meta.json。
+ */
+const labelCommand: Command = {
+  name: 'label',
+  description: 'Set the current session label',
+  async execute(args, ctx) {
+    if (args.length === 0) {
+      return { output: 'Usage: /label <name>' };
+    }
+    const label = args.join(' ');
+    await ctx.storage.updateSessionLabel(ctx.sessionId, label);
+    return { output: `Session label set: ${label}` };
   },
 };

@@ -227,12 +227,12 @@ describe('E2E: Full agent loop', () => {
     expect(hasText).toBe(true);
   });
 
-  it('#8 CLI commands: all 9 builtin commands available and executable (I16)', async () => {
+  it('#8 CLI commands: all 10 builtin commands available and executable (I16)', async () => {
     const registry = createCommandRegistry();
     const commands = registry.list();
-    expect(commands.length).toBe(9);
+    expect(commands.length).toBe(10);
     const names = commands.map((c) => c.name).sort();
-    expect(names).toEqual(['clear', 'continue', 'exit', 'help', 'model', 'new', 'resume', 'session', 'sessions']);
+    expect(names).toEqual(['clear', 'continue', 'exit', 'help', 'label', 'model', 'new', 'resume', 'session', 'sessions']);
 
     // I16 修复：实际执行每个命令验证输出/action，而非仅检查注册数量
     const mockStorage: StorageAdapter = {

@@ -252,11 +252,36 @@ export function createChatPageHtml(wsPath: string): string {
     token = sessionStorage.getItem(TOKEN_KEY) || null;
   }
 
+  // Task 6: sessionId 持久化（localStorage，跨刷新/重连恢复）
+  // 逻辑与 src/access/chat-page-session.ts 的 resolveSessionId 保持一致
+  // 修改此处需同步修改 chat-page-session.ts
+  var SESSION_ID_KEY = 'aptbot:sessionId';
+  var urlSessionId = new URLSearchParams(window.location.search).get('session');
+  var sessionId = null;
+  if (urlSessionId) {
+    sessionId = urlSessionId;
+    try { localStorage.setItem(SESSION_ID_KEY, sessionId); } catch (e) { /* localStorage 不可用降级 */ }
+  } else {
+    sessionId = localStorage.getItem(SESSION_ID_KEY) || null;
+  }
+  if (!sessionId) {
+    // 生成新 UUID（浏览器原生 crypto.randomUUID，不支持时降级）
+    sessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+          var r = (Math.random() * 16) | 0;
+          var v = c === 'x' ? r : (r & 0x3) | 0x8;
+          return v.toString(16);
+        });
+    try { localStorage.setItem(SESSION_ID_KEY, sessionId); } catch (e) { /* localStorage 不可用降级 */ }
+  }
+
   function buildWsUrl() {
     var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     var base = proto + '//' + location.host + '${wsPath}';
     var params = new URLSearchParams();
     if (token) params.set('token', token);
+    if (sessionId) params.set('session', sessionId);
     if (lastEventSeq > 0) params.set('lastEventSeq', String(lastEventSeq));
     var qs = params.toString();
     return qs ? base + '?' + qs : base;
@@ -310,6 +335,19 @@ export function createChatPageHtml(wsPath: string): string {
   }
 
   function handleServerMessage(msg) {
+    // Task 6: session_changed 事件 — 更新 localStorage 并重连到新 session
+    if (msg.type === 'session_changed' && msg.sessionId) {
+      try { localStorage.setItem(SESSION_ID_KEY, msg.sessionId); } catch (e) { /* localStorage 不可用降级 */ }
+      sessionId = msg.sessionId;
+      lastEventSeq = 0;  // 新 session 重置 seq
+      // 关闭旧连接并重连到新 session
+      if (ws) {
+        ws.onclose = null;  // 阻止自动重连旧 session
+        ws.close();
+      }
+      connect();
+      return;
+    }
     if (msg.type === 'event' && msg.event) {
       if (typeof msg.seq === 'number' && msg.seq > lastEventSeq) lastEventSeq = msg.seq;
       var e = msg.event;

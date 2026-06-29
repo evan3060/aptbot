@@ -274,12 +274,12 @@ interface CommandContext {
 **Behavior:** 实现浏览器级会话隔离。每个浏览器标签页持久化自己的 sessionId，刷新后恢复同一会话。`/new` 和 `/resume` 切换 session 时，服务端推送 `session_changed` 事件，客户端更新 localStorage 并重连。新增 `/label` 命令支持 session 重命名。登录/注册页面提供表单，支持匿名访问入口。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：首次访问生成 sessionId 并存 localStorage、刷新后读取同一 sessionId、session_changed 事件触发 localStorage 更新、/label 命令设置 label
-- [ ] 验证失败：`npm run test -- tests/access/chat-page-session.spec.ts tests/server/session-changed-event.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
-- [ ] `requesting-code-review` skill 审查
-- [ ] 提交：`feat: persist sessionId in localStorage with session_changed event`
+- [x] 编写失败测试覆盖：首次访问生成 sessionId 并存 localStorage、刷新后读取同一 sessionId、session_changed 事件触发 localStorage 更新、/label 命令设置 label
+- [x] 验证失败：`npm run test -- tests/access/chat-page-session.spec.ts tests/server/session-changed-event.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
+- [x] `requesting-code-review` skill 审查
+- [x] 提交：`feat: persist sessionId in localStorage with session_changed event`
 
 ---
 

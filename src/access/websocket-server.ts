@@ -42,6 +42,8 @@ export interface WebSocketServer {
   stop(): Promise<void>;
   getActiveConnections(): number;
   broadcast(envelope: AgentEventEnvelope): void;
+  /** Task 6: 向指定 sessionKey 的所有 connection 发送原始消息（不走 ring buffer，不参与 seq 协议）。用于 session_changed 等控制消息。 */
+  sendToSessionKey(sessionKey: string, msg: unknown): void;
 }
 
 interface ConnectionState {
@@ -360,6 +362,15 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
           const payload = JSON.stringify({ type: 'event', seq: envelope.seq, event: envelope.event });
           for (const [ws, state] of connections) {
             if (state.sessionKey === envelope.sessionKey && ws.readyState === WebSocket.OPEN) {
+              ws.send(payload);
+            }
+          }
+        },
+        // Task 6: 向指定 sessionKey 的 connection 发送原始消息（控制消息，不进 ring buffer）
+        sendToSessionKey(sessionKey: string, msg: unknown): void {
+          const payload = JSON.stringify(msg);
+          for (const [ws, state] of connections) {
+            if (state.sessionKey === sessionKey && ws.readyState === WebSocket.OPEN) {
               ws.send(payload);
             }
           }

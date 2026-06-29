@@ -221,8 +221,11 @@ Important constraints:
     ctx: { sessionId, model: model.id, storage },
   };
 
-  void runInboundLoop(bus, sessionRef, watchdog, slashHandler, sessionFactory, (newId) => {
+  void runInboundLoop(bus, sessionRef, watchdog, slashHandler, sessionFactory, (oldKey, newId) => {
+    // Task 6: /new 或 /resume 后，向旧 sessionKey 的 connection 推送 session_changed
+    // 客户端收到后更新 localStorage 并用 ?session=newId 重连
     channelManager.bindSession(newId, wsChannel);
+    wsServer.sendToSessionKey(oldKey, { type: 'session_changed', sessionId: newId });
   });
   void channelManager.runDispatchLoop();
 
@@ -301,7 +304,8 @@ export async function runInboundLoop(
   watchdog: { markTurnStart: () => void; markTurnEnd: () => void },
   slashHandler?: SlashCommandHandler,
   sessionFactory?: SessionFactory,
-  onNewSession?: (newSessionId: string) => void,
+  /** Task 6: /new 或 /resume 后触发，参数为 (oldKey, newId)，用于推送 session_changed 事件 */
+  onNewSession?: (oldKey: string, newId: string) => void,
 ): Promise<void> {
   const loopLog = createLogger('inbound-loop');
   let seq = 0;
@@ -335,7 +339,8 @@ export async function runInboundLoop(
                 sessionRef.current = sessionFactory(newId);
                 sessionRef.currentKey = newId;
                 if (slashHandler) slashHandler.ctx.sessionId = newId;
-                onNewSession?.(newId);
+                // Task 6: 通知 server 推送 session_changed 到旧 sessionKey 的 connection
+                onNewSession?.(oldKey, newId);
                 loopLog.info('session switched', { oldSessionKey: oldKey, newSessionKey: newId, resumed: !!result.continueSessionId });
               }
               // 所有命令都发送完整 turn 事件序列，确保客户端清除 working 状态
