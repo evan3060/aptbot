@@ -138,7 +138,7 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
 
       // Task 3: 认证 API 端点
       if (userStorage && pathname.startsWith('/api/')) {
-        handleAuthApi(req, res, pathname, userStorage);
+        handleAuthApi(req, res, pathname, userStorage, sessionStorage);
         return;
       }
 
@@ -602,12 +602,14 @@ function handleMessage(
  * - POST /api/register { username, password } → { userId, username, token }
  * - POST /api/login    { username, password } → { userId, username, token }
  * - GET  /api/me       Authorization: Bearer <token> → { userId, username }
+ * - GET  /api/sessions?token=<token> → { sessions: SessionMetadata[] } (Task 10)
  */
 async function handleAuthApi(
   req: IncomingMessage,
   res: ServerResponse,
   pathname: string,
   userStorage: UserStorage,
+  sessionStorage?: StorageAdapter,
 ): Promise<void> {
   const sendJson = (status: number, body: unknown) => {
     res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
@@ -679,6 +681,31 @@ async function handleAuthApi(
         return;
       }
       sendJson(200, { userId: user.userId, username: user.username });
+      return;
+    }
+
+    // Task 10: GET /api/sessions — 返回当前用户的 session 列表（按 userId 过滤）
+    if (pathname === '/api/sessions' && req.method === 'GET') {
+      const url = new URL(req.url ?? '', `http://localhost`);
+      const queryToken = url.searchParams.get('token');
+      const authHeader = req.headers.authorization;
+      const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : null;
+      const token = queryToken ?? bearerToken;
+      if (!token) {
+        sendJson(401, { error: 'missing token' });
+        return;
+      }
+      const user = await userStorage.findByToken(token);
+      if (!user) {
+        sendJson(401, { error: 'invalid token' });
+        return;
+      }
+      if (!sessionStorage) {
+        sendJson(200, { sessions: [] });
+        return;
+      }
+      const sessions = await sessionStorage.listSessions(user.userId);
+      sendJson(200, { sessions });
       return;
     }
 

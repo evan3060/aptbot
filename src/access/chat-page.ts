@@ -18,8 +18,81 @@ export function createChatPageHtml(wsPath: string): string {
     background: #f7f7f8;
     color: #1f2937;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     height: 100vh;
+  }
+  #sidebar {
+    width: 260px;
+    background: #fff;
+    border-right: 1px solid #e5e7eb;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  #sidebar-header {
+    padding: 12px;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  #new-session-btn {
+    width: 100%;
+    padding: 8px 12px;
+    background: #3b82f6;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  #new-session-btn:hover { background: #2563eb; }
+  #session-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+  }
+  .session-item {
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-bottom: 4px;
+    font-size: 13px;
+  }
+  .session-item:hover { background: #f3f4f6; }
+  .session-item.active { background: #dbeafe; color: #1e40af; }
+  .session-item .session-label {
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .session-item .session-time {
+    font-size: 11px;
+    color: #9ca3af;
+    margin-top: 2px;
+  }
+  #user-info {
+    padding: 12px;
+    border-top: 1px solid #e5e7eb;
+    font-size: 12px;
+    color: #6b7280;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  #logout-btn {
+    background: none;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    cursor: pointer;
+    color: #6b7280;
+  }
+  #logout-btn:hover { background: #f3f4f6; }
+  #main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
   }
   header {
     background: #fff;
@@ -155,6 +228,17 @@ export function createChatPageHtml(wsPath: string): string {
 </style>
 </head>
 <body>
+<div id="sidebar">
+  <div id="sidebar-header">
+    <button id="new-session-btn">+ 新会话</button>
+  </div>
+  <div id="session-list"></div>
+  <div id="user-info">
+    <span id="user-name">匿名用户</span>
+    <button id="logout-btn">登出</button>
+  </div>
+</div>
+<div id="main">
 <header>
   <h1>aptbot</h1>
   <span id="status">connecting...</span>
@@ -166,6 +250,7 @@ export function createChatPageHtml(wsPath: string): string {
   <input id="input" type="text" placeholder="type a message... (Enter to send)" autocomplete="off" />
   <button id="send">Send</button>
 </div>
+</div>
 <script>
 (function() {
   var messagesEl = document.getElementById('messages');
@@ -174,6 +259,10 @@ export function createChatPageHtml(wsPath: string): string {
   var statusEl = document.getElementById('status');
   var workingEl = document.getElementById('working');
   var presenceEl = document.getElementById('presence');
+  var sessionListEl = document.getElementById('session-list');
+  var newSessionBtn = document.getElementById('new-session-btn');
+  var userNameEl = document.getElementById('user-name');
+  var logoutBtn = document.getElementById('logout-btn');
   var currentAssistantMsg = null;
   var currentAssistantText = '';
   var lastEventSeq = 0;
@@ -349,6 +438,15 @@ export function createChatPageHtml(wsPath: string): string {
   }
 
   function handleServerMessage(msg) {
+    // Task 10: user_identified 事件 — 更新侧边栏底部用户信息
+    if (msg.type === 'user_identified') {
+      if (userNameEl) {
+        userNameEl.textContent = msg.username || '匿名用户';
+      }
+      // 收到身份后加载 session 列表
+      loadSessionList();
+      return;
+    }
     // Task 6: session_changed 事件 — 更新 localStorage 并重连到新 session
     if (msg.type === 'session_changed' && msg.sessionId) {
       try { localStorage.setItem(SESSION_ID_KEY, msg.sessionId); } catch (e) { /* localStorage 不可用降级 */ }
@@ -362,6 +460,8 @@ export function createChatPageHtml(wsPath: string): string {
         ws.close();
       }
       connect();
+      // Task 10: 切换 session 后刷新侧边栏高亮
+      loadSessionList();
       return;
     }
     // Task 9: presence 事件 — 更新在线人数指示器（N>1 时显示，N<=1 时隐藏）
@@ -461,6 +561,64 @@ export function createChatPageHtml(wsPath: string): string {
     setWorking(true);
   }
 
+  // Task 10: 发送 slash 命令（/new、/resume <id>）— 走 WebSocket message 协议
+  function sendSlashCommand(cmd) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'message', content: cmd }));
+  }
+
+  // Task 10: 格式化相对时间
+  function formatRelativeTime(ts) {
+    if (!ts) return '';
+    var now = Date.now();
+    var diff = now - ts;
+    if (diff < 60000) return '刚刚';
+    if (diff < 3600000) return Math.floor(diff / 60000) + ' 分钟前';
+    if (diff < 86400000) return Math.floor(diff / 3600000) + ' 小时前';
+    return Math.floor(diff / 86400000) + ' 天前';
+  }
+
+  // Task 10: 渲染 session 列表到侧边栏
+  function renderSessionList(sessions) {
+    if (!sessionListEl) return;
+    sessionListEl.innerHTML = '';
+    if (!sessions || sessions.length === 0) {
+      sessionListEl.innerHTML = '<div style="padding:12px;color:#9ca3af;font-size:12px;text-align:center;">暂无会话</div>';
+      return;
+    }
+    sessions.forEach(function(s) {
+      var item = document.createElement('div');
+      item.className = 'session-item';
+      if (s.id === sessionId) item.classList.add('active');
+      var label = s.label || (s.id || '').slice(0, 8);
+      var time = formatRelativeTime(s.updatedAt || s.createdAt);
+      item.innerHTML = '<div class="session-label">' + escapeHtml(label) + '</div>'
+                     + '<div class="session-time">' + escapeHtml(time) + '</div>';
+      item.addEventListener('click', function() {
+        if (s.id === sessionId) return;
+        // 切换到该 session
+        sendSlashCommand('/resume ' + s.id);
+      });
+      sessionListEl.appendChild(item);
+    });
+  }
+
+  // Task 10: 从 /api/sessions 加载当前用户的 session 列表
+  function loadSessionList() {
+    if (!token) {
+      renderSessionList([]);
+      return;
+    }
+    fetch('/api/sessions?token=' + encodeURIComponent(token))
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        if (data && data.sessions) {
+          renderSessionList(data.sessions);
+        }
+      })
+      .catch(function() { /* 加载失败静默处理 */ });
+  }
+
   sendBtn.addEventListener('click', send);
   inputEl.addEventListener('keydown', function(e) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -468,6 +626,22 @@ export function createChatPageHtml(wsPath: string): string {
       send();
     }
   });
+
+  // Task 10: 新会话按钮 — 发送 /new 命令
+  if (newSessionBtn) {
+    newSessionBtn.addEventListener('click', function() {
+      sendSlashCommand('/new');
+    });
+  }
+
+  // Task 10: 登出按钮 — 清除 token 并刷新
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', function() {
+      try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) { /* ignore */ }
+      try { localStorage.removeItem(SESSION_ID_KEY); } catch (e) { /* ignore */ }
+      window.location.href = window.location.pathname;
+    });
+  }
 
   connect();
 })();

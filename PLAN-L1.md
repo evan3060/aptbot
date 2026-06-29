@@ -419,10 +419,10 @@ interface CommandContext {
 **Behavior:** 仿 Codex 样式的左侧 session 侧边栏。用户可查看自己的所有 sessions，点击切换，新建会话。侧边栏与 `/sessions` `/resume` `/new` 命令并存。Session 自动生成 label（首条用户消息前 20 字符），用户可通过 `/label` 命令重命名。
 
 **TDD Cycle:**
-- [ ] 编写失败测试覆盖：侧边栏渲染 session 列表、点击切换 session、新会话按钮触发 /new、/api/sessions 按 userId 过滤
-- [ ] 验证失败：`npm run test -- tests/access/chat-page-sidebar.spec.ts` → FAIL
-- [ ] 实现
-- [ ] 验证通过：Exit Code 0
+- [x] 编写失败测试覆盖：侧边栏渲染 session 列表、点击切换 session、新会话按钮触发 /new、/api/sessions 按 userId 过滤
+- [x] 验证失败：`npm run test -- tests/access/chat-page-sidebar.spec.ts` → FAIL
+- [x] 实现
+- [x] 验证通过：Exit Code 0
 - [ ] `requesting-code-review` skill 审查
 - [ ] 提交：`feat: add session sidebar with Codex-style layout`
 
