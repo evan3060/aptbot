@@ -242,12 +242,12 @@ export function createChatPageHtml(wsPath: string): string {
 
   // 从 URL 或 sessionStorage 读取 token（Task 1: token 记忆与自动携带）
   // 逻辑与 src/access/chat-page-token.ts 的 resolveToken 保持一致
+  // 修改此处需同步修改 chat-page-token.ts
   var TOKEN_KEY = 'aptbot:token';
   var urlToken = new URLSearchParams(window.location.search).get('token');
   var token = null;
   if (urlToken) {
-    sessionStorage.setItem(TOKEN_KEY, urlToken);
-    token = urlToken;
+    token = urlToken;  // 连接成功后才存入 sessionStorage（见 ws.onopen）
   } else {
     token = sessionStorage.getItem(TOKEN_KEY) || null;
   }
@@ -264,7 +264,7 @@ export function createChatPageHtml(wsPath: string): string {
 
   // 无 token 时显示鉴权提示并禁止发送
   if (!token) {
-    appendErrorMsg('Authentication required. Please provide a token via ?token=<your-token>');
+    appendErrorMsg('Authentication required.');
     sendBtn.disabled = true;
     inputEl.disabled = true;
     inputEl.placeholder = 'authentication required';
@@ -279,6 +279,10 @@ export function createChatPageHtml(wsPath: string): string {
     ws.onopen = function() {
       setStatus('connected', 'connected');
       reconnectDelay = 1000;
+      // 连接成功后才存入 sessionStorage，避免错误 token 被持久化
+      if (token) {
+        try { sessionStorage.setItem(TOKEN_KEY, token); } catch (e) { /* sessionStorage 不可用时降级 */ }
+      }
     };
 
     ws.onmessage = function(ev) {

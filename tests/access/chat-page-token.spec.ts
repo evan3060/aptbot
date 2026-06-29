@@ -1,75 +1,129 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { resolveToken, persistToken, buildWsUrl } from '../../src/access/chat-page-token.js';
+import { createChatPageHtml } from '../../src/access/chat-page.js';
 
 /**
  * Task 1: 聊天页面 token 记忆与自动携带
  *
- * 测试 chat-page.ts 内联 JS 中的 token 管理逻辑：
- * - 首次连接成功后，将 URL 中的 token 存入 sessionStorage
- * - 后续连接优先从 sessionStorage 读取 token，URL 参数优先级更高
- * - sessionStorage 中无 token 且 URL 无 token 时，显示鉴权提示并禁止发送
- *
- * 由于 chat-page.ts 导出的是完整 HTML 字符串，无法直接测试内联 JS。
- * 采用策略：提取 token 管理逻辑为可测试的纯函数，在测试中验证其行为。
- * 实现时将此逻辑提取到 chat-page.ts 内部的可导出函数，或直接测试 HTML 字符串内容。
+ * 测试策略：
+ * 1. 纯函数契约测试（resolveToken / persistToken / buildWsUrl）
+ * 2. 防漂移测试：验证 chat-page.ts 内联 JS 与纯函数逻辑同步
+ * 3. UI 行为测试：验证无 token 时 HTML 包含鉴权提示
  */
 
 describe('Task 1: chat-page token 记忆与自动携带', () => {
   beforeEach(() => {
     sessionStorage.clear();
     localStorage.clear();
-    // 重置 URL
     window.history.replaceState({}, '', '/');
   });
 
-  it('URL 中有 token 时，首次连接成功后存入 sessionStorage', async () => {
-    // 模拟 URL 带 token
-    window.history.replaceState({}, '', '/?token=abc123');
-    const { resolveToken } = await import('../../src/access/chat-page-token.js');
-    const token = resolveToken();
-    expect(token).toBe('abc123');
-    // 连接成功后应存入 sessionStorage
-    expect(sessionStorage.getItem('aptbot:token')).toBe('abc123');
+  describe('resolveToken 纯函数', () => {
+    it('URL 中有 token 时返回 URL token（不写入 sessionStorage）', () => {
+      window.history.replaceState({}, '', '/?token=abc123');
+      const token = resolveToken();
+      expect(token).toBe('abc123');
+      // resolveToken 仅解析，不持久化（持久化由 persistToken 在 onopen 后调用）
+      expect(sessionStorage.getItem('aptbot:token')).toBeNull();
+    });
+
+    it('刷新后从 sessionStorage 读取 token（URL 无 token 时）', () => {
+      sessionStorage.setItem('aptbot:token', 'stored-token-xyz');
+      window.history.replaceState({}, '', '/');
+      const token = resolveToken();
+      expect(token).toBe('stored-token-xyz');
+    });
+
+    it('URL token 优先级高于 sessionStorage', () => {
+      sessionStorage.setItem('aptbot:token', 'old-token');
+      window.history.replaceState({}, '', '/?token=new-token');
+      const token = resolveToken();
+      expect(token).toBe('new-token');
+    });
+
+    it('无 token 时返回 null，触发显示鉴权提示', () => {
+      sessionStorage.clear();
+      window.history.replaceState({}, '', '/');
+      const token = resolveToken();
+      expect(token).toBeNull();
+    });
   });
 
-  it('刷新后从 sessionStorage 读取 token（URL 无 token 时）', async () => {
-    // 模拟之前已存储 token
-    sessionStorage.setItem('aptbot:token', 'stored-token-xyz');
-    // URL 无 token
-    window.history.replaceState({}, '', '/');
-    const { resolveToken } = await import('../../src/access/chat-page-token.js');
-    const token = resolveToken();
-    expect(token).toBe('stored-token-xyz');
+  describe('persistToken 持久化', () => {
+    it('将 token 写入 sessionStorage', () => {
+      persistToken('my-token');
+      expect(sessionStorage.getItem('aptbot:token')).toBe('my-token');
+    });
+
+    it('sessionStorage 不可用时静默降级不抛错', () => {
+      // 模拟 sessionStorage 抛异常
+      const original = sessionStorage.setItem;
+      sessionStorage.setItem = () => { throw new Error('quota exceeded'); };
+      expect(() => persistToken('x')).not.toThrow();
+      sessionStorage.setItem = original;
+    });
   });
 
-  it('URL token 优先级高于 sessionStorage', async () => {
-    sessionStorage.setItem('aptbot:token', 'old-token');
-    window.history.replaceState({}, '', '/?token=new-token');
-    const { resolveToken } = await import('../../src/access/chat-page-token.js');
-    const token = resolveToken();
-    expect(token).toBe('new-token');
-    // URL token 应更新 sessionStorage
-    expect(sessionStorage.getItem('aptbot:token')).toBe('new-token');
+  describe('buildWsUrl', () => {
+    it('包含 token 参数', () => {
+      const url = buildWsUrl('wss://example.com/ws', 'my-token', 0);
+      expect(url).toContain('token=my-token');
+    });
+
+    it('无 token 时不包含 token 参数', () => {
+      const url = buildWsUrl('wss://example.com/ws', null, 0);
+      expect(url).not.toContain('token=');
+    });
+
+    it('lastEventSeq > 0 时包含 lastEventSeq 参数', () => {
+      const url = buildWsUrl('wss://example.com/ws', 't', 42);
+      expect(url).toContain('lastEventSeq=42');
+    });
   });
 
-  it('无 token 时返回 null，触发显示鉴权提示', async () => {
-    sessionStorage.clear();
-    window.history.replaceState({}, '', '/');
-    const { resolveToken } = await import('../../src/access/chat-page-token.js');
-    const token = resolveToken();
-    expect(token).toBeNull();
+  describe('防漂移：chat-page.ts 内联 JS 与纯函数逻辑同步', () => {
+    const html = createChatPageHtml('/ws');
+
+    it('内联 JS 使用相同的 TOKEN_KEY', () => {
+      expect(html).toContain("'aptbot:token'");
+    });
+
+    it('内联 JS resolveToken 逻辑：URL 优先，回退 sessionStorage', () => {
+      // 验证内联 JS 包含 URL token 解析
+      expect(html).toContain("new URLSearchParams(window.location.search).get('token')");
+      // 验证内联 JS 包含 sessionStorage 回退
+      expect(html).toContain("sessionStorage.getItem(TOKEN_KEY)");
+    });
+
+    it('内联 JS 持久化在 ws.onopen 中调用（不在解析时）', () => {
+      // 验证 sessionStorage.setItem 在 onopen 回调中
+      const onopenIdx = html.indexOf('ws.onopen');
+      const setItemIdx = html.indexOf("sessionStorage.setItem(TOKEN_KEY");
+      expect(onopenIdx).toBeGreaterThan(-1);
+      expect(setItemIdx).toBeGreaterThan(onopenIdx);
+    });
+
+    it('内联 JS buildWsUrl 逻辑：token 存在时附加参数', () => {
+      expect(html).toContain('params.set(\'token\', token)');
+      expect(html).toContain('params.set(\'lastEventSeq\'');
+    });
   });
 
-  it('WebSocket 连接 URL 应包含 token 参数', async () => {
-    sessionStorage.setItem('aptbot:token', 'my-token');
-    const { buildWsUrl } = await import('../../src/access/chat-page-token.js');
-    const url = buildWsUrl('wss://example.com/ws', 'my-token', 0);
-    expect(url).toContain('token=my-token');
-  });
+  describe('UI 行为：无 token 时显示鉴权提示', () => {
+    const html = createChatPageHtml('/ws');
 
-  it('无 token 时 WebSocket 连接 URL 不包含 token 参数', async () => {
-    const { buildWsUrl } = await import('../../src/access/chat-page-token.js');
-    const url = buildWsUrl('wss://example.com/ws', null, 0);
-    expect(url).not.toContain('token=');
+    it('包含鉴权提示文案', () => {
+      expect(html).toContain('Authentication required.');
+    });
+
+    it('禁用发送按钮和输入框', () => {
+      expect(html).toContain('sendBtn.disabled = true');
+      expect(html).toContain('inputEl.disabled = true');
+    });
+
+    it('设置 placeholder 为 authentication required', () => {
+      expect(html).toContain("'authentication required'");
+    });
   });
 });
