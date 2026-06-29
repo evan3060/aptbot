@@ -314,6 +314,8 @@ sudo journalctl -u aptbot -f
 
 **修复：** 访问时在 URL 带上 token：`https://<your-domain>/?token=<your-auth-token>`。
 
+> **Token 记忆（v0.2.0+）：** 首次带 `?token=` 访问并成功连接后，token 会存入 `sessionStorage`。后续刷新或重连在同一标签页内自动携带，无需每次手动加 `?token=` 参数。标签页关闭后 `sessionStorage` 自动清除。如需切换 token，在 URL 中带新 token 访问即可覆盖。
+
 ### 问题：agent run failed（API 404）
 
 **现象：** 发送消息后无回复，日志显示 `"agent run failed"`。
@@ -344,3 +346,4 @@ sudo journalctl -u aptbot -f
 |--------|------|
 | `73d5b2a` | fix: add HOST env var to bind loopback behind reverse proxy |
 | `d38309e` | fix: serve chat page when URL has query params like ?token= |
+| `af21d51` | feat: persist auth token in sessionStorage for chat page (L1 Task 1) |
