@@ -32,6 +32,7 @@ export function generateEntryId(prefix: string): string {
 interface SessionMetaFile {
   userId?: string;
   label?: string;
+  preview?: string;
 }
 
 /**
@@ -57,6 +58,8 @@ export interface StorageAdapter {
   deleteSession(id: string): Promise<void>;
   /** Task 5: 将 session claim 到指定 user（幂等：同用户重复 claim 是 no-op；跨用户 claim 抛 SessionAlreadyClaimedError） */
   claimSession(id: string, userId: string): Promise<void>;
+  /** 强制覆盖 session owner（用于 agent 共享 session 转移给当前登录用户） */
+  forceClaimSession(id: string, userId: string): Promise<void>;
   /** Task 5: 更新 session label（写入 sidecar .meta.json） */
   updateSessionLabel(id: string, label: string): Promise<void>;
   /** Task 5 C2 fix: 读取 session 当前 owner（未 claim 返回 undefined） */
@@ -130,7 +133,19 @@ export class FileStorage implements StorageAdapter {
 
   async appendSession(id: string, entry: SessionEntry): Promise<void> {
     const path = this.resolvePath(id);
-    await withJsonlLock(id, () => appendJsonl(path, entry));
+    await withJsonlLock(id, async () => {
+      await appendJsonl(path, entry);
+      // 首条用户消息时缓存 preview（用于侧边栏默认显示，避免每次 listSessions 读 JSONL）
+      if (entry.type === 'message' && entry.message.role === 'user') {
+        const meta = this.readMeta(id);
+        if (!meta.preview) {
+          const content = typeof entry.message.content === 'string'
+            ? entry.message.content
+            : '';
+          this.writeMetaAtomic(id, { preview: content.slice(0, 30) });
+        }
+      }
+    });
   }
 
   async listSessions(userId?: string): Promise<SessionMetadata[]> {
@@ -151,6 +166,7 @@ export class FileStorage implements StorageAdapter {
         updatedAt: Math.floor(stat.mtimeMs),
         userId: meta.userId,
         label: meta.label,
+        preview: meta.preview,
       });
     }
     // 按 updatedAt 降序
@@ -226,5 +242,19 @@ export class FileStorage implements StorageAdapter {
   async getSessionOwner(id: string): Promise<string | undefined> {
     if (!isValidSessionId(id)) return undefined;
     return this.readMeta(id).userId;
+  }
+
+  /**
+   * 强制覆盖 session owner（用于 agent 共享 session 转移给当前登录用户）。
+   * 与 claimSession 不同：跨用户 claim 不抛错，直接覆盖。
+   */
+  async forceClaimSession(id: string, userId: string): Promise<void> {
+    if (!isValidSessionId(id)) {
+      throw new Error(`invalid sessionId: ${id}`);
+    }
+    await withJsonlLock(id, () => {
+      this.writeMetaAtomic(id, { userId });
+      return Promise.resolve();
+    });
   }
 }
