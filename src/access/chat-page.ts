@@ -381,6 +381,48 @@ export function createChatPageHtml(wsPath: string): string {
   @media (prefers-reduced-motion: reduce) {
     #working::after { animation: none; }
   }
+
+  /* 移动端 toggle 按钮（桌面隐藏） */
+  #sidebar-toggle {
+    display: none;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 8px;
+    font-size: 20px;
+    line-height: 1;
+    color: var(--text-primary);
+    align-self: center;
+  }
+  #sidebar-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: var(--dark-translucent);
+    z-index: 90;
+  }
+  #sidebar-backdrop.show { display: block; }
+
+  /* 移动端适配：sidebar 抽屉化，main 占满视口 */
+  @media (max-width: 768px) {
+    #sidebar-toggle { display: inline-block; }
+    #sidebar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 260px;
+      transform: translateX(-100%);
+      transition: transform 0.25s ease;
+      z-index: 100;
+    }
+    #sidebar.open { transform: translateX(0); }
+    #main { width: 100%; }
+    #messages { padding: 12px; }
+    #input-bar { padding: 12px; }
+    header { padding: 10px 12px; }
+    .msg.user { margin-left: 12px; }
+  }
 </style>
 </head>
 <body>
@@ -395,8 +437,10 @@ export function createChatPageHtml(wsPath: string): string {
     <button id="logout-btn" class="hidden">登出</button>
   </div>
 </div>
+<div id="sidebar-backdrop"></div>
 <div id="main">
 <header>
+  <button id="sidebar-toggle" aria-label="会话列表">☰</button>
   <h1>aptbot</h1>
   <span id="status">connecting...</span>
 </header>
@@ -1287,6 +1331,34 @@ export function createChatPageHtml(wsPath: string): string {
       try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) { /* ignore */ }
       try { localStorage.removeItem(SESSION_ID_KEY); } catch (e) { /* ignore */ }
       window.location.href = window.location.pathname;
+    });
+  }
+
+  // 移动端 sidebar 抽屉化：hamburger 切换 + backdrop 关闭 + session 项点击后自动收起
+  var sidebarEl = document.getElementById('sidebar');
+  var sidebarToggleBtn = document.getElementById('sidebar-toggle');
+  var sidebarBackdrop = document.getElementById('sidebar-backdrop');
+  function openSidebar() {
+    if (sidebarEl) sidebarEl.classList.add('open');
+    if (sidebarBackdrop) sidebarBackdrop.classList.add('show');
+  }
+  function closeSidebar() {
+    if (sidebarEl) sidebarEl.classList.remove('open');
+    if (sidebarBackdrop) sidebarBackdrop.classList.remove('show');
+  }
+  if (sidebarToggleBtn) {
+    sidebarToggleBtn.addEventListener('click', function() {
+      if (sidebarEl && sidebarEl.classList.contains('open')) closeSidebar();
+      else openSidebar();
+    });
+  }
+  if (sidebarBackdrop) {
+    sidebarBackdrop.addEventListener('click', closeSidebar);
+  }
+  // session 项被点击后自动收起 sidebar（移动端体验）
+  if (sessionListEl) {
+    sessionListEl.addEventListener('click', function() {
+      if (window.matchMedia('(max-width: 768px)').matches) closeSidebar();
     });
   }
 
