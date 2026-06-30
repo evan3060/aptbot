@@ -145,7 +145,7 @@ serveDemoHtml: landingEnabled ? createChatPageHtml('/ws') : undefined,
 | error msg border-left | `#dc2626` | `var(--decor-red)` |
 | error msg text | `#991b1b` | `var(--text-primary)` |
 | status connected | `#d1fae5` / `#065f46` | `rgba(13, 113, 73, 0.15)` / `var(--accent)` |
-| status disconnected | `#fee2e2` / `#991b1b` | `rgba(254, 190, 191, 0.3)` / `var(--decor-red)` |
+| status disconnected | `#fee2e2` / `#991b1b` | `rgba(254, 190, 191, 0.3)` / `var(--text-primary)` |
 | status default | `#fef3c7` / `#92400e` | `var(--bg-muted)` / `var(--text-secondary)` |
 | CTA 按钮 | `#3b82f6` 直角矩形 | `var(--accent)` pill (border-radius 9999px) |
 | modal overlay | `rgba(0,0,0,0.5)` | `var(--dark-translucent)` |

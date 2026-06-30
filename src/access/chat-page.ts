@@ -264,7 +264,7 @@ export function createChatPageHtml(wsPath: string): string {
     color: var(--text-secondary);
   }
   #status.connected { background: rgba(13, 113, 73, 0.15); color: var(--accent); }
-  #status.disconnected { background: rgba(254, 190, 191, 0.3); color: var(--decor-red); }
+  #status.disconnected { background: rgba(254, 190, 191, 0.3); color: var(--text-primary); }
   #messages {
     flex: 1;
     overflow-y: auto;
