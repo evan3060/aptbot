@@ -289,14 +289,61 @@ export function createLandingPageHtml(): string {
     #nav { height: 144px; }
   }
   @media (max-width: 767px) {
+    body { font-size: 16px; line-height: 22px; }
+    #nav { padding: 0 16px; }
     .nav-links { display: none; }
-    #hero { flex-direction: column; padding: 96px 24px 48px; }
+    .nav-wordmark { font-size: 18px; }
+    .nav-actions { gap: 8px; }
+    .nav-lang {
+      font-size: 12px;
+      padding: 4px 10px;
+      line-height: 1.2;
+    }
+    .nav-github { font-size: 14px; }
+    .nav-demo-btn {
+      font-size: 14px;
+      padding: 6px 14px;
+      line-height: 1.2;
+    }
+
+    #hero { flex-direction: column; padding: 80px 20px 40px; gap: 24px; }
     .hero-visual { flex: none; width: 100%; }
-    section { padding: 48px 24px; }
-    .container { padding: 24px; }
-    #hero h1 { font-size: 48px; line-height: 48px; letter-spacing: -2px; }
-    .footer-grid { grid-template-columns: 1fr; }
-    .footer-meta { text-align: left; }
+    #hero h1 { font-size: 36px; line-height: 40px; letter-spacing: -1.5px; margin-bottom: 20px; }
+    .hero-subtitle { font-size: 16px; line-height: 22px; margin-bottom: 28px; }
+    .hero-ctas { gap: 10px; }
+    .hero-channel { padding: 16px; font-size: 12px; }
+
+    .btn-pill {
+      font-size: 16px;
+      padding: 10px 24px;
+      letter-spacing: -0.3px;
+    }
+
+    section { padding: 56px 20px; }
+    .container { padding: 20px; }
+    .section-h2-sm { font-size: 16px; margin-bottom: 32px; }
+    .section-h2-md { font-size: 24px; margin-bottom: 32px; }
+    .section-h2-lg { font-size: 28px; margin-bottom: 20px; letter-spacing: -0.5px; }
+
+    .card { padding: 20px 0; }
+    .card-icon { width: 36px; height: 36px; margin-bottom: 16px; font-size: 18px; }
+    .card h3 { font-size: 17px; margin-bottom: 8px; }
+    .card-desc { font-size: 15px; line-height: 21px; }
+
+    .data-bar { grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 48px; padding-top: 28px; }
+    .eval-label { font-size: 12px; }
+    .eval-value { font-size: 28px; }
+
+    .use-case-cta { font-size: 16px; margin-top: 32px; }
+    .cta-subtitle { font-size: 16px; line-height: 22px; margin-bottom: 28px; }
+
+    footer { padding: 40px 20px; }
+    .footer-grid { grid-template-columns: 1fr; gap: 24px; }
+    .footer-wordmark { font-size: 20px; }
+    .footer-tagline { font-size: 14px; }
+    .footer-links a { font-size: 14px; }
+    .footer-meta { font-size: 14px; text-align: left; line-height: 1.6; }
+    .footer-bottom { font-size: 12px; padding-top: 16px; }
   }
 
   @media (prefers-reduced-motion: reduce) {
