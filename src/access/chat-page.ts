@@ -388,40 +388,57 @@ export function createChatPageHtml(wsPath: string): string {
     background: none;
     border: none;
     cursor: pointer;
-    padding: 4px 8px;
-    font-size: 20px;
-    line-height: 1;
+    padding: 6px 8px;
     color: var(--text-primary);
     align-self: center;
+    border-radius: 6px;
+    -webkit-tap-highlight-color: transparent;
+    line-height: 0;
   }
+  #sidebar-toggle:hover { background: var(--bg-muted); }
+  #sidebar-toggle svg { display: block; width: 20px; height: 20px; }
+
   #sidebar-backdrop {
     display: none;
     position: fixed;
     inset: 0;
-    background: var(--dark-translucent);
+    background: rgba(18, 18, 18, 0.45);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
     z-index: 90;
+    opacity: 0;
+    transition: opacity 0.3s ease;
   }
-  #sidebar-backdrop.show { display: block; }
+  #sidebar-backdrop.show { display: block; opacity: 1; }
 
-  /* 移动端适配：sidebar 抽屉化，main 占满视口 */
+  /* 移动端适配：sidebar 浮动抽屉，main 占满视口 */
   @media (max-width: 768px) {
-    #sidebar-toggle { display: inline-block; }
+    #sidebar-toggle { display: inline-flex; align-items: center; justify-content: center; }
     #sidebar {
       position: fixed;
       top: 0;
       left: 0;
       bottom: 0;
-      width: 260px;
+      width: 280px;
+      max-width: 85vw;
       transform: translateX(-100%);
-      transition: transform 0.25s ease;
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       z-index: 100;
+      box-shadow: 0 0 24px rgba(0, 0, 0, 0.18);
     }
     #sidebar.open { transform: translateX(0); }
     #main { width: 100%; }
-    #messages { padding: 12px; }
-    #input-bar { padding: 12px; }
+    #messages {
+      padding: 12px;
+      max-width: 100%;
+    }
+    #input-bar {
+      padding: 12px;
+      max-width: 100%;
+    }
     header { padding: 10px 12px; }
-    .msg.user { margin-left: 12px; }
+    .msg { padding: 10px 12px; margin-bottom: 10px; }
+    .msg.user { margin-left: 8px; }
   }
 </style>
 </head>
@@ -440,7 +457,13 @@ export function createChatPageHtml(wsPath: string): string {
 <div id="sidebar-backdrop"></div>
 <div id="main">
 <header>
-  <button id="sidebar-toggle" aria-label="会话列表">☰</button>
+  <button id="sidebar-toggle" aria-label="会话列表">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="4" y1="7" x2="20" y2="7"/>
+      <line x1="4" y1="12" x2="20" y2="12"/>
+      <line x1="4" y1="17" x2="20" y2="17"/>
+    </svg>
+  </button>
   <h1>aptbot</h1>
   <span id="status">connecting...</span>
 </header>

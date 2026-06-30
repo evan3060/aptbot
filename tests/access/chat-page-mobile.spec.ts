@@ -2,16 +2,19 @@ import { describe, it, expect } from 'vitest';
 import { createChatPageHtml } from '../../src/access/chat-page.js';
 
 /**
- * 移动端适配验收：chat-page.ts 在 ≤768px 视口下必须保证主对话区可用。
+ * 移动端适配验收：chat-page.ts 在 ≤768px 视口下必须保证主对话区可用且视觉精致。
  *
  * 痛点（修复前 390 视口实测）：
  *   - sidebar 固定 260px → main 仅剩 130px，对话区被严重挤压
  *   - 横向滚动条出现（scrollWidth 537 vs clientWidth 390）
+ *   - 视觉粗糙：字符 ☰ hamburger、无阴影、过渡生硬
  *
- * 修复策略：
- *   1. 移动端 sidebar 默认隐藏，通过 header 中的 hamburger 按钮以 overlay 形式打开
- *   2. main 占满视口宽度
- *   3. messages / input-bar padding 适配窄屏
+ * 修复策略（v2 精致化）：
+ *   1. sidebar 真正浮动化：box-shadow + cubic-bezier 过渡
+ *   2. hamburger 用 SVG 三横线图标（非字符）
+ *   3. backdrop 加 backdrop-filter 模糊背景
+ *   4. 主体对话区最大化：移除 messages/input-bar 的 max-width: 900px 限制
+ *   5. header 紧凑：padding/字号优化
  */
 describe('chat-page 移动端适配 (≤768px)', () => {
   describe('媒体查询存在性', () => {
@@ -21,10 +24,19 @@ describe('chat-page 移动端适配 (≤768px)', () => {
     });
   });
 
-  describe('sidebar 抽屉化', () => {
+  describe('sidebar 抽屉化与浮动感', () => {
     it('含 sidebar toggle 按钮（hamburger）', () => {
       const html = createChatPageHtml('/ws');
       expect(html).toMatch(/id="sidebar-toggle"/);
+    });
+
+    it('hamburger 按钮使用 SVG 图标（非字符 ☰）', () => {
+      const html = createChatPageHtml('/ws');
+      const toggleBlock = html.match(/<button[^>]*id="sidebar-toggle"[^>]*>([\s\S]*?)<\/button>/);
+      expect(toggleBlock, 'sidebar-toggle button should exist').not.toBeNull();
+      expect(toggleBlock![1]).toContain('<svg');
+      // 不再使用字符 ☰
+      expect(toggleBlock![1]).not.toContain('☰');
     });
 
     it('含 sidebar backdrop 遮罩元素', () => {
@@ -32,12 +44,10 @@ describe('chat-page 移动端适配 (≤768px)', () => {
       expect(html).toMatch(/id="sidebar-backdrop"/);
     });
 
-    it('CSS 中定义 sidebar 抽屉位移（默认隐藏或移出视口）', () => {
+    it('CSS 中定义 sidebar 抽屉位移（默认移出视口）', () => {
       const html = createChatPageHtml('/ws');
-      // 在媒体查询块内，sidebar 应当默认不在视口内（transform/position/left 等手段）
       const mediaBlock = html.match(/@media\s*\(max-width:\s*768px\)\s*\{([\s\S]*?)\}\s*(?:@media|<\/style>)/);
       expect(mediaBlock, 'media query block should exist').not.toBeNull();
-      // sidebar 默认应被移出视口（off-canvas）
       expect(mediaBlock![1]).toMatch(/#sidebar\s*\{[^}]*?(transform:\s*translateX|left:\s*-|position:\s*fixed)/);
     });
 
@@ -46,6 +56,25 @@ describe('chat-page 移动端适配 (≤768px)', () => {
       const mediaBlock = html.match(/@media\s*\(max-width:\s*768px\)\s*\{([\s\S]*?)\}\s*(?:@media|<\/style>)/);
       expect(mediaBlock, 'media query block should exist').not.toBeNull();
       expect(mediaBlock![1]).toMatch(/#sidebar\.open\s*\{[^}]*?(transform:\s*translateX\(0|left:\s*0)/);
+    });
+
+    it('媒体查询块内 sidebar 含 box-shadow 强化浮动感', () => {
+      const html = createChatPageHtml('/ws');
+      const mediaBlock = html.match(/@media\s*\(max-width:\s*768px\)\s*\{([\s\S]*?)\}\s*(?:@media|<\/style>)/);
+      expect(mediaBlock, 'media query block should exist').not.toBeNull();
+      expect(mediaBlock![1]).toMatch(/#sidebar\s*\{[^}]*box-shadow/);
+    });
+
+    it('sidebar 过渡动画使用 cubic-bezier（更顺滑）', () => {
+      const html = createChatPageHtml('/ws');
+      const mediaBlock = html.match(/@media\s*\(max-width:\s*768px\)\s*\{([\s\S]*?)\}\s*(?:@media|<\/style>)/);
+      expect(mediaBlock, 'media query block should exist').not.toBeNull();
+      expect(mediaBlock![1]).toMatch(/#sidebar\s*\{[^}]*transition:[^}]*cubic-bezier/);
+    });
+
+    it('backdrop 含 backdrop-filter 模糊背景', () => {
+      const html = createChatPageHtml('/ws');
+      expect(html).toMatch(/backdrop-filter:\s*blur/);
     });
   });
 
@@ -61,30 +90,57 @@ describe('chat-page 移动端适配 (≤768px)', () => {
       const html = createChatPageHtml('/ws');
       expect(html).toMatch(/sidebar-backdrop/);
     });
+
+    it('JS 含 session 项点击后自动收起 sidebar（移动端切换后缩回）', () => {
+      const html = createChatPageHtml('/ws');
+      expect(html).toMatch(/sessionListEl[\s\S]*addEventListener\(['"]click['"]/);
+      expect(html).toMatch(/matchMedia\(['"]\(max-width:\s*768px\)['"]\)/);
+      expect(html).toMatch(/closeSidebar\(\)/);
+    });
   });
 
-  describe('主区与输入栏移动端可用性', () => {
-    it('媒体查询块内 main/messages/input-bar 不再被 sidebar 挤压（无固定 sidebar 占位）', () => {
+  describe('主对话区最大化', () => {
+    it('媒体查询块内 main 占满视口', () => {
       const html = createChatPageHtml('/ws');
       const mediaBlock = html.match(/@media\s*\(max-width:\s*768px\)\s*\{([\s\S]*?)\}\s*(?:@media|<\/style>)/);
       expect(mediaBlock, 'media query block should exist').not.toBeNull();
       const block = mediaBlock![1];
-      // main 在移动端应当占满宽度（无 margin-left / 无被 sidebar 挤压）
-      // 通过 sidebar 抽屉化即可保证 main 占满，不再额外断言
-      expect(block).toContain('#sidebar');
       expect(block).toContain('#main');
+      // main 应当占满（width: 100% 或无显式宽度，由 flex 控制）
+      expect(block).toMatch(/#main\s*\{[^}]*width:\s*100%/);
     });
 
-    it('messages/input-bar 在移动端 padding 适配', () => {
+    it('媒体查询块内 messages 含 max-width: 100%（移除 900px 桌面限制）', () => {
       const html = createChatPageHtml('/ws');
       const mediaBlock = html.match(/@media\s*\(max-width:\s*768px\)\s*\{([\s\S]*?)\}\s*(?:@media|<\/style>)/);
       expect(mediaBlock, 'media query block should exist').not.toBeNull();
       const block = mediaBlock![1];
-      // 至少 messages 或 input-bar 在移动端有 padding 调整
-      const hasPaddingAdjustment = /#messages\s*\{[^}]*padding/.test(block)
-        || /#input-bar\s*\{[^}]*padding/.test(block)
-        || /#messages\s*,\s*#input-bar\s*\{[^}]*padding/.test(block);
-      expect(hasPaddingAdjustment, 'messages/input-bar should have padding adjustment in mobile').toBe(true);
+      expect(block).toMatch(/#messages\s*\{[^}]*max-width:\s*100%/);
+    });
+
+    it('媒体查询块内 input-bar 含 max-width: 100%（移除 900px 桌面限制）', () => {
+      const html = createChatPageHtml('/ws');
+      const mediaBlock = html.match(/@media\s*\(max-width:\s*768px\)\s*\{([\s\S]*?)\}\s*(?:@media|<\/style>)/);
+      expect(mediaBlock, 'media query block should exist').not.toBeNull();
+      const block = mediaBlock![1];
+      expect(block).toMatch(/#input-bar\s*\{[^}]*max-width:\s*100%/);
+    });
+
+    it('媒体查询块内 messages/input-bar 含紧凑 padding', () => {
+      const html = createChatPageHtml('/ws');
+      const mediaBlock = html.match(/@media\s*\(max-width:\s*768px\)\s*\{([\s\S]*?)\}\s*(?:@media|<\/style>)/);
+      expect(mediaBlock, 'media query block should exist').not.toBeNull();
+      const block = mediaBlock![1];
+      const hasPadding = /#messages\s*\{[^}]*padding/.test(block)
+        || /#input-bar\s*\{[^}]*padding/.test(block);
+      expect(hasPadding, 'messages/input-bar should have padding in mobile').toBe(true);
+    });
+
+    it('媒体查询块内 header 紧凑 padding', () => {
+      const html = createChatPageHtml('/ws');
+      const mediaBlock = html.match(/@media\s*\(max-width:\s*768px\)\s*\{([\s\S]*?)\}\s*(?:@media|<\/style>)/);
+      expect(mediaBlock, 'media query block should exist').not.toBeNull();
+      expect(mediaBlock![1]).toMatch(/header\s*\{[^}]*padding/);
     });
   });
 });
