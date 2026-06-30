@@ -2,6 +2,62 @@
 
 本文件记录 aptbot 各版本变更。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.2.1] - 2026-06-30
+
+aptbot.de 落地页 + Demo 页 adept.ai 风格克隆。新增 opt-in 落地页（5 sections + 中/英 i18n），将现有 agent demo 页迁移到同一视觉语言（13 CSS 变量 + Inter 字体 + pill 按钮）。基于 [docs/superpowers/specs/2026-06-30-aptbot-de-landing-page-design.md](./docs/superpowers/specs/2026-06-30-aptbot-de-landing-page-design.md) 实施。版本隔离：`landingPage === true` 严格 opt-in，clone 自部署用户零影响。
+
+### Added
+
+#### 落地页（landing-page.ts）
+- `createLandingPageHtml()` 导出纯字符串函数，5 sections（Hero / Features / Architecture / Use Cases / CTA）+ Nav + Footer
+- 13 个 adept.ai 真实 CSS design tokens（Phase 1 Reconnaissance 提取）：白底 + 深绿 `rgb(13,113,73)` + Inter 字体 + 细体大字
+- 中/英双语 i18n：`data-i18n` 属性 + JS 字典（50 keys），URL hash + localStorage 记忆选择，默认中文
+- Nav 粘性顶栏：始终半透明 `rgba(255,255,255,0.85)` + `backdrop-filter: blur(8px)`，`.scrolled` 加 border-bottom + box-shadow
+- 数据条复刻 adept "Eval" 标签：`584` tests / `4` layered architecture / `8` hook extension points / `MIT` license
+
+#### Demo 页风格迁移（chat-page.ts）
+- `<style>` 顶部新增 `:root` 13 CSS 变量块（与 landing-page.ts 一致）
+- 所有硬编码颜色替换为 `var(--token-name)`
+- 字体 `system-ui` → `Inter, system-ui, "PingFang SC", sans-serif`
+- 按钮 `#new-session-btn` / `#send` / `.submit-btn` 圆角 `6px` → `9999px`（pill）
+- `prefers-reduced-motion` 守护 + focus outline 可访问性
+- DOM 结构 / WebSocket 客户端逻辑 / 中文文案零改动
+
+#### 路由与配置
+- `websocket-server.ts` 新增 `/demo` 路由（宽松匹配 `/demo` / `/demo/` / `/demo/index.html`）+ `serveDemoHtml` option
+- `config-types.ts` 新增 `landingPage?: boolean` opt-in 字段（Zod schema + interface），`defaultConfig` 不加（undefined → false）
+- `server.ts` 根据 `aptbotConfig.landingPage === true` 选择 HTML：landing 模式 `/` 返回 landing、`/demo` 返回 chat；默认模式 `/` 返回 chat、`/demo` 返回 404
+
+#### 移动端适配（验收期增补）
+- chat-page.ts sidebar 抽屉化：`@media (max-width: 768px)` sidebar 转 `position: fixed` + `transform: translateX(-100%)`，SVG hamburger 按钮 + backdrop 遮罩（`backdrop-filter: blur(2px)`）
+- v2 精致化：`box-shadow: 0 0 24px rgba(0,0,0,0.18)` 浮动感 + `cubic-bezier(0.4, 0, 0.2, 1)` 过渡 + sidebar 280px `max-width: 85vw`
+- 移动端 `messages` / `input-bar` 显式 `max-width: 100%`（移除继承的 900px 桌面限制）
+- JS 绑定：hamburger 切换 / backdrop 点击关闭 / 移动端 session 项点击后自动收起
+- landing-page.ts 移动端字体/椭圆框精致化（`@media (max-width: 767px)`）：body 16px、btn-pill 16px/10px 24px（147×44）、hero h1 36px、section h2-lg 28px、eval-value 28px、card 文字紧凑
+
+### Fixed
+
+- 修复 nav 滚动文字叠加：默认背景 `rgba(0,0,0,0)` 透明 + `.scrolled` 的 `var(--surface-translucent)` 在 computed style 中未生效 + 移动端 IntersectionObserver 触发时机太晚 → 改为始终 `rgba(255,255,255,0.85)` + `backdrop-filter: blur(8px)`，`.scrolled` 仅加 border-bottom + box-shadow 做视觉分层
+- 修复 a11y 对比度：`#status.disconnected` 文字色 `var(--decor-red)` `rgb(254,190,191)` 在 `rgba(254,190,191,0.3)` 背景上对比度 1.1:1 不可读 → 改为 `var(--text-primary)`
+- 修复移动端 sidebar 挤压：390 视口下 sidebar 固定 260px 导致 main 仅剩 130px + 横向滚动条（scrollWidth 537 vs clientWidth 390）→ 抽屉化 + main 占满视口
+
+### Test Coverage
+
+- 66 测试文件 / 687 用例全部通过（原 651 + 增补 36）
+- 新增 6 个测试文件：landing-page.spec.ts (15) / landing-page-i18n.spec.ts (5) / landing-page-mobile.spec.ts (14) / landing-page-nav-scroll.spec.ts (5) / chat-page-mobile.spec.ts (17) / chat-page-adept-theme.spec.ts (25) / routing-landing.spec.ts (8) / routing-default.spec.ts (4)
+- 现有 websocket-server.spec.ts 分组改造（+5 landingPage 配置组）
+- 类型检查 `tsc --noEmit` 0 错误
+- playwright 视觉验证：1440/768/390 三视口，hero h1 72px/-3.6px/64.8px 确认
+
+### Release Finalization（封仓收尾）
+
+- `package.json` 版本升至 `0.2.1`
+- 设计文档 [docs/superpowers/specs/2026-06-30-aptbot-de-landing-page-design.md](./docs/superpowers/specs/2026-06-30-aptbot-de-landing-page-design.md) 含验收增补章节
+- 实施计划 [docs/superpowers/plans/2026-06-30-aptbot-de-landing-page.md](./docs/superpowers/plans/2026-06-30-aptbot-de-landing-page.md) 7 task 全部完成
+- VPS 部署验证：aptbot.de + demo.aptbot.de 均通过 HTTPS 验证，TLS 证书扩展包含子域名（有效期 2026-09-28，自动续期）
+
+---
+
 ## [0.2.0] - 2026-06-29
 
 L1 迭代封仓：用户系统 + 多客户端同步 + Codex 风格侧边栏 + 会话重命名。13 任务 + 会话重命名增强 + agent session ownership 修复，58 测试文件 / 584 测试通过 / `tsc` 0 错误。基于 [PLAN-L1.md](./PLAN-L1.md) 与设计 [docs/superpowers/specs/2026-06-29-l1-user-system-multi-client-design.md](./docs/superpowers/specs/2026-06-29-l1-user-system-multi-client-design.md) 实施。

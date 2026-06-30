@@ -3344,8 +3344,8 @@ function handleWsUpgrade(req: Request, server: WebSocketServer, token: string | 
 
 | 域名 | 用途 | 解析 |
 |---|---|---|
-| `aptbot.de` | 主站（暂未启用，预留） | 后续可指向 CF Pages 或主力 |
-| `demo.aptbot.de` | CF 演示版 | CNAME → `<worker>.workers.dev` 或 Pages 自定义域名 |
+| `aptbot.de` | 主站（v0.2.1 已启用落地页） | A 记录 → VPS 公网 IP（nginx 反代 + Let's Encrypt TLS） |
+| `demo.aptbot.de` | VPS 演示版（v0.2.1） | A 记录 → 同 aptbot.de VPS，nginx server_name 扩展 + Let's Encrypt 证书包含子域名 |
 | `<其他自有域名>` | 本地主力公网入口 | A/AAAA → 服务器公网 IP（经 Caddy 反代） |
 | `192.168.x.x:3000` | 本地局域网入口 | 直接 IP 访问 |
 

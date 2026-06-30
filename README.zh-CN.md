@@ -1,9 +1,9 @@
 <div align="center">
   <p>
-    <img src="https://img.shields.io/badge/tests-584%20passed-brightgreen" alt="Tests">
+    <img src="https://img.shields.io/badge/tests-687%20passed-brightgreen" alt="Tests">
     <img src="https://img.shields.io/badge/TypeScript-strict-blue" alt="TypeScript">
     <img src="https://img.shields.io/badge/node-%3E%3D20-green" alt="Node">
-    <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="Version">
+    <img src="https://img.shields.io/badge/version-0.2.1-blue" alt="Version">
     <img src="https://img.shields.io/badge/license-MIT-yellow" alt="License">
   </p>
   <p>
@@ -22,7 +22,7 @@
 
 **长期目标：** 从一个简洁可读的 ReAct 循环出发，逐步扩展为高度个性化、全能的个人工作与生活助理——记住你的偏好、连接你的工具链、学习你的工作流、融入你的日常。最终，它不只是回答问题，而是主动为你工作。
 
-> **状态：** v0.2.0（L1）— 58 个文件 / 584 个测试通过。多用户、本地/VPS 部署。
+> **状态：** v0.2.1 — 66 个文件 / 687 个测试通过。落地页 + adept 风格 demo 页。
 
 ## 从这里开始
 
@@ -200,6 +200,7 @@ aptbot 自底向上分层：core → bus → infrastructure → access，加 `sh
 | 用户系统（v0.2.0） | `scrypt` 密码哈希 · Bearer token 认证 · per-user session ownership · `POST /api/register` / `POST /api/login` / `GET /api/me` |
 | 多客户端同步（v0.2.0） | per-sessionKey 消息串行化 · ring buffer 历史回放 · presence 广播 · `session_changed` 控制消息 |
 | 会话侧边栏（v0.2.0） | Codex 风格左面板 · 相对时间 · 3-dot 菜单 · inline 重命名（Enter/Esc） · 跨客户端 `session_renamed` 广播 |
+| 落地页（v0.2.1） | adept.ai 风格 5-section 落地页位于 `/`（opt-in via `landingPage: true`） · 中/英 i18n · `/demo` 路由返回 agent 页 |
 | Provider | `openai-completions` · `openai-responses` · `anthropic-messages` · 双时钟 TTFB 5s + chunk 1.5s · 401/403/400 fatal，429/5xx 重试 |
 | WebSocket | 入站限制 64KB / 10 msg/s · 心跳 60s · resync 协议 · 死信队列 |
 | 安全 | systemPrompt 禁止 kill / source-mod / `data/sessions/` 访问 · API key 仅通过 `.env` · session ownership 防跨用户访问 |
@@ -259,7 +260,7 @@ npm run dev    # http://localhost:8080
 ## 🧪 测试
 
 ```bash
-npm test              # 58 个文件，584 个测试
+npm test              # 66 个文件，687 个测试
 npx tsc --noEmit      # 严格类型检查，0 错误
 ```
 
@@ -272,6 +273,7 @@ E2E 覆盖完整 agent 循环：基础对话、工具调用、多轮上下文、
 ### 路线图
 
 - **L1 ✅（v0.2.0）** — 用户系统（注册/登录）、浏览器级会话隔离、多客户端同步、Codex 风格侧边栏、会话重命名
+- **v0.2.1 ✅** — aptbot.de 落地页（adept.ai 风格）+ demo 页视觉迁移 + 移动端适配
 - **L2** — 可靠性（ring buffer 分片、JSONL 历史持久化、HttpOnly cookie）、扩展性（MixinProvider 故障转移、配置热重载、hook 系统）、体验（CLI overlay/diff、WebUI 拆分到 Cloudflare Pages）、IM 集成（Telegram 作为首个渠道）
 - **L3** — FallbackProvider + 熔断器、OAuth、session 分支、跨会话长期记忆、飞书/钉钉集成、AgentHarness + 子代理管理
 - **多模态** — 图像输入/输出

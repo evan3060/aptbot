@@ -1,9 +1,9 @@
 <div align="center">
   <p>
-    <img src="https://img.shields.io/badge/tests-584%20passed-brightgreen" alt="Tests">
+    <img src="https://img.shields.io/badge/tests-687%20passed-brightgreen" alt="Tests">
     <img src="https://img.shields.io/badge/TypeScript-strict-blue" alt="TypeScript">
     <img src="https://img.shields.io/badge/node-%3E%3D20-green" alt="Node">
-    <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="Version">
+    <img src="https://img.shields.io/badge/version-0.2.1-blue" alt="Version">
     <img src="https://img.shields.io/badge/license-MIT-yellow" alt="License">
   </p>
   <p>
@@ -22,7 +22,7 @@ It doesn't serve just you. Multi-user isolation lets family members and team mem
 
 **Long-term goal:** Starting from a concise, readable ReAct loop, gradually expand into a highly personalized, omnipotent personal work and life assistant — remembering your preferences, connecting your toolchain, learning your workflows, blending into your daily life. Ultimately, it doesn't just answer questions — it works for you proactively.
 
-> **Status:** v0.2.0 (L1) — 58 files / 584 tests passing. Multi-user, local/VPS deployment.
+> **Status:** v0.2.1 — 66 files / 687 tests passing. Landing page + adept-style demo.
 
 ## Start Here
 
@@ -200,6 +200,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full module map, event flow dia
 | User system (v0.2.0) | `scrypt` password hashing · Bearer token auth · per-user session ownership · `POST /api/register` / `POST /api/login` / `GET /api/me` |
 | Multi-client sync (v0.2.0) | per-sessionKey message serialization · ring buffer history replay · presence broadcast · `session_changed` control message |
 | Session sidebar (v0.2.0) | Codex-style left panel · relative time · 3-dot menu · inline rename (Enter/Esc) · cross-client `session_renamed` broadcast |
+| Landing page (v0.2.1) | adept.ai-style 5-section landing at `/` (opt-in via `landingPage: true`) · zh/en i18n · `/demo` route for agent page |
 | Providers | `openai-completions` · `openai-responses` · `anthropic-messages` · dual-clock TTFB 5s + chunk 1.5s · 401/403/400 fatal, 429/5xx retry |
 | WebSocket | Inbound limits 64KB / 10 msg/s · heartbeat 60s · resync protocol · dead-letter queue |
 | Safety | systemPrompt forbids kill / source-mod / `data/sessions/` access · API key via `.env` only · session ownership prevents cross-user access |
@@ -258,7 +259,7 @@ npm run dev    # http://localhost:8080
 ## 🧪 Tests
 
 ```bash
-npm test              # 58 files, 584 tests
+npm test              # 66 files, 687 tests
 npx tsc --noEmit      # strict type check, 0 errors
 ```
 
@@ -271,6 +272,7 @@ PRs welcome. The codebase is intentionally small — 70+ source files, ~8000 LOC
 ### Roadmap
 
 - **L1 ✅ (v0.2.0)** — User system (registration/login), per-browser session isolation, multi-client sync, Codex-style sidebar, session rename
+- **v0.2.1 ✅** — aptbot.de landing page (adept.ai style) + demo page visual migration + mobile adaptation
 - **L2** — Reliability (ring buffer sharding, JSONL history persistence, HttpOnly cookie), extensibility (MixinProvider failover, config hot-reload, hook system), UX (CLI overlay/diff, WebUI split to Cloudflare Pages), IM integration (Telegram as first channel)
 - **L3** — FallbackProvider + circuit breaker, OAuth, session branching, cross-session long-term memory, Feishu/DingTalk integration, AgentHarness + subagent management
 - **Multi-modal** — image input/outputs

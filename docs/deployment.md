@@ -2,7 +2,7 @@
 
 > 本文记录 aptbot 部署到 VPS 的完整流程，覆盖 systemd 进程管理、反向代理（nginx 或 Caddy）、TLS 签发、SSH 加固与 sudoers 配置。所有敏感字段以 `<placeholder>` 表示。
 
-> **当前部署版本：** v0.2.0（L1）。详见 [CHANGELOG.md](../CHANGELOG.md)。
+> **当前部署版本：** v0.2.1（landing page + adept style）。详见 [CHANGELOG.md](../CHANGELOG.md)。
 
 ## 部署架构
 
@@ -281,6 +281,54 @@ sudo systemctl restart sshd
 | root SSH 封堵 | `ssh root@<your-vps-ip> 'whoami'` | Permission denied |
 | 聊天页面 | 浏览器访问 `https://<your-domain>/?token=<your-auth-token>` | 正常加载并可对话 |
 
+## 10.5 v0.2.1 落地页部署
+
+v0.2.1 新增 opt-in 落地页（adept.ai 风格 5-section + 中/英 i18n），通过 `landingPage` 配置字段控制路由行为。
+
+### 启用落地页
+
+在 `config/aptbot.json` 顶层加 `"landingPage": true`：
+
+```json
+{
+  "providers": [/* ... */],
+  "defaultModel": "<your-model-id>",
+  "dataDir": "./data",
+  "deploy": "local",
+  "landingPage": true
+}
+```
+
+### 路由行为
+
+| 模式 | `/` | `/demo` |
+|---|---|---|
+| `landingPage: true`（落地页模式） | 返回落地页 HTML | 返回 agent demo 页（chat-page） |
+| 未配置 / `landingPage: false`（默认模式） | 返回 agent demo 页（chat-page） | 404 Not Found |
+
+> **版本隔离：** `landingPage` 默认 `undefined`（视为 false）。clone 自部署的用户不加该字段时行为与 v0.2.0 完全一致，零影响。只有显式设置 `landingPage: true` 才会启用落地页路由。
+
+### demo.aptbot.de 子域名证书
+
+若需将 agent demo 页独立暴露在 `demo.<your-domain>` 子域名，需扩展 Let's Encrypt 证书包含该子域名：
+
+```bash
+# 扩展现有证书包含子域名（--expand 会替换原证书，不丢失已有域名）
+sudo certbot --nginx -d <your-domain> -d demo.<your-domain> --expand \
+  --non-interactive --agree-tos --register-unsafely-without-email --redirect
+```
+
+同时在 nginx 配置中扩展 `server_name`：
+
+```nginx
+server {
+    server_name <your-domain> demo.<your-domain>;
+    # 其余 location / proxy_pass 配置不变
+}
+```
+
+> **注意：** `--expand` 选项会基于现有证书签发新证书（包含新增域名），不会删除已有域名。证书续期由 certbot 的 systemd timer 自动处理，无需手动干预。
+
 ## 11. 日常维护
 
 ```bash
@@ -406,3 +454,4 @@ npm ci && npm run build && sudo systemctl restart aptbot
 | `fb1d1ba` | feat: add session rename with 3-dot menu and cross-client sync |
 | `9fedcd4` | fix: break session ownership mismatch infinite loop |
 | `94e4145` | feat(l1): complete L1 with user system and multi-client sync |
+| `53c234c` | feat(v0.2.1): aptbot.de landing page + adept-style chat migration + mobile adaptation |
