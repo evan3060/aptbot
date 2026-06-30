@@ -20,6 +20,7 @@ import { createChannelManager } from './bus/channel-manager.js';
 import type { Channel, ChannelCapability, AgentEventEnvelope } from './bus/types.js';
 import { startWebSocketServer, type WebSocketServer } from './access/websocket-server.js';
 import { createChatPageHtml } from './access/chat-page.js';
+import { createLandingPageHtml } from './access/landing-page.js';
 import {
   installProcessHandlers,
   startMemoryMonitor,
@@ -169,12 +170,17 @@ Important constraints:
   const bus = new InMemoryMessageBus();
   const channelManager = createChannelManager(bus);
 
+  // Task 5: 根据 config.landingPage 严格等于 true 决定根路径提供落地页还是聊天页
+  // landingPage 为 undefined/false 时不启用，保持原有聊天页行为（向后兼容）
+  const landingEnabled = aptbotConfig.landingPage === true;
   const wsServer = await startWebSocketServer({
     port: config.port,
     bus,
     authToken: config.authToken,
     host: config.host,
-    serveHtml: createChatPageHtml('/ws'),
+    serveHtml: landingEnabled ? createLandingPageHtml() : createChatPageHtml('/ws'),
+    // Task 5: 启用落地页时，/demo 路由提供聊天页作为 CTA 跳转目标；未启用时不提供
+    serveDemoHtml: landingEnabled ? createChatPageHtml('/ws') : undefined,
     userStorage,
     // Task 5: 客户端未携带 ?session= 时绑定到 server 当前活跃 sessionId
     fallbackSessionKey: sessionId,
