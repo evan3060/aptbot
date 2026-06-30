@@ -22,6 +22,8 @@ export interface AptbotConfig {
   readonly defaultModel: string;
   readonly dataDir: string;
   readonly deploy: 'local' | 'cf';
+  // 落地页 opt-in 开关：undefined 视为 false，确保 clone 用户零影响
+  readonly landingPage?: boolean;
 }
 
 const apiSchema = z.enum([
@@ -59,6 +61,7 @@ export const configSchema: z.ZodType<AptbotConfig> = z.object({
   defaultModel: z.string().min(1),
   dataDir: z.string().min(1),
   deploy: z.enum(['local', 'cf']),
+  landingPage: z.boolean().optional(),
 });
 
 export const defaultConfig: AptbotConfig = {

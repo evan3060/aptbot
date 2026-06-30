@@ -1,5 +1,8 @@
 import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import WebSocket from 'ws';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import {
   startWebSocketServer,
   WS_MAX_CONNECTIONS,
@@ -9,6 +12,7 @@ import {
   type WebSocketServer,
 } from '../../src/access/websocket-server.js';
 import { InMemoryMessageBus } from '../../src/bus/message-bus.js';
+import { createUserStorage } from '../../src/infrastructure/user-storage.js';
 import type { MessageBus, AgentEventEnvelope } from '../../src/bus/types.js';
 
 const TEST_PORT = 18765;
@@ -286,5 +290,87 @@ describe('WebSocketServer', () => {
     expect(msgs.length).toBe(3);
     expect(msgs[0].seq).toBe(10);
     expect(msgs[2].seq).toBe(12);
+  });
+
+  // Task 7: landingPage 配置组 — 验证 serveHtml + serveDemoHtml 路由行为
+  // 与 routing-landing.spec.ts 一致，使用占位 HTML 隔离真实页面生成逻辑
+  describe('landingPage config', () => {
+    const LANDING_PORT = 18785;
+    const LANDING_HTML = '<html id="landing">';
+    const DEMO_HTML = '<html id="chat">';
+    let landingTmpDir: string | null = null;
+
+    afterEach(() => {
+      if (landingTmpDir) {
+        rmSync(landingTmpDir, { recursive: true, force: true });
+        landingTmpDir = null;
+      }
+    });
+
+    async function httpGet(path: string): Promise<{ status: number; body: string; headers: Record<string, string> }> {
+      const res = await fetch(`http://localhost:${LANDING_PORT}${path}`, { method: 'GET' });
+      const text = await res.text();
+      const headerMap: Record<string, string> = {};
+      res.headers.forEach((v, k) => { headerMap[k.toLowerCase()] = v; });
+      return { status: res.status, body: text, headers: headerMap };
+    }
+
+    async function httpPostJson(path: string, body: unknown): Promise<{ status: number }> {
+      const res = await fetch(`http://localhost:${LANDING_PORT}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      await res.text();
+      return { status: res.status };
+    }
+
+    async function startLandingServer(): Promise<void> {
+      landingTmpDir = mkdtempSync(join(tmpdir(), 'aptbot-ws-landing-'));
+      const userStorage = createUserStorage(landingTmpDir);
+      server = await startWebSocketServer({
+        port: LANDING_PORT,
+        bus,
+        userStorage,
+        serveHtml: LANDING_HTML,
+        serveDemoHtml: DEMO_HTML,
+      });
+    }
+
+    it('GET / 返回 landing HTML（serveHtml 行为不变）', async () => {
+      await startLandingServer();
+      const res = await httpGet('/');
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('id="landing"');
+      expect(res.headers['content-type']).toContain('text/html');
+    });
+
+    it('GET /demo 返回 chat HTML（serveDemoHtml）', async () => {
+      await startLandingServer();
+      const res = await httpGet('/demo');
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('id="chat"');
+      expect(res.headers['content-type']).toContain('text/html');
+    });
+
+    it('GET /demo/ 返回 chat HTML（宽松匹配 trailing slash）', async () => {
+      await startLandingServer();
+      const res = await httpGet('/demo/');
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('id="chat"');
+    });
+
+    it('GET /demo/index.html 返回 chat HTML（宽松匹配 index.html）', async () => {
+      await startLandingServer();
+      const res = await httpGet('/demo/index.html');
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('id="chat"');
+    });
+
+    it('POST /api/login 行为不变（错误凭据返回 401，非 404，未被 /demo 路由遮蔽）', async () => {
+      await startLandingServer();
+      const res = await httpPostJson('/api/login', { username: 'nobody', password: 'wrong' });
+      expect(res.status).toBe(401);
+    });
   });
 });

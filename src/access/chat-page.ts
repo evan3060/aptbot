@@ -11,39 +11,56 @@ export function createChatPageHtml(wsPath: string): string {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="data:,">
 <title>aptbot</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
+  :root {
+    --bg-base: rgb(255, 255, 255);
+    --bg-warm: rgb(245, 242, 241);
+    --bg-muted: rgb(249, 247, 244);
+    --bg-dark: rgb(39, 36, 34);
+    --bg-darker: rgb(18, 18, 18);
+    --text-primary: rgb(39, 36, 34);
+    --text-secondary: rgb(139, 133, 127);
+    --accent: rgb(13, 113, 73);
+    --decor-pink: rgb(241, 195, 214);
+    --decor-red: rgb(254, 190, 191);
+    --border: rgb(229, 231, 235);
+    --surface-translucent: rgba(255, 255, 255, 0.98);
+    --dark-translucent: rgba(39, 36, 34, 0.9);
+  }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-    background: #f7f7f8;
-    color: #1f2937;
+    font-family: Inter, system-ui, "PingFang SC", sans-serif;
+    background: var(--bg-base);
+    color: var(--text-primary);
     display: flex;
     flex-direction: row;
     height: 100vh;
   }
   #sidebar {
     width: 260px;
-    background: #fff;
-    border-right: 1px solid #e5e7eb;
+    background: var(--bg-base);
+    border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
   }
   #sidebar-header {
     padding: 12px;
-    border-bottom: 1px solid #e5e7eb;
+    border-bottom: 1px solid var(--border);
   }
   #new-session-btn {
     width: 100%;
     padding: 8px 12px;
-    background: #3b82f6;
-    color: #fff;
+    background: var(--accent);
+    color: var(--bg-base);
     border: none;
-    border-radius: 6px;
+    border-radius: 9999px;
     font-size: 13px;
     cursor: pointer;
   }
-  #new-session-btn:hover { background: #2563eb; }
+  #new-session-btn:hover { background: rgb(10, 95, 60); }
   #session-list {
     flex: 1;
     overflow-y: auto;
@@ -59,8 +76,8 @@ export function createChatPageHtml(wsPath: string): string {
     align-items: center;
     position: relative;
   }
-  .session-item:hover { background: #f3f4f6; }
-  .session-item.active { background: #dbeafe; color: #1e40af; }
+  .session-item:hover { background: var(--bg-muted); }
+  .session-item.active { background: rgba(13, 113, 73, 0.12); color: var(--accent); }
   .session-item.menu-open { z-index: 100; }
   .session-item .session-main {
     flex: 1;
@@ -74,14 +91,14 @@ export function createChatPageHtml(wsPath: string): string {
   }
   .session-item .session-time {
     font-size: 11px;
-    color: #9ca3af;
+    color: var(--text-secondary);
     margin-top: 2px;
   }
   .session-item .session-menu-btn {
     background: none;
     border: none;
     cursor: pointer;
-    color: #9ca3af;
+    color: var(--text-secondary);
     font-size: 16px;
     line-height: 1;
     padding: 2px 6px;
@@ -91,13 +108,13 @@ export function createChatPageHtml(wsPath: string): string {
     align-self: center;
   }
   .session-item:hover .session-menu-btn { opacity: 1; }
-  .session-item .session-menu-btn:hover { background: #e5e7eb; color: #374151; }
+  .session-item .session-menu-btn:hover { background: var(--border); color: var(--text-primary); }
   .session-menu {
     position: absolute;
     right: 4px;
     top: 30px;
-    background: #fff;
-    border: 1px solid #e5e7eb;
+    background: var(--bg-base);
+    border: 1px solid var(--border);
     border-radius: 4px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     z-index: 10;
@@ -108,13 +125,13 @@ export function createChatPageHtml(wsPath: string): string {
     padding: 6px 12px;
     cursor: pointer;
     font-size: 12px;
-    color: #374151;
+    color: var(--text-primary);
   }
-  .session-menu-item:hover { background: #f3f4f6; }
+  .session-menu-item:hover { background: var(--bg-muted); }
   .session-rename-input {
     width: 100%;
     padding: 2px 4px;
-    border: 1px solid #3b82f6;
+    border: 1px solid var(--accent);
     border-radius: 3px;
     font-size: 13px;
     font-weight: 500;
@@ -123,9 +140,9 @@ export function createChatPageHtml(wsPath: string): string {
   }
   #user-info {
     padding: 12px;
-    border-top: 1px solid #e5e7eb;
+    border-top: 1px solid var(--border);
     font-size: 12px;
-    color: #6b7280;
+    color: var(--text-secondary);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -139,28 +156,28 @@ export function createChatPageHtml(wsPath: string): string {
   }
   #logout-btn, #auth-btn {
     background: none;
-    border: 1px solid #d1d5db;
+    border: 1px solid var(--border);
     border-radius: 4px;
     padding: 2px 8px;
     font-size: 11px;
     cursor: pointer;
-    color: #6b7280;
+    color: var(--text-secondary);
     flex-shrink: 0;
   }
-  #logout-btn:hover, #auth-btn:hover { background: #f3f4f6; }
+  #logout-btn:hover, #auth-btn:hover { background: var(--bg-muted); }
   .hidden { display: none !important; }
   /* auth modal */
   .modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--dark-translucent);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 1000;
   }
   .modal-content {
-    background: #fff;
+    background: var(--bg-base);
     border-radius: 8px;
     padding: 24px;
     width: 360px;
@@ -178,45 +195,45 @@ export function createChatPageHtml(wsPath: string): string {
   .modal-content label {
     display: block;
     font-size: 12px;
-    color: #6b7280;
+    color: var(--text-secondary);
     margin-bottom: 4px;
   }
   .modal-content input {
     width: 100%;
     padding: 8px 10px;
-    border: 1px solid #d1d5db;
+    border: 1px solid var(--border);
     border-radius: 4px;
     font-size: 13px;
     outline: none;
   }
-  .modal-content input:focus { border-color: #3b82f6; }
+  .modal-content input:focus { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 1px; }
   .modal-content .submit-btn {
     width: 100%;
     padding: 9px;
-    background: #3b82f6;
-    color: #fff;
+    background: var(--accent);
+    color: var(--bg-base);
     border: none;
-    border-radius: 4px;
+    border-radius: 9999px;
     font-size: 13px;
     cursor: pointer;
     margin-top: 4px;
   }
-  .modal-content .submit-btn:hover { background: #2563eb; }
-  .modal-content .submit-btn:disabled { background: #9ca3af; cursor: not-allowed; }
+  .modal-content .submit-btn:hover { background: rgb(10, 95, 60); }
+  .modal-content .submit-btn:disabled { background: var(--text-secondary); cursor: not-allowed; }
   .modal-content .switch-link {
     text-align: center;
     margin-top: 12px;
     font-size: 12px;
-    color: #6b7280;
+    color: var(--text-secondary);
   }
   .modal-content .switch-link a {
-    color: #3b82f6;
+    color: var(--accent);
     cursor: pointer;
     text-decoration: underline;
   }
   #auth-error {
-    color: #991b1b;
-    background: #fee2e2;
+    color: var(--text-primary);
+    background: rgba(254, 190, 191, 0.3);
     border-radius: 4px;
     padding: 6px 10px;
     font-size: 12px;
@@ -231,8 +248,8 @@ export function createChatPageHtml(wsPath: string): string {
     min-width: 0;
   }
   header {
-    background: #fff;
-    border-bottom: 1px solid #e5e7eb;
+    background: var(--bg-base);
+    border-bottom: 1px solid var(--border);
     padding: 12px 20px;
     display: flex;
     align-items: center;
@@ -243,11 +260,11 @@ export function createChatPageHtml(wsPath: string): string {
     font-size: 12px;
     padding: 4px 10px;
     border-radius: 12px;
-    background: #fef3c7;
-    color: #92400e;
+    background: var(--bg-muted);
+    color: var(--text-secondary);
   }
-  #status.connected { background: #d1fae5; color: #065f46; }
-  #status.disconnected { background: #fee2e2; color: #991b1b; }
+  #status.connected { background: rgba(13, 113, 73, 0.15); color: var(--accent); }
+  #status.disconnected { background: rgba(254, 190, 191, 0.3); color: var(--text-primary); }
   #messages {
     flex: 1;
     overflow-y: auto;
@@ -265,44 +282,44 @@ export function createChatPageHtml(wsPath: string): string {
     word-wrap: break-word;
   }
   .msg.user {
-    background: #fff;
-    border: 1px solid #e5e7eb;
+    background: var(--bg-base);
+    border: 1px solid var(--border);
     margin-left: 40px;
   }
   .msg.assistant {
-    background: #fff;
-    border-left: 3px solid #3b82f6;
+    background: var(--bg-base);
+    border-left: 3px solid var(--accent);
   }
   .msg.tool {
-    background: #f3f4f6;
-    border-left: 3px solid #f59e0b;
+    background: var(--bg-muted);
+    border-left: 3px solid var(--decor-red);
     font-family: ui-monospace, "SF Mono", monospace;
     font-size: 13px;
   }
   .msg.tool .tool-result {
-    color: #047857;
+    color: var(--accent);
     margin-top: 4px;
     max-height: 200px;
     overflow-y: auto;
     white-space: pre-wrap;
     word-break: break-all;
   }
-  .msg.tool .tool-name { color: #92400e; font-weight: 600; }
+  .msg.tool .tool-name { color: var(--text-secondary); font-weight: 600; }
   .msg.error {
-    background: #fee2e2;
-    border-left: 3px solid #dc2626;
-    color: #991b1b;
+    background: rgba(254, 190, 191, 0.3);
+    border-left: 3px solid var(--decor-red);
+    color: var(--text-primary);
   }
   .msg .label {
     font-size: 11px;
-    color: #6b7280;
+    color: var(--text-secondary);
     margin-bottom: 4px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
   #input-bar {
-    background: #fff;
-    border-top: 1px solid #e5e7eb;
+    background: var(--bg-base);
+    border-top: 1px solid var(--border);
     padding: 16px 20px;
     max-width: 900px;
     width: 100%;
@@ -313,26 +330,26 @@ export function createChatPageHtml(wsPath: string): string {
   #input {
     flex: 1;
     padding: 10px 14px;
-    border: 1px solid #d1d5db;
+    border: 1px solid var(--border);
     border-radius: 6px;
     font-size: 14px;
     outline: none;
   }
-  #input:focus { border-color: #3b82f6; }
+  #input:focus { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 1px; }
   #send {
     padding: 10px 20px;
-    background: #3b82f6;
-    color: #fff;
+    background: var(--accent);
+    color: var(--bg-base);
     border: none;
-    border-radius: 6px;
+    border-radius: 9999px;
     font-size: 14px;
     cursor: pointer;
   }
-  #send:disabled { background: #9ca3af; cursor: not-allowed; }
+  #send:disabled { background: var(--text-secondary); cursor: not-allowed; }
   #working {
     text-align: center;
     padding: 8px;
-    color: #6b7280;
+    color: var(--text-secondary);
     font-size: 13px;
     display: none;
   }
@@ -343,7 +360,7 @@ export function createChatPageHtml(wsPath: string): string {
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: #3b82f6;
+    background: var(--accent);
     margin-left: 6px;
     animation: pulse 1s infinite;
   }
@@ -354,13 +371,75 @@ export function createChatPageHtml(wsPath: string): string {
   #presence {
     text-align: center;
     padding: 4px;
-    color: #6b7280;
+    color: var(--text-secondary);
     font-size: 12px;
-    background: #f9fafb;
-    border-top: 1px solid #e5e7eb;
+    background: var(--bg-base);
+    border-top: 1px solid var(--border);
     display: none;
   }
   #presence.show { display: block; }
+  @media (prefers-reduced-motion: reduce) {
+    #working::after { animation: none; }
+  }
+
+  /* 移动端 toggle 按钮（桌面隐藏） */
+  #sidebar-toggle {
+    display: none;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 6px 8px;
+    color: var(--text-primary);
+    align-self: center;
+    border-radius: 6px;
+    -webkit-tap-highlight-color: transparent;
+    line-height: 0;
+  }
+  #sidebar-toggle:hover { background: var(--bg-muted); }
+  #sidebar-toggle svg { display: block; width: 20px; height: 20px; }
+
+  #sidebar-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(18, 18, 18, 0.45);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    z-index: 90;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  #sidebar-backdrop.show { display: block; opacity: 1; }
+
+  /* 移动端适配：sidebar 浮动抽屉，main 占满视口 */
+  @media (max-width: 768px) {
+    #sidebar-toggle { display: inline-flex; align-items: center; justify-content: center; }
+    #sidebar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 280px;
+      max-width: 85vw;
+      transform: translateX(-100%);
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      z-index: 100;
+      box-shadow: 0 0 24px rgba(0, 0, 0, 0.18);
+    }
+    #sidebar.open { transform: translateX(0); }
+    #main { width: 100%; }
+    #messages {
+      padding: 12px;
+      max-width: 100%;
+    }
+    #input-bar {
+      padding: 12px;
+      max-width: 100%;
+    }
+    header { padding: 10px 12px; }
+    .msg { padding: 10px 12px; margin-bottom: 10px; }
+    .msg.user { margin-left: 8px; }
+  }
 </style>
 </head>
 <body>
@@ -375,8 +454,16 @@ export function createChatPageHtml(wsPath: string): string {
     <button id="logout-btn" class="hidden">登出</button>
   </div>
 </div>
+<div id="sidebar-backdrop"></div>
 <div id="main">
 <header>
+  <button id="sidebar-toggle" aria-label="会话列表">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="4" y1="7" x2="20" y2="7"/>
+      <line x1="4" y1="12" x2="20" y2="12"/>
+      <line x1="4" y1="17" x2="20" y2="17"/>
+    </svg>
+  </button>
   <h1>aptbot</h1>
   <span id="status">connecting...</span>
 </header>
@@ -1087,7 +1174,7 @@ export function createChatPageHtml(wsPath: string): string {
     if (!sessionListEl) return;
     sessionListEl.innerHTML = '';
     if (!sessions || sessions.length === 0) {
-      sessionListEl.innerHTML = '<div style="padding:12px;color:#9ca3af;font-size:12px;text-align:center;">暂无会话</div>';
+      sessionListEl.innerHTML = '<div style="padding:12px;color:var(--text-secondary);font-size:12px;text-align:center;">暂无会话</div>';
       return;
     }
     sessions.forEach(function(s) {
@@ -1267,6 +1354,34 @@ export function createChatPageHtml(wsPath: string): string {
       try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) { /* ignore */ }
       try { localStorage.removeItem(SESSION_ID_KEY); } catch (e) { /* ignore */ }
       window.location.href = window.location.pathname;
+    });
+  }
+
+  // 移动端 sidebar 抽屉化：hamburger 切换 + backdrop 关闭 + session 项点击后自动收起
+  var sidebarEl = document.getElementById('sidebar');
+  var sidebarToggleBtn = document.getElementById('sidebar-toggle');
+  var sidebarBackdrop = document.getElementById('sidebar-backdrop');
+  function openSidebar() {
+    if (sidebarEl) sidebarEl.classList.add('open');
+    if (sidebarBackdrop) sidebarBackdrop.classList.add('show');
+  }
+  function closeSidebar() {
+    if (sidebarEl) sidebarEl.classList.remove('open');
+    if (sidebarBackdrop) sidebarBackdrop.classList.remove('show');
+  }
+  if (sidebarToggleBtn) {
+    sidebarToggleBtn.addEventListener('click', function() {
+      if (sidebarEl && sidebarEl.classList.contains('open')) closeSidebar();
+      else openSidebar();
+    });
+  }
+  if (sidebarBackdrop) {
+    sidebarBackdrop.addEventListener('click', closeSidebar);
+  }
+  // session 项被点击后自动收起 sidebar（移动端体验）
+  if (sessionListEl) {
+    sessionListEl.addEventListener('click', function() {
+      if (window.matchMedia('(max-width: 768px)').matches) closeSidebar();
     });
   }
 
