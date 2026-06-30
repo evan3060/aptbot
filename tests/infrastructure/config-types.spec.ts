@@ -146,4 +146,40 @@ describe('config-types', () => {
       expect(typeof configSchema.parse).toBe('function');
     });
   });
+
+  // landingPage opt-in 字段测试（v0.2.1 落地页特性）
+  describe('landingPage opt-in field', () => {
+    it('defaultConfig 不含 landingPage，保持 undefined', () => {
+      expect(defaultConfig.landingPage).toBeUndefined();
+    });
+
+    it('validateConfig 接受 landingPage: true 并保留该值', () => {
+      const result = validateConfig({ ...defaultConfig, landingPage: true });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.landingPage).toBe(true);
+      }
+    });
+
+    it('validateConfig 拒绝 landingPage: "true"（字符串）', () => {
+      const result = validateConfig({
+        ...defaultConfig,
+        landingPage: 'true',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('validateConfig 拒绝 landingPage: 1（数字）', () => {
+      const result = validateConfig({ ...defaultConfig, landingPage: 1 });
+      expect(result.success).toBe(false);
+    });
+
+    it('validateConfig 接受缺省 landingPage（视为 undefined）', () => {
+      const result = validateConfig({ ...defaultConfig });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.landingPage).toBeUndefined();
+      }
+    });
+  });
 });
