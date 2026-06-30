@@ -24,3 +24,6 @@ DEPLOYMENT-VPS.md
 
 # 工具技能定义（非 aptbot 代码，仅本地使用）
 .agents/
+
+# 网站克隆研究产物（设计参考，非项目代码）
+docs/research/
