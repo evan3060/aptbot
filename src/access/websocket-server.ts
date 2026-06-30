@@ -26,6 +26,8 @@ export interface WebSocketServerOptions {
   host?: string;
   /** 若提供，HTTP GET / 将返回此 HTML（用于服务最小化聊天页面） */
   serveHtml?: string;
+  /** Task 4: 若提供，HTTP GET /demo、/demo/、/demo/index.html 将返回此 HTML（用于服务 demo 聊天页面） */
+  serveDemoHtml?: string;
   /** Task 3: 用户存储，启用后支持 POST /api/register /api/login GET /api/me */
   userStorage?: UserStorage;
   /** Task 5: 连接未携带 ?session= 时使用的默认 sessionKey（通常为 server 当前活跃 sessionId） */
@@ -137,7 +139,7 @@ async function identifyUser(
  */
 export function startWebSocketServer(options: WebSocketServerOptions): Promise<WebSocketServer> {
   return new Promise((resolve, reject) => {
-    const { port, bus, authToken, serveHtml, host, userStorage, fallbackSessionKey, getCurrentSessionId, onSessionBound, onSessionUnbound, sessionStorage, onSessionRenamed } = options;
+    const { port, bus, authToken, serveHtml, serveDemoHtml, host, userStorage, fallbackSessionKey, getCurrentSessionId, onSessionBound, onSessionUnbound, sessionStorage, onSessionRenamed } = options;
     const httpServer = createServer((req, res) => {
       const pathname = new URL(req.url ?? '/', `http://localhost:${port}`).pathname;
 
@@ -156,6 +158,18 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
           'cache-control': 'no-cache, no-store, must-revalidate',
         });
         res.end(serveHtml);
+        return;
+      }
+      // Task 4: 服务 demo 聊天页面（landing page CTA 跳转目标）
+      // 宽松匹配 /demo、/demo/、/demo/index.html；大小写敏感（/Demo 不匹配）
+      // 仅在 serveDemoHtml 提供时启用，未提供时落到下方 404（clone 用户零影响）
+      if (serveDemoHtml && req.method === 'GET' &&
+          (pathname === '/demo' || pathname === '/demo/' || pathname === '/demo/index.html')) {
+        res.writeHead(200, {
+          'content-type': 'text/html; charset=utf-8',
+          'cache-control': 'no-cache, no-store, must-revalidate',
+        });
+        res.end(serveDemoHtml);
         return;
       }
       res.writeHead(404, { 'content-type': 'text/plain' });
