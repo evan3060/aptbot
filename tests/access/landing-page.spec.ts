@@ -97,8 +97,9 @@ describe('Task 3: landing-page 5 sections 内容与 adept 视觉契约', () => {
     expect(html).toContain('position: fixed');
   });
 
-  it('含 transition: background-color 300ms ease-in-out（nav 滚动过渡）', () => {
+  it('含 transition 300ms ease-in-out（nav 滚动过渡）', () => {
     const html = createLandingPageHtml();
-    expect(html).toContain('transition: background-color 300ms ease-in-out');
+    // nav 始终有背景，transition 用于 border-color / box-shadow 滚动分层过渡
+    expect(html).toMatch(/transition:[^;]*300ms[^;]*ease-in-out/);
   });
 });

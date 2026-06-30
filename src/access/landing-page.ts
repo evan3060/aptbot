@@ -49,7 +49,7 @@ export function createLandingPageHtml(): string {
     padding: 48px;
   }
 
-  /* Nav 粘性顶栏：透明 → 滚动后白底 */
+  /* Nav 粘性顶栏：始终半透明 + 模糊背景，避免滚动时下层文字透出叠加 */
   #nav {
     position: fixed;
     top: 0;
@@ -60,13 +60,16 @@ export function createLandingPageHtml(): string {
     align-items: center;
     justify-content: space-between;
     padding: 0 48px;
-    background-color: rgba(0, 0, 0, 0);
-    transition: background-color 300ms ease-in-out;
+    background-color: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition: border-color 300ms ease-in-out, box-shadow 300ms ease-in-out;
+    border-bottom: 1px solid transparent;
     z-index: 100;
   }
   #nav.scrolled {
-    background-color: var(--surface-translucent);
     border-bottom: 1px solid var(--border);
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.04);
   }
   .nav-wordmark {
     font-size: 20px;
