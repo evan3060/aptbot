@@ -285,7 +285,14 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
   const commandRegistry = createCommandRegistry();
   const slashHandler: SlashCommandHandler = {
     registry: commandRegistry,
-    ctx: { sessionId, model: model.id, storage },
+    ctx: {
+      sessionId,
+      model: model.id,
+      storage,
+      // Task 11: /session 动态属性句柄 + 文件逃生口数据目录
+      sessionAttrs: session,
+      dataDir: aptbotConfig.dataDir,
+    },
   };
 
   // §4.6 Config 热重载 rebuild：用新配置重建 provider/model/session（下个 turn 生效）
@@ -491,6 +498,8 @@ export async function runInboundLoop(
       const next = prev.then(async () => {
         // I5 fix: ctx.userId 在链内设置，避免并行 sessionKey 间的竞态
         if (senderUserId && slashHandler) slashHandler.ctx.userId = senderUserId;
+        // Task 11: 每个 turn 刷新 sessionAttrs 句柄，使 /new /resume /热重载后的新 session 生效
+        if (slashHandler) slashHandler.ctx.sessionAttrs = sessionRef.current;
         // §4.6 beforeTurn：检查 config mtimeNs 变化（当前 turn 用旧快照，pending 等 afterTurn 应用）
         // rebuild 可同步或异步（§4.9 Skills 热重载联动需 await skillState.reload()）
         let pendingConfigApply: (() => void | Promise<void>) | null = null;
@@ -532,7 +541,11 @@ export async function runInboundLoop(
                 const newId = result.continueSessionId ?? randomUUID();
                 sessionRef.current = sessionFactory(newId);
                 sessionRef.currentKey = newId;
-                if (slashHandler) slashHandler.ctx.sessionId = newId;
+                if (slashHandler) {
+                  slashHandler.ctx.sessionId = newId;
+                  // Task 11: 同步刷新 sessionAttrs 句柄到新 session
+                  slashHandler.ctx.sessionAttrs = sessionRef.current;
+                }
                 // Task 6: 通知 server 推送 session_changed 到发起方 sessionKey 的 connection
                 onNewSession?.(oldKey, newId);
                 loopLog.info('session switched', { senderSessionKey: oldKey, newSessionKey: newId, resumed: !!result.continueSessionId });

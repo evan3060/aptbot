@@ -31,6 +31,12 @@ export interface AssistantMessageEvent {
 export interface StreamOptions {
   temperature?: number;
   maxTokens?: number;
+  /** Task 11: /session 动态属性广播 — reasoning effort enum */
+  reasoningEffort?: string;
+  /** Task 11: /session 动态属性广播 — thinking mode enum */
+  thinkingType?: string;
+  /** Task 11: /session 动态属性广播 — thinking budget token limit */
+  thinkingBudgetTokens?: number;
   signal?: AbortSignal;
 }
 

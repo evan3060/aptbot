@@ -145,6 +145,11 @@ export class MixinProvider implements BroadcastableProvider {
     const b = this.broadcastAttrs;
     if ('temperature' in b) merged.temperature = b.temperature as number;
     if ('maxTokens' in b) merged.maxTokens = b.maxTokens as number;
+    // Task 11: 3 个新广播键（reasoningEffort/thinkingType/thinkingBudgetTokens）
+    if ('reasoningEffort' in b) merged.reasoningEffort = b.reasoningEffort as string;
+    if ('thinkingType' in b) merged.thinkingType = b.thinkingType as string;
+    if ('thinkingBudgetTokens' in b)
+      merged.thinkingBudgetTokens = b.thinkingBudgetTokens as number;
     return merged;
   }
 

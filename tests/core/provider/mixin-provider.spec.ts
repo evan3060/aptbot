@@ -229,6 +229,22 @@ describe('MixinProvider', () => {
     expect(p1.lastOptions?.maxTokens).toBe(2048);
   });
 
+  // Task 11 / Task 5 deferred: 3 个新广播键（reasoningEffort/thinkingType/thinkingBudgetTokens）
+  // 通过 mergeOptions 合并到 StreamOptions，完成 5 项白名单属性的广播机制
+  it('broadcasts Task 11 whitelist attrs (reasoningEffort/thinkingType/thinkingBudgetTokens) to child providers', async () => {
+    const p0 = mockProvider('p0', 'P0', () =>
+      genChunks([{ type: 'stop', stopReason: 'end_turn' }]),
+    );
+    const mixin = new MixinProvider('m', [p0]);
+    mixin.broadcastAttr('reasoningEffort', 'high');
+    mixin.broadcastAttr('thinkingType', 'enabled');
+    mixin.broadcastAttr('thinkingBudgetTokens', 4096);
+    await collect(mixin.stream(model, ctx));
+    expect(p0.lastOptions?.reasoningEffort).toBe('high');
+    expect(p0.lastOptions?.thinkingType).toBe('enabled');
+    expect(p0.lastOptions?.thinkingBudgetTokens).toBe(4096);
+  });
+
   it('throws AggregateError when all providers fail', async () => {
     const p0 = mockProvider('p0', 'P0', () =>
       genThrow(retryableErr('p0 down')),
