@@ -24,6 +24,10 @@ export interface AptbotConfig {
   readonly deploy: 'local' | 'cf';
   // 落地页 opt-in 开关：undefined 视为 false，确保 clone 用户零影响
   readonly landingPage?: boolean;
+  // 学习页 opt-in 开关：缺省 → false（clone 用户不启用 /learn 路由）
+  readonly learnPage?: boolean;
+  // 反馈收集开关：缺省 → true（默认启用反馈收集）
+  readonly feedbackEnabled?: boolean;
 }
 
 const apiSchema = z.enum([
@@ -62,6 +66,10 @@ export const configSchema: z.ZodType<AptbotConfig> = z.object({
   dataDir: z.string().min(1),
   deploy: z.enum(['local', 'cf']),
   landingPage: z.boolean().optional(),
+  // learnPage 缺省 → false（opt-in，clone 用户零影响）
+  learnPage: z.boolean().optional().default(false),
+  // feedbackEnabled 缺省 → true（默认启用反馈收集）
+  feedbackEnabled: z.boolean().optional().default(true),
 });
 
 export const defaultConfig: AptbotConfig = {

@@ -182,4 +182,72 @@ describe('config-types', () => {
       }
     });
   });
+
+  // learnPage opt-in 字段测试（v0.2.3 学习页特性）
+  describe('learnPage opt-in field', () => {
+    it('validateConfig 缺省 learnPage → false（opt-in 默认）', () => {
+      const result = validateConfig({ ...defaultConfig });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.learnPage).toBe(false);
+      }
+    });
+
+    it('validateConfig 接受 learnPage: true 并保留该值', () => {
+      const result = validateConfig({ ...defaultConfig, learnPage: true });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.learnPage).toBe(true);
+      }
+    });
+
+    it('validateConfig 接受 learnPage: false 并保留该值', () => {
+      const result = validateConfig({ ...defaultConfig, learnPage: false });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.learnPage).toBe(false);
+      }
+    });
+
+    it('validateConfig 拒绝 learnPage: "true"（字符串）', () => {
+      const result = validateConfig({
+        ...defaultConfig,
+        learnPage: 'true',
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  // feedbackEnabled 字段测试（v0.2.3 反馈收集特性）
+  describe('feedbackEnabled field', () => {
+    it('validateConfig 缺省 feedbackEnabled → true（默认启用）', () => {
+      const result = validateConfig({ ...defaultConfig });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.feedbackEnabled).toBe(true);
+      }
+    });
+
+    it('validateConfig 接受 feedbackEnabled: false 并保留该值', () => {
+      const result = validateConfig({
+        ...defaultConfig,
+        feedbackEnabled: false,
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.feedbackEnabled).toBe(false);
+      }
+    });
+
+    it('validateConfig 接受 feedbackEnabled: true 并保留该值', () => {
+      const result = validateConfig({
+        ...defaultConfig,
+        feedbackEnabled: true,
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.feedbackEnabled).toBe(true);
+      }
+    });
+  });
 });
