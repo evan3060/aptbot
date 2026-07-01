@@ -39,6 +39,8 @@
 
 ### Task 1: per-sessionKey ring buffer 分片 + LRU
 
+- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+
 **价值：** 防 0.2.x 单 sessionKey 内存膨胀，全局上限触发 LRU 淘汰，避免 OOM。
 
 **文件：**
@@ -58,6 +60,8 @@
 ---
 
 ### Task 2: turn_busy 响应
+
+- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 同 sessionKey 排队时给前端"等待中"反馈，避免用户误以为系统卡死。
 
@@ -79,6 +83,8 @@
 ---
 
 ### Task 3: JSONL 历史持久化
+
+- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 服务重启后 ring buffer 清空，从 JSONL 兜底回放历史，保证用户体验连续性。
 
@@ -102,6 +108,8 @@
 
 ### Task 4: HttpOnly cookie 安全增强
 
+- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+
 **价值：** token 从 sessionStorage 迁到 HttpOnly+Secure+SameSite=Strict cookie，防 XSS 窃取。
 
 **文件：**
@@ -122,6 +130,8 @@
 ---
 
 ### Task 5: MixinProvider 多 provider 故障转移
+
+- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 单 provider 故障时自动切换备 provider，提升可用性；为 0.3.0 不同 agent 用不同 provider 铺路。
 
@@ -144,6 +154,8 @@
 
 ### Task 6: Config 热重载
 
+- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+
 **价值：** 修改配置文件免重启，运行中 turn 用旧配置，下个 turn 用新配置，避免影响进行中的对话。
 
 **文件：**
@@ -164,6 +176,8 @@
 ---
 
 ### Task 7: Hook 系统（8 hook 点）
+
+- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 8 个 hook 点支持可插拔扩展（日志/监控/审计），吞异常不中断主流程，为 0.3.0 注入 agent 个性铺路。
 
@@ -186,6 +200,8 @@
 ---
 
 ### Task 8: Skills 系统基础（§8.5/§8.6）
+
+- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 建立 Skills 加载/校验/注入基础设施，为 0.3.0 agent 独立技能绑定铺路；MVP/L1 阶段 Skills 系统从未实现，本 task 补齐基础。
 
@@ -211,6 +227,8 @@
 
 ### Task 9: L1 索引 Skill
 
+- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+
 **价值：** Skills 数量多时用 L1 索引（行数/字节/tags + lastUsed 排序）控制 system prompt token 预算，避免上下文爆炸。
 
 **文件：**
@@ -235,6 +253,8 @@
 
 ### Task 10: Session 自动摘要命名
 
+- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+
 **价值：** LLM 生成 ≤20 字符摘要替代首 20 字符，提升侧边栏可读性；用户手动 /label 优先。
 
 **文件：**
@@ -256,6 +276,8 @@
 ---
 
 ### Task 11: /session 动态属性
+
+- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 运行时调整 provider 参数（temperature/maxTokens 等）免重启；MixinProvider 广播到所有子 provider；为 0.3.0 agent 级配置铺路。
 
@@ -280,6 +302,8 @@
 
 ### Task 12: Channel 接口抽象
 
+- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+
 **价值：** 抽象 Channel 接口为 0.4.0 IM 接入铺路；WebSocket 作为 Channel 实现之一，不影响现有功能。
 
 **文件：**
@@ -300,6 +324,8 @@
 ---
 
 ### Task 13: E2E 回归测试
+
+- [ ] 完成（E2E 全绿 + commit）
 
 **价值：** 端到端验证 0.2.2 全部新功能联动正确，作为封仓前置门禁。
 
@@ -322,6 +348,8 @@
 
 ### Task 14: 人工 UAT 核验
 
+- [ ] 完成（4 范围全 ✅）
+
 **价值：** 自动化测试无法覆盖真实体验，人工核验本地/VPS/新功能/旧功能 4 范围。
 
 **文件：**
@@ -340,6 +368,8 @@
 ---
 
 ### Task 15: 封仓
+
+- [ ] 完成（B1-B12 全部通过 + v0.2.2 tag）
 
 **价值：** 文档归档 + 版本号升级 + tag + VPS 部署验证，完成 0.2.2 迭代。
 
