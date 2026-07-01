@@ -84,7 +84,7 @@
 
 ### Task 3: JSONL 历史持久化
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 服务重启后 ring buffer 清空，从 JSONL 兜底回放历史，保证用户体验连续性。
 
@@ -108,7 +108,7 @@
 
 ### Task 4: HttpOnly cookie 安全增强
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** token 从 sessionStorage 迁到 HttpOnly+Secure+SameSite=Strict cookie，防 XSS 窃取。
 

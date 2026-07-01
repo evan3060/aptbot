@@ -88,12 +88,84 @@ interface BufferedInbound {
 /** Task 4: 共享 authToken 的固定 userId */
 const SHARED_USER_ID = '__shared__';
 
+/** Task 4 (0.2.2): HttpOnly cookie 名称，存储用户 token */
+const AUTH_COOKIE_NAME = 'aptbot_token';
+/** Task 4 (0.2.2): cookie Max-Age 30 天（秒） */
+const AUTH_COOKIE_MAX_AGE = 2592000;
+
 /** Task 4 M1: 常量时间比较 authToken，防时序攻击 */
 function safeEqualAuthToken(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
   const bufB = Buffer.from(b);
   if (bufA.length !== bufB.length) return false;
   return timingSafeEqual(bufA, bufB);
+}
+
+/** Task 4 (0.2.2): 解析 Cookie 头为 name→value 映射 */
+function parseCookies(cookieHeader: string | undefined): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (!cookieHeader) return result;
+  for (const part of cookieHeader.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx === -1) continue;
+    const name = part.slice(0, idx).trim();
+    const value = part.slice(idx + 1).trim();
+    if (name) result[name] = decodeURIComponent(value);
+  }
+  return result;
+}
+
+/** Task 4 (0.2.2): 判断请求是否为 HTTPS（req.socket.encrypted 或反代 X-Forwarded-Proto） */
+function isHttpsRequest(req: IncomingMessage): boolean {
+  return (req.socket as { encrypted?: boolean }).encrypted === true
+    || req.headers['x-forwarded-proto'] === 'https';
+}
+
+/** Task 4 (0.2.2): 构建 Set-Cookie 值，HTTPS 时附加 Secure 属性 */
+function buildAuthCookieValue(token: string, isHttps: boolean): string {
+  const parts = [
+    `${AUTH_COOKIE_NAME}=${token}`,
+    'HttpOnly',
+    'SameSite=Strict',
+    'Path=/',
+    `Max-Age=${AUTH_COOKIE_MAX_AGE}`,
+  ];
+  if (isHttps) parts.push('Secure');
+  return parts.join('; ');
+}
+
+/** Task 4 (0.2.2): 构建清除 cookie 的 Set-Cookie 值（Max-Age=0） */
+function buildClearCookieValue(isHttps: boolean): string {
+  const parts = [
+    `${AUTH_COOKIE_NAME}=`,
+    'HttpOnly',
+    'SameSite=Strict',
+    'Path=/',
+    'Max-Age=0',
+  ];
+  if (isHttps) parts.push('Secure');
+  return parts.join('; ');
+}
+
+/**
+ * Task 4 (0.2.2): 从请求中提取 token，优先级 cookie > Authorization: Bearer > URL ?token=
+ * 用于 HTTP API 端点（/api/me 等）。
+ */
+function extractAuthToken(req: IncomingMessage): string | null {
+  // 1. Cookie（最高优先级，HttpOnly 防 XSS）
+  const cookieHeader = req.headers.cookie;
+  if (cookieHeader) {
+    const cookies = parseCookies(cookieHeader);
+    if (cookies[AUTH_COOKIE_NAME]) return cookies[AUTH_COOKIE_NAME];
+  }
+  // 2. Authorization: Bearer（兼容旧客户端 / 跨设备链接）
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    return authHeader.slice('Bearer '.length);
+  }
+  // 3. URL ?token=（兼容旧客户端）
+  const url = new URL(req.url ?? '', 'http://localhost');
+  return url.searchParams.get('token');
 }
 
 /**
@@ -324,7 +396,10 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
 
     wss.on('connection', (ws, req) => {
       const url = new URL(req.url ?? '', `http://localhost:${port}`);
-      const token = url.searchParams.get('token');
+      // Task 4 (0.2.2): token 优先级 URL ?token= > cookie > sessionStorage（服务端不可读）
+      const urlToken = url.searchParams.get('token');
+      const cookieToken = parseCookies(req.headers.cookie)[AUTH_COOKIE_NAME] ?? null;
+      const token = urlToken ?? cookieToken;
       // Task 5: 解析 ?session=，未提供时使用 fallbackSessionKey
       const sessionKey = url.searchParams.get('session') ?? fallbackSessionKey ?? randomUUID();
 
@@ -782,6 +857,15 @@ async function handleAuthApi(
     res.end(JSON.stringify(body));
   };
 
+  /** Task 4 (0.2.2): 发送 JSON 并附加 Set-Cookie 头 */
+  const sendJsonWithCookie = (status: number, body: unknown, cookieValue: string) => {
+    res.writeHead(status, {
+      'content-type': 'application/json; charset=utf-8',
+      'set-cookie': cookieValue,
+    });
+    res.end(JSON.stringify(body));
+  };
+
   try {
     if (pathname === '/api/register' && req.method === 'POST') {
       let body;
@@ -799,7 +883,9 @@ async function handleAuthApi(
       }
       try {
         const user = await userStorage.register(validation.username, validation.password);
-        sendJson(200, { userId: user.userId, username: user.username, token: user.token });
+        // Task 4 (0.2.2): 设置 HttpOnly cookie（双写：cookie + body.token 供前端 sessionStorage fallback）
+        sendJsonWithCookie(200, { userId: user.userId, username: user.username, token: user.token },
+          buildAuthCookieValue(user.token, isHttpsRequest(req)));
       } catch (err) {
         // Task 3 I2: 区分 409 与 500
         if (err instanceof UsernameExistsError) {
@@ -830,17 +916,25 @@ async function handleAuthApi(
         sendJson(401, { error: 'invalid credentials' });
         return;
       }
-      sendJson(200, { userId: user.userId, username: user.username, token: user.token });
+      // Task 4 (0.2.2): 设置 HttpOnly cookie（双写：cookie + body.token 供前端 sessionStorage fallback）
+      sendJsonWithCookie(200, { userId: user.userId, username: user.username, token: user.token },
+        buildAuthCookieValue(user.token, isHttpsRequest(req)));
+      return;
+    }
+
+    // Task 4 (0.2.2): POST /api/logout — 清除 cookie（HttpOnly 无法被 JS 清除，必须服务端设置 Max-Age=0）
+    if (pathname === '/api/logout' && req.method === 'POST') {
+      sendJsonWithCookie(200, { ok: true }, buildClearCookieValue(isHttpsRequest(req)));
       return;
     }
 
     if (pathname === '/api/me' && req.method === 'GET') {
-      const authHeader = req.headers.authorization;
-      if (!authHeader?.startsWith('Bearer ')) {
+      // Task 4 (0.2.2): 优先读 cookie，其次 Authorization: Bearer，再次 URL ?token=
+      const token = extractAuthToken(req);
+      if (!token) {
         sendJson(401, { error: 'missing token' });
         return;
       }
-      const token = authHeader.slice('Bearer '.length);
       const user = await userStorage.findByToken(token);
       if (!user) {
         sendJson(401, { error: 'invalid token' });
@@ -854,11 +948,8 @@ async function handleAuthApi(
     const messagesMatch = pathname.match(/^\/api\/sessions\/([a-f0-9-]{36})\/messages$/);
     if (messagesMatch && req.method === 'GET') {
       const sessionId = messagesMatch[1];
-      const url = new URL(req.url ?? '', `http://localhost`);
-      const queryToken = url.searchParams.get('token');
-      const authHeader = req.headers.authorization;
-      const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : null;
-      const token = queryToken ?? bearerToken;
+      // Task 4 (0.2.2): cookie > Bearer > URL ?token=
+      const token = extractAuthToken(req);
       if (!token) {
         sendJson(401, { error: 'missing token' });
         return;
@@ -895,11 +986,8 @@ async function handleAuthApi(
         sendJson(405, { error: 'method not allowed' });
         return;
       }
-      const url = new URL(req.url ?? '', 'http://localhost');
-      const queryToken = url.searchParams.get('token');
-      const authHeader = req.headers.authorization;
-      const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : null;
-      const token = queryToken ?? bearerToken;
+      // Task 4 (0.2.2): cookie > Bearer > URL ?token=
+      const token = extractAuthToken(req);
       if (!token) {
         sendJson(401, { error: 'missing token' });
         return;
@@ -952,11 +1040,8 @@ async function handleAuthApi(
 
     // Task 10: GET /api/sessions — 返回当前用户的 session 列表（按 userId 过滤）
     if (pathname === '/api/sessions' && req.method === 'GET') {
-      const url = new URL(req.url ?? '', `http://localhost`);
-      const queryToken = url.searchParams.get('token');
-      const authHeader = req.headers.authorization;
-      const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : null;
-      const token = queryToken ?? bearerToken;
+      // Task 4 (0.2.2): cookie > Bearer > URL ?token=
+      const token = extractAuthToken(req);
       if (!token) {
         sendJson(401, { error: 'missing token' });
         return;

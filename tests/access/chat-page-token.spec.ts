@@ -104,13 +104,16 @@ describe('Task 1: chat-page token 记忆与自动携带', () => {
     it('内联 JS 持久化在 ws.onopen 中调用（不在解析时）', () => {
       // 验证 sessionStorage.setItem 在 onopen 回调中
       const onopenIdx = html.indexOf('ws.onopen');
-      const setItemIdx = html.indexOf("sessionStorage.setItem(TOKEN_KEY");
       expect(onopenIdx).toBeGreaterThan(-1);
-      expect(setItemIdx).toBeGreaterThan(onopenIdx);
+      // Task 4 (0.2.2): 双写策略 — onAuthSuccess 与 ws.onopen 均持久化 token
+      // 验证 onopen 回调内含 setItem（从 onopenIdx 之后查找，跳过 onAuthSuccess 中的 setItem）
+      const setItemInOnopen = html.indexOf("sessionStorage.setItem(TOKEN_KEY", onopenIdx);
+      expect(setItemInOnopen).toBeGreaterThan(-1);
     });
 
     it('内联 JS buildWsUrl 逻辑：token 存在时附加参数，lastEventSeq 总是附加', () => {
-      expect(html).toContain('params.set(\'token\', token)');
+      // Task 4 (0.2.2): 变量名 token → wsToken（resolveWsToken 返回值，cookie 可用时为 null）
+      expect(html).toContain('params.set(\'token\', wsToken)');
       expect(html).toContain('params.set(\'lastEventSeq\'');
       // Task 6 I1 fix: lastEventSeq 总是 set（不再有 > 0 条件）
       expect(html).not.toContain('if (lastEventSeq > 0) params.set');
