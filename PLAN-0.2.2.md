@@ -277,7 +277,7 @@
 
 ### Task 11: /session 动态属性
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 运行时调整 provider 参数（temperature/maxTokens 等）免重启；MixinProvider 广播到所有子 provider；为 0.3.0 agent 级配置铺路。
 
