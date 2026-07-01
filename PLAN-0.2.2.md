@@ -227,7 +227,7 @@
 
 ### Task 9: L1 索引 Skill
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** Skills 数量多时用 L1 索引（行数/字节/tags + lastUsed 排序）控制 system prompt token 预算，避免上下文爆炸。
 
