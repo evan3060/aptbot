@@ -50,6 +50,8 @@ import { formatSkillsForSystemPrompt } from '../../src/core/skills/system-prompt
 import { createReadTool } from '../../src/core/tool/tools/read.js';
 
 import { handleSessionAttr, listValidAttrNames } from '../../src/shared/commands/session-attrs.js';
+import { createCommandRegistry } from '../../src/shared/commands/registry.js';
+import WebSocket from 'ws';
 
 import { FileStorage } from '../../src/infrastructure/storage/file-storage.js';
 import { readHistoryForReplay } from '../../src/core/memory/session-repo.js';
@@ -696,12 +698,50 @@ describe('0.2.2 E2E Regression', () => {
       expect(inner.lastOptions?.temperature).toBe(0.5);
     });
 
-    it('happy: /session.reset clears all attrs', async () => {
-      const handler = makeHandler();
-      await handleSessionAttr(handler, 'temperature', '0.5', 'sid', tempDir);
-      expect(handler.getAllProviderAttrs().temperature).toBe(0.5);
-      handler.resetProviderAttrs();
-      expect(handler.getAllProviderAttrs()).toEqual({});
+    it('happy: /session.reset clears all attrs (real AgentSession + command registry)', async () => {
+      // 使用真实 AgentSession（real SessionAttrHandler），不走 mock Map.clear()
+      const storage = new FileStorage(tempDir);
+      const sid = randomUUID();
+      const provider = makeMockProvider([
+        { type: 'text', text: 'ok' },
+        { type: 'stop', stopReason: 'end_turn' },
+      ]);
+      const { createToolRegistry } = await import('../../src/core/tool/types.js');
+      const tools = createToolRegistry();
+      const session = createAgentSession({
+        storage,
+        sessionId: sid,
+        // agentLoop 仅在 session.run() 内调用；本测试不 run，传 never-cast 的 dummy
+        agentLoop: (() => (async function* (): AsyncGenerator<AgentEvent> {
+          yield { type: 'agent_start' };
+          yield { type: 'turn_end', turnId: 't1' };
+        })()) as never,
+        provider,
+        model: MODEL,
+        tools,
+        systemPrompt: 'test',
+      });
+
+      // 设置属性：real handleSessionAttr → real session.setProviderAttr
+      const setOut = await handleSessionAttr(session, 'temperature', '0.5', sid, tempDir);
+      expect(setOut).toContain('✅');
+      expect(session.getAllProviderAttrs().temperature).toBe(0.5);
+
+      // 通过真实命令注册表执行 /session.reset（测试 dispatch + sessionResetCommand）
+      const registry = createCommandRegistry();
+      const resolved = registry.resolve('/session.reset');
+      expect(resolved).not.toBeNull();
+      const result = await resolved!.command.execute([], {
+        sessionId: sid,
+        model: 'mock',
+        storage,
+        sessionAttrs: session,
+        dataDir: tempDir,
+      });
+      expect(result.output).toContain('✅');
+
+      // real resetProviderAttrs 已清空内存态 Map
+      expect(session.getAllProviderAttrs()).toEqual({});
     });
 
     it('error: invalid attr name → rejected with valid list', async () => {
@@ -887,21 +927,56 @@ describe('0.2.2 E2E Regression', () => {
       expect(res.body.username).toBe('alice');
     });
 
-    it('error: cookie disabled → fallback to sessionStorage (resolveWsToken returns stored token)', () => {
-      // 模拟 cookie 禁用 + sessionStorage 有 token 的场景
-      const urlToken = null;
-      const storedToken = 'session-storage-token';
-      const cookieEnabled = false;
-      // resolveWsToken 应返回 storedToken（fallback 路径）
-      expect(resolveWsToken(urlToken, storedToken, cookieEnabled)).toBe(storedToken);
-      // 对照：cookie 可用时返回 null（让浏览器自动带 cookie）
-      expect(resolveWsToken(urlToken, storedToken, true)).toBeNull();
-      // isCookieEnabled 在 navigator.cookieEnabled=false 时返回 false
-      // Node 21+ navigator 是只读 getter，用 vi.stubGlobal 覆盖
+    it('error: cookie disabled → fallback to URL ?token= for WS and Bearer for HTTP', async () => {
+      // 模拟客户端 cookie 禁用：navigator.cookieEnabled = false
+      // 服务端不读 navigator；此处仅验证客户端检测逻辑 + 走 URL-token/Bearer fallback 的真实 E2E 路径
       vi.stubGlobal('navigator', { cookieEnabled: false });
+      const wsClients: WebSocket[] = [];
       try {
+        // 客户端检测：cookie 不可用 → isCookieEnabled() 返回 false
         expect(isCookieEnabled()).toBe(false);
+
+        await start();
+        // 注册 + 登录获取 token（真实浏览器 cookie 禁用时仅能拿到 body.token）
+        await httpRequest('POST', '/api/register', { username: 'carol', password: 'pass' });
+        const loginRes = await httpRequest('POST', '/api/login', {
+          username: 'carol', password: 'pass',
+        });
+        expect(loginRes.status).toBe(200);
+        const token: string = loginRes.body.token;
+        expect(token).toBeTruthy();
+        // 客户端 fallback 决策：cookie 禁用时 resolveWsToken 返回 storedToken（URL ?token= 路径）
+        expect(resolveWsToken(null, token, false)).toBe(token);
+
+        // E2E: WS 用 URL ?token= 连接（cookie 不可用时的 fallback 路径）
+        const wsUrl = `ws://localhost:${testPort}/?token=${token}`;
+        const ws = new WebSocket(wsUrl);
+        wsClients.push(ws);
+        const firstMessage = await new Promise<any>((resolveP, rejectP) => {
+          const timer = setTimeout(() => rejectP(new Error('ws message timeout')), 2000);
+          ws.once('message', (data) => {
+            clearTimeout(timer);
+            try { resolveP(JSON.parse(data.toString())); } catch (e) { rejectP(e); }
+          });
+          ws.once('error', (err) => {
+            clearTimeout(timer);
+            rejectP(err);
+          });
+        });
+        expect(firstMessage.type).toBe('user_identified');
+        expect(firstMessage.username).toBe('carol');
+
+        // E2E: HTTP /api/me 用 Authorization: Bearer（cookie 不可用时的 fallback 路径）
+        const meRes = await httpRequest('GET', '/api/me', undefined, {
+          authorization: `Bearer ${token}`,
+        });
+        expect(meRes.status).toBe(200);
+        expect(meRes.body.username).toBe('carol');
       } finally {
+        for (const c of wsClients) {
+          c.removeAllListeners();
+          try { c.close(); } catch { /* ignore */ }
+        }
         vi.unstubAllGlobals();
       }
     });
@@ -912,47 +987,6 @@ describe('0.2.2 E2E Regression', () => {
   // =====================================================================
 
   describe('8. turn_busy response', () => {
-    it('happy: same sessionKey queued → turn_busy emitted with position = chainLength + 1', async () => {
-      const bus = new InMemoryMessageBus();
-      const watchdog = { markTurnStart: vi.fn(), markTurnEnd: vi.fn() };
-
-      const mockSession = {
-        run: async function* (text: string): AsyncGenerator<AgentEvent> {
-          if (text === 'first') {
-            yield { type: 'agent_start' };
-            yield { type: 'turn_end', turnId: 't1' };
-          } else {
-            yield { type: 'agent_start' };
-            yield { type: 'turn_end', turnId: 't2' };
-          }
-        },
-      };
-
-      // 第一条消息
-      await bus.publishInbound({
-        channel: 'test', senderId: 'user', chatId: 'c1', content: 'first',
-        metadata: { sessionKey: 's1' },
-      });
-
-      const loopPromise = runInboundLoop(
-        bus,
-        { current: mockSession as never, currentKey: 's1' },
-        watchdog,
-      );
-
-      // 等待第一条 turn 走到 user_message + agent_start + turn_end
-      await bus.consumeOutbound(); // user_message
-      await bus.consumeOutbound(); // agent_start
-      await bus.consumeOutbound(); // turn_end
-
-      // 第一条结束后立刻发第二条，且要赶在 runningTurns cleanup 之前
-      // 实际上 cleanup 在 finally 内立即执行；为可靠触发 turn_busy，我们不等 cleanup
-      // 改用：连续发送 3 条消息（每条都会在前一条 turn_end 之前排队）
-      // 上面的实现是顺序的；下面改用更可靠的方式 — 直接发 2 条再 collect
-
-      loopPromise.catch(() => {});
-    });
-
     it('happy: same sessionKey — 3 queued messages produce turn_busy with positions 2 and 3', async () => {
       const bus = new InMemoryMessageBus();
       const watchdog = { markTurnStart: vi.fn(), markTurnEnd: vi.fn() };
