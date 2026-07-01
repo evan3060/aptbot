@@ -442,6 +442,8 @@ export async function runInboundLoop(
             const reloadResult = await configReload.loader.load();
             if (reloadResult.error) {
               // 校验失败降级到旧配置 + channel 错误通知（不中断服务）
+              // 操作侧日志：记录降级原因（emit 给 channel 的是脱敏的通用消息）
+              loopLog.warn('config reload degraded', { error: reloadResult.error });
               try {
                 await emit(senderSessionKey, chatId, channelName, { type: 'error', message: 'config reload failed, using old config', retryable: false });
               } catch (e) {
