@@ -1,5 +1,4 @@
 import { TRACKS, type Article, type ArticleNav, type ArticleState, type TrackMeta } from '../learn/article-types.js';
-import type { FeedbackEntry } from '../infrastructure/feedback-storage.js';
 
 /**
  * /learn 列表页 HTML 生成器（adept.ai 风格，与 landing-page.ts 视觉一致）。
@@ -1319,62 +1318,25 @@ ${scriptHtml}
 }
 
 /**
- * 提取反馈 id 的短形式（rand6hex 段）。id 格式：fb-<timestamp>-<rand6hex>。
- * 完整 id 仍保留在 data-feedback-id 属性中供引用。
- */
-function shortFeedbackId(id: string): string {
-  const parts = id.split('-');
-  return parts.length >= 3 ? parts[parts.length - 1] : id;
-}
-
-/**
- * /feedback 反馈列表页 HTML 生成器。
+ * /feedback 通用反馈页 HTML 生成器。
  *
- * 纯字符串拼接函数，无 I/O，无异常路径。渲染已收录的 FeedbackEntry 列表，
- * 支持按 status（全部 / open / resolved / archived）筛选（URL hash 记忆）。
- * 视觉风格与列表页 / 文章页一致（design tokens / nav / footer）。
+ * 纯字符串拼接函数，无 I/O，无异常路径。渲染留言反馈表单页：
+ * - <head>：同列表页（title "留言反馈 - aptbot"）
+ * - <nav>：同列表页
+ * - <main>：H1 "留言反馈" + 简介 + 反馈表单（POST /api/feedback, category=general）
+ * - <footer>：同列表页
+ * - 内联 <script>：同文章页反馈区 JS 交互
  *
  * Task 6 实现。
  */
-export function createFeedbackHtml(entries: FeedbackEntry[]): string {
-  const isEmpty = entries.length === 0;
-
-  const listHtml = isEmpty
-    ? `      <div class="feedback-empty">暂无反馈</div>`
-    : entries
-        .map((entry) => {
-          const shortId = shortFeedbackId(entry.id);
-          const articleSlugHtml =
-            entry.articleSlug !== undefined
-              ? `<a class="feedback-article" href="/learn/${escapeHtml(entry.articleSlug)}">${escapeHtml(entry.articleSlug)}</a>`
-              : '';
-          const contactHtml =
-            entry.contact !== undefined
-              ? `<span class="feedback-contact">${escapeHtml(entry.contact)}</span>`
-              : '';
-          return `      <div class="feedback-item" data-feedback-id="${escapeHtml(entry.id)}" data-status="${escapeHtml(entry.status)}">
-        <div class="feedback-item-header">
-          <code class="feedback-id">${escapeHtml(shortId)}</code>
-          <span class="feedback-badge feedback-category-${escapeHtml(entry.category)}">${escapeHtml(entry.category)}</span>
-          <span class="feedback-badge feedback-status-${escapeHtml(entry.status)}">${escapeHtml(entry.status)}</span>
-          <time class="feedback-time" datetime="${escapeHtml(entry.createdAt)}">${escapeHtml(entry.createdAt)}</time>
-        </div>
-        <p class="feedback-message">${escapeHtml(entry.message)}</p>
-        <div class="feedback-item-meta">
-          ${articleSlugHtml}
-          ${contactHtml}
-        </div>
-      </div>`;
-        })
-        .join('\n');
-
+export function createFeedbackHtml(): string {
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="data:,">
-<title>反馈 - aptbot 知识体系</title>
+<title>留言反馈 - aptbot</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -1460,114 +1422,62 @@ export function createFeedbackHtml(entries: FeedbackEntry[]): string {
     color: var(--text-secondary);
   }
 
-  .filter-bar {
-    position: sticky;
-    top: 56px;
-    z-index: 50;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 16px 0;
-    margin-bottom: 48px;
-    background-color: var(--bg-base);
-    border-bottom: 1px solid var(--border);
-  }
-  .status-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
-  .status-tab {
-    font-size: 14px;
-    padding: 8px 16px;
-    border: 1px solid var(--border);
-    background: var(--bg-base);
-    color: var(--text-secondary);
-    cursor: pointer;
-    border-radius: 9999px;
-    letter-spacing: -0.3px;
-  }
-  .status-tab:hover { color: var(--text-primary); }
-  .status-tab.active {
-    background: var(--text-primary);
-    color: var(--bg-base);
-    border-color: var(--text-primary);
+  .feedback-container {
+    max-width: 720px;
   }
 
-  .feedback-list {
+  .feedback-area {
+    padding: 24px;
+    background: var(--bg-muted);
+    border-radius: 8px;
+  }
+  .feedback-form {
     display: flex;
     flex-direction: column;
-    gap: 16px;
-  }
-  .feedback-item {
-    padding: 24px;
-    background: transparent;
-    border: 1px solid var(--border);
-    transition: background 200ms ease-in-out;
-  }
-  .feedback-item:hover { background: var(--bg-muted); }
-  .feedback-item-header {
-    display: flex;
-    align-items: center;
     gap: 12px;
-    flex-wrap: wrap;
-    margin-bottom: 12px;
   }
-  .feedback-id {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    font-size: 12px;
-    color: var(--text-secondary);
-    letter-spacing: 0.3px;
-  }
-  .feedback-badge {
-    font-size: 12px;
-    padding: 2px 8px;
+  .feedback-textarea {
+    width: 100%;
+    min-height: 80px;
+    padding: 12px;
     border: 1px solid var(--border);
-    color: var(--text-secondary);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    letter-spacing: 0.3px;
-  }
-  .feedback-status-open { color: var(--accent); border-color: var(--accent); }
-  .feedback-status-resolved { color: var(--text-primary); border-color: var(--text-primary); }
-  .feedback-status-archived { color: var(--text-secondary); }
-  .feedback-time {
-    font-size: 12px;
-    color: var(--text-secondary);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    letter-spacing: 0.3px;
-    margin-left: auto;
-  }
-  .feedback-message {
-    font-size: 16px;
-    line-height: 25px;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 14px;
+    resize: vertical;
+    background: var(--bg-base);
     color: var(--text-primary);
-    margin-bottom: 12px;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
   }
-  .feedback-item-meta {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    flex-wrap: wrap;
-  }
-  .feedback-article {
-    font-size: 13px;
-    color: var(--accent);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    letter-spacing: 0.3px;
-  }
-  .feedback-article:hover { text-decoration: underline; }
+  .feedback-textarea:focus { outline: none; border-color: var(--accent); }
   .feedback-contact {
-    font-size: 13px;
-    color: var(--text-secondary);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    letter-spacing: 0.3px;
-  }
-  .feedback-empty {
-    padding: 64px 24px;
-    text-align: center;
-    font-size: 18px;
-    color: var(--text-secondary);
+    width: 100%;
+    padding: 8px 12px;
     border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 14px;
+    background: var(--bg-base);
+    color: var(--text-primary);
+  }
+  .feedback-contact:focus { outline: none; border-color: var(--accent); }
+  .feedback-submit {
+    align-self: flex-start;
+    padding: 8px 20px;
+    border: 1px solid var(--text-primary);
+    background: var(--text-primary);
+    color: var(--bg-base);
+    font-size: 14px;
+    border-radius: 9999px;
+    cursor: pointer;
+    transition: opacity 200ms ease-in-out;
+  }
+  .feedback-submit:hover { opacity: 0.85; }
+  .feedback-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+  .feedback-status {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-top: 8px;
+    min-height: 20px;
   }
 
   footer {
@@ -1608,12 +1518,7 @@ export function createFeedbackHtml(entries: FeedbackEntry[]): string {
     .page-header h1 { font-size: 32px; letter-spacing: -0.5px; }
     .page-subtitle { font-size: 16px; line-height: 22px; }
 
-    .filter-bar { top: 56px; padding: 12px 0; flex-wrap: wrap; gap: 12px; }
-    .status-tab { font-size: 12px; padding: 6px 12px; }
-
-    .feedback-item { padding: 16px; }
-    .feedback-message { font-size: 14px; line-height: 20px; }
-    .feedback-time { margin-left: 0; width: 100%; }
+    .feedback-area { padding: 16px; }
 
     footer { padding: 40px 20px; }
     .footer-grid { grid-template-columns: 1fr; gap: 24px; }
@@ -1623,7 +1528,7 @@ export function createFeedbackHtml(entries: FeedbackEntry[]): string {
 
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
-    .feedback-item { transition: none; }
+    .feedback-submit { transition: none; }
   }
 </style>
 </head>
@@ -1642,21 +1547,19 @@ export function createFeedbackHtml(entries: FeedbackEntry[]): string {
 
 <main>
   <div class="page-header">
-    <h1>反馈</h1>
-    <p class="page-subtitle">用户提交的想法与问题</p>
+    <h1>留言反馈</h1>
+    <p class="page-subtitle">有想法、问题或需求？提交给我们，会记录到待办。</p>
   </div>
-
-  <div class="filter-bar">
-    <div class="status-tabs">
-      <button type="button" data-status="all" class="status-tab active">全部</button>
-      <button type="button" data-status="open" class="status-tab">open</button>
-      <button type="button" data-status="resolved" class="status-tab">resolved</button>
-      <button type="button" data-status="archived" class="status-tab">archived</button>
+  <div class="feedback-container">
+    <div class="feedback-area">
+      <form class="feedback-form" method="post" action="/api/feedback">
+        <input type="hidden" name="category" value="general">
+        <textarea class="feedback-textarea" name="message" maxlength="2000" required placeholder="写下你的反馈..."></textarea>
+        <input class="feedback-contact" name="contact" maxlength="120" placeholder="联系方式（可选）">
+        <button class="feedback-submit" type="submit">提交反馈</button>
+      </form>
+      <div class="feedback-status"></div>
     </div>
-  </div>
-
-  <div class="feedback-list">
-${listHtml}
   </div>
 </main>
 
@@ -1683,38 +1586,76 @@ ${listHtml}
 
 <script>
   (function () {
-    var tabs = document.querySelectorAll('.status-tab');
-    var items = document.querySelectorAll('.feedback-item');
+    var form = document.querySelector('.feedback-form');
+    if (!form) return;
+    var statusDiv = document.querySelector('.feedback-status');
+    var submitBtn = form.querySelector('button[type="submit"]');
+    var originalText = submitBtn ? submitBtn.textContent : '';
 
-    function activateStatus(status) {
-      tabs.forEach(function (tab) {
-        tab.classList.toggle('active', tab.dataset.status === status);
-      });
-      items.forEach(function (item) {
-        if (status === 'all') {
-          item.style.display = '';
-          return;
-        }
-        item.style.display = item.dataset.status === status ? '' : 'none';
-      });
-      var currentHash = location.hash.slice(1);
-      if (currentHash !== status) {
-        history.replaceState(null, '', '#' + status);
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = '提交中...';
       }
-    }
+      if (statusDiv) {
+        statusDiv.textContent = '';
+        statusDiv.style.color = '';
+      }
 
-    tabs.forEach(function (tab) {
-      tab.addEventListener('click', function () {
-        activateStatus(tab.dataset.status);
+      var formData = new FormData(form);
+      var payload = {};
+      formData.forEach(function (v, k) { payload[k] = v; });
+
+      fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }).then(
+        function (res) {
+          if (res.ok) {
+            form.reset();
+            if (statusDiv) {
+              statusDiv.textContent = '感谢反馈，已记录到待办';
+              statusDiv.style.color = 'var(--accent)';
+            }
+            return;
+          }
+          if (res.status === 429) {
+            if (statusDiv) {
+              statusDiv.textContent = '提交过于频繁，请稍后再试';
+              statusDiv.style.color = 'var(--text-secondary)';
+            }
+            return;
+          }
+          res.json().then(
+            function (data) {
+              if (statusDiv) {
+                statusDiv.textContent = (data && data.error) ? data.error : '提交失败';
+                statusDiv.style.color = 'var(--text-secondary)';
+              }
+            },
+            function () {
+              if (statusDiv) {
+                statusDiv.textContent = '提交失败';
+                statusDiv.style.color = 'var(--text-secondary)';
+              }
+            }
+          );
+        },
+        function () {
+          if (statusDiv) {
+            statusDiv.textContent = '网络错误，请检查连接';
+            statusDiv.style.color = 'var(--text-secondary)';
+          }
+        }
+      ).finally(function () {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = originalText;
+        }
       });
     });
-
-    var initStatus = location.hash.slice(1);
-    if (initStatus === 'open' || initStatus === 'resolved' || initStatus === 'archived') {
-      activateStatus(initStatus);
-    } else {
-      activateStatus('all');
-    }
   })();
 </script>
 </body>
