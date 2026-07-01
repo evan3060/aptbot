@@ -1,4 +1,5 @@
 import { TRACKS, type Article, type ArticleNav, type ArticleState, type TrackMeta } from '../learn/article-types.js';
+import type { FeedbackEntry } from '../infrastructure/feedback-storage.js';
 
 /**
  * /learn 列表页 HTML 生成器（adept.ai 风格，与 landing-page.ts 视觉一致）。
@@ -1313,6 +1314,409 @@ ${footerHtml ? '\n' + footerHtml : ''}
 </footer>
 
 ${scriptHtml}
+</body>
+</html>`;
+}
+
+/**
+ * 提取反馈 id 的短形式（rand6hex 段）。id 格式：fb-<timestamp>-<rand6hex>。
+ * 完整 id 仍保留在 data-feedback-id 属性中供引用。
+ */
+function shortFeedbackId(id: string): string {
+  const parts = id.split('-');
+  return parts.length >= 3 ? parts[parts.length - 1] : id;
+}
+
+/**
+ * /feedback 反馈列表页 HTML 生成器。
+ *
+ * 纯字符串拼接函数，无 I/O，无异常路径。渲染已收录的 FeedbackEntry 列表，
+ * 支持按 status（全部 / open / resolved / archived）筛选（URL hash 记忆）。
+ * 视觉风格与列表页 / 文章页一致（design tokens / nav / footer）。
+ *
+ * Task 6 实现。
+ */
+export function createFeedbackHtml(entries: FeedbackEntry[]): string {
+  const isEmpty = entries.length === 0;
+
+  const listHtml = isEmpty
+    ? `      <div class="feedback-empty">暂无反馈</div>`
+    : entries
+        .map((entry) => {
+          const shortId = shortFeedbackId(entry.id);
+          const articleSlugHtml =
+            entry.articleSlug !== undefined
+              ? `<a class="feedback-article" href="/learn/${escapeHtml(entry.articleSlug)}">${escapeHtml(entry.articleSlug)}</a>`
+              : '';
+          const contactHtml =
+            entry.contact !== undefined
+              ? `<span class="feedback-contact">${escapeHtml(entry.contact)}</span>`
+              : '';
+          return `      <div class="feedback-item" data-feedback-id="${escapeHtml(entry.id)}" data-status="${escapeHtml(entry.status)}">
+        <div class="feedback-item-header">
+          <code class="feedback-id">${escapeHtml(shortId)}</code>
+          <span class="feedback-badge feedback-category-${escapeHtml(entry.category)}">${escapeHtml(entry.category)}</span>
+          <span class="feedback-badge feedback-status-${escapeHtml(entry.status)}">${escapeHtml(entry.status)}</span>
+          <time class="feedback-time" datetime="${escapeHtml(entry.createdAt)}">${escapeHtml(entry.createdAt)}</time>
+        </div>
+        <p class="feedback-message">${escapeHtml(entry.message)}</p>
+        <div class="feedback-item-meta">
+          ${articleSlugHtml}
+          ${contactHtml}
+        </div>
+      </div>`;
+        })
+        .join('\n');
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>反馈 - aptbot 知识体系</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-base: rgb(255, 255, 255);
+    --bg-warm: rgb(245, 242, 241);
+    --bg-muted: rgb(249, 247, 244);
+    --bg-dark: rgb(39, 36, 34);
+    --text-primary: rgb(39, 36, 34);
+    --text-secondary: rgb(139, 133, 127);
+    --accent: rgb(13, 113, 73);
+    --border: rgb(229, 231, 235);
+    --surface-translucent: rgba(255, 255, 255, 0.98);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: Inter, system-ui, "PingFang SC", sans-serif;
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-size: 20px;
+    line-height: 25px;
+    letter-spacing: -0.5px;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; text-decoration: none; }
+  button { font-family: inherit; }
+
+  #nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 48px;
+    background-color: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+    z-index: 100;
+  }
+  .nav-wordmark {
+    font-size: 20px;
+    font-weight: 500;
+    letter-spacing: -0.5px;
+    color: var(--text-primary);
+  }
+  .nav-links { display: flex; gap: 32px; }
+  .nav-links a { font-size: 16px; color: var(--text-secondary); }
+  .nav-links a:hover { color: var(--text-primary); }
+  .nav-links a.active { color: var(--text-primary); }
+  .nav-actions { display: flex; align-items: center; gap: 16px; }
+  .nav-lang {
+    font-size: 14px;
+    padding: 6px 14px;
+    border: 1px solid var(--border);
+    border-radius: 9999px;
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+
+  main {
+    padding: 104px 48px 48px;
+    max-width: 1650px;
+    margin: 0 auto;
+  }
+
+  .page-header { margin-bottom: 32px; }
+  .page-header h1 {
+    font-size: 48px;
+    font-weight: 400;
+    color: var(--text-primary);
+    letter-spacing: -1px;
+    margin-bottom: 16px;
+  }
+  .page-subtitle {
+    font-size: 20px;
+    line-height: 25px;
+    letter-spacing: -0.5px;
+    color: var(--text-secondary);
+  }
+
+  .filter-bar {
+    position: sticky;
+    top: 56px;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 0;
+    margin-bottom: 48px;
+    background-color: var(--bg-base);
+    border-bottom: 1px solid var(--border);
+  }
+  .status-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+  .status-tab {
+    font-size: 14px;
+    padding: 8px 16px;
+    border: 1px solid var(--border);
+    background: var(--bg-base);
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: 9999px;
+    letter-spacing: -0.3px;
+  }
+  .status-tab:hover { color: var(--text-primary); }
+  .status-tab.active {
+    background: var(--text-primary);
+    color: var(--bg-base);
+    border-color: var(--text-primary);
+  }
+
+  .feedback-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .feedback-item {
+    padding: 24px;
+    background: transparent;
+    border: 1px solid var(--border);
+    transition: background 200ms ease-in-out;
+  }
+  .feedback-item:hover { background: var(--bg-muted); }
+  .feedback-item-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .feedback-id {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 12px;
+    color: var(--text-secondary);
+    letter-spacing: 0.3px;
+  }
+  .feedback-badge {
+    font-size: 12px;
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    letter-spacing: 0.3px;
+  }
+  .feedback-status-open { color: var(--accent); border-color: var(--accent); }
+  .feedback-status-resolved { color: var(--text-primary); border-color: var(--text-primary); }
+  .feedback-status-archived { color: var(--text-secondary); }
+  .feedback-time {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    letter-spacing: 0.3px;
+    margin-left: auto;
+  }
+  .feedback-message {
+    font-size: 16px;
+    line-height: 25px;
+    color: var(--text-primary);
+    margin-bottom: 12px;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .feedback-item-meta {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .feedback-article {
+    font-size: 13px;
+    color: var(--accent);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    letter-spacing: 0.3px;
+  }
+  .feedback-article:hover { text-decoration: underline; }
+  .feedback-contact {
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    letter-spacing: 0.3px;
+  }
+  .feedback-empty {
+    padding: 64px 24px;
+    text-align: center;
+    font-size: 18px;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+  }
+
+  footer {
+    background: var(--bg-dark);
+    color: var(--bg-base);
+    padding: 64px 48px;
+  }
+  .footer-grid {
+    max-width: 1650px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 48px;
+  }
+  .footer-wordmark { font-size: 24px; font-weight: 500; margin-bottom: 8px; }
+  .footer-tagline { font-size: 16px; color: var(--text-secondary); }
+  .footer-links { display: flex; flex-direction: column; gap: 12px; }
+  .footer-links a { font-size: 16px; color: var(--bg-base); }
+  .footer-meta { font-size: 16px; text-align: right; color: var(--bg-base); line-height: 1.6; }
+  .footer-bottom {
+    max-width: 1650px;
+    margin: 48px auto 0;
+    padding-top: 24px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 14px;
+    color: var(--text-secondary);
+    text-align: center;
+  }
+
+  @media (max-width: 767px) {
+    body { font-size: 16px; line-height: 22px; }
+    #nav { padding: 0 16px; }
+    .nav-links { display: none; }
+    .nav-wordmark { font-size: 18px; }
+    .nav-lang { font-size: 12px; padding: 4px 10px; }
+
+    main { padding: 80px 20px 40px; }
+    .page-header h1 { font-size: 32px; letter-spacing: -0.5px; }
+    .page-subtitle { font-size: 16px; line-height: 22px; }
+
+    .filter-bar { top: 56px; padding: 12px 0; flex-wrap: wrap; gap: 12px; }
+    .status-tab { font-size: 12px; padding: 6px 12px; }
+
+    .feedback-item { padding: 16px; }
+    .feedback-message { font-size: 14px; line-height: 20px; }
+    .feedback-time { margin-left: 0; width: 100%; }
+
+    footer { padding: 40px 20px; }
+    .footer-grid { grid-template-columns: 1fr; gap: 24px; }
+    .footer-meta { text-align: left; }
+    .footer-bottom { font-size: 12px; padding-top: 16px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .feedback-item { transition: none; }
+  }
+</style>
+</head>
+<body>
+<header id="nav">
+  <a href="/" class="nav-wordmark">aptbot</a>
+  <nav class="nav-links">
+    <a href="/">首页</a>
+    <a href="/learn" class="active">知识</a>
+    <a href="/demo">Demo</a>
+  </nav>
+  <div class="nav-actions">
+    <a href="#" class="nav-lang" id="lang-toggle">EN</a>
+  </div>
+</header>
+
+<main>
+  <div class="page-header">
+    <h1>反馈</h1>
+    <p class="page-subtitle">用户提交的想法与问题</p>
+  </div>
+
+  <div class="filter-bar">
+    <div class="status-tabs">
+      <button type="button" data-status="all" class="status-tab active">全部</button>
+      <button type="button" data-status="open" class="status-tab">open</button>
+      <button type="button" data-status="resolved" class="status-tab">resolved</button>
+      <button type="button" data-status="archived" class="status-tab">archived</button>
+    </div>
+  </div>
+
+  <div class="feedback-list">
+${listHtml}
+  </div>
+</main>
+
+<footer>
+  <div class="footer-grid">
+    <div>
+      <div class="footer-wordmark">aptbot</div>
+      <div class="footer-tagline">你的个人 AI 助手</div>
+    </div>
+    <div class="footer-links">
+      <a href="https://github.com/evan3060/aptbot">GitHub</a>
+      <a href="https://github.com/evan3060/aptbot#readme">文档</a>
+      <a href="https://github.com/evan3060/aptbot/releases">更新日志</a>
+      <a href="https://github.com/evan3060/aptbot/blob/main/LICENSE">开源协议</a>
+    </div>
+    <div class="footer-meta">
+      <div>v0.2.3</div>
+      <div>MIT</div>
+      <div>© 2026 aptbot</div>
+    </div>
+  </div>
+  <div class="footer-bottom">用心打造 · 开源 · 可自托管</div>
+</footer>
+
+<script>
+  (function () {
+    var tabs = document.querySelectorAll('.status-tab');
+    var items = document.querySelectorAll('.feedback-item');
+
+    function activateStatus(status) {
+      tabs.forEach(function (tab) {
+        tab.classList.toggle('active', tab.dataset.status === status);
+      });
+      items.forEach(function (item) {
+        if (status === 'all') {
+          item.style.display = '';
+          return;
+        }
+        item.style.display = item.dataset.status === status ? '' : 'none';
+      });
+      var currentHash = location.hash.slice(1);
+      if (currentHash !== status) {
+        history.replaceState(null, '', '#' + status);
+      }
+    }
+
+    tabs.forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        activateStatus(tab.dataset.status);
+      });
+    });
+
+    var initStatus = location.hash.slice(1);
+    if (initStatus === 'open' || initStatus === 'resolved' || initStatus === 'archived') {
+      activateStatus(initStatus);
+    } else {
+      activateStatus('all');
+    }
+  })();
+</script>
 </body>
 </html>`;
 }

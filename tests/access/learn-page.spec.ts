@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { createLearnListHtml, createLearnArticleHtml } from '../../src/access/learn-page.js';
+import { createLearnListHtml, createLearnArticleHtml, createFeedbackHtml } from '../../src/access/learn-page.js';
 import { TRACKS, type Article, type ArticleState, type ArticleMeta, type ArticleNav } from '../../src/learn/article-types.js';
+import type { FeedbackEntry } from '../../src/infrastructure/feedback-storage.js';
 
 /**
  * Task 4: learn-page.ts 列表页 — createLearnListHtml
@@ -738,6 +739,332 @@ describe('Task 5: createLearnArticleHtml 文章页', () => {
     it('渲染产物不含彩色 emoji', () => {
       const html = createLearnArticleHtml(PLANNED_ARTICLE, { prev: null, next: null });
       expect(EMOJI_REGEX.test(html)).toBe(false);
+    });
+  });
+});
+
+/**
+ * Task 6: learn-page.ts 反馈页 — createFeedbackHtml
+ *
+ * 测试策略：纯字符串契约测试。构建 FeedbackEntry fixture（覆盖 general/article/bug/feature
+ * 四种 category + open/resolved/archived 三种 status + 含/不含 articleSlug + 含/不含 contact），
+ * 验证渲染产物：H1 "反馈" / 副标题 / 状态筛选 tabs（全部/open/resolved/archived）/
+ * 反馈条目（id / category / status / message / createdAt / articleSlug / contact）/
+ * 空状态 / nav / footer / 无 emoji。
+ *
+ * 注意：Task 6 brief 描述为反馈表单页（form），但 task description 明确为反馈列表页
+ * （渲染 FeedbackEntry[]），签名 createFeedbackHtml(entries: FeedbackEntry[]) — 以 task
+ * description 为准（consume FeedbackEntry 接口、渲染已有反馈条目）。
+ */
+
+// === Feedback page fixtures ===
+
+const FEEDBACK_ENTRIES: FeedbackEntry[] = [
+  {
+    id: 'fb-1750000000-a1b2c3',
+    message: '文章 react-loop 中的代码示例无法运行，提示 ReActLoop is not defined。',
+    category: 'article',
+    articleSlug: 'react-loop',
+    contact: 'evan@example.com',
+    ip: '127.0.0.1',
+    userAgent: 'Mozilla/5.0',
+    status: 'open',
+    createdAt: '2026-06-15T10:30:00.000Z',
+  },
+  {
+    id: 'fb-1750000001-d4e5f6',
+    message: '希望增加多模态输入支持，可以发图片让 agent 分析。',
+    category: 'feature',
+    contact: 'https://github.com/evan3060',
+    ip: '192.168.1.1',
+    status: 'open',
+    createdAt: '2026-06-20T14:22:00.000Z',
+  },
+  {
+    id: 'fb-1750000002-g7h8i9',
+    message: 'Demo 页面在 Safari 上流式输出卡顿严重，控制台报错 ws connection failed。',
+    category: 'bug',
+    ip: '10.0.0.1',
+    userAgent: 'Mozilla/5.0 (Macintosh; Safari)',
+    status: 'resolved',
+    note: '已修复，升级 ws 库到 8.21',
+    createdAt: '2026-06-22T09:15:00.000Z',
+    moderatedAt: '2026-06-23T08:00:00.000Z',
+  },
+  {
+    id: 'fb-1750000003-j0k1l2',
+    message: '感谢开源这个项目，文档很详细，正在学习中。',
+    category: 'general',
+    ip: '172.16.0.1',
+    status: 'archived',
+    createdAt: '2026-06-25T18:45:00.000Z',
+    moderatedAt: '2026-06-26T09:00:00.000Z',
+  },
+];
+
+describe('Task 6: createFeedbackHtml 反馈页', () => {
+  describe('骨架与 head', () => {
+    it('返回 HTML 默认 lang="zh-CN" + title "反馈 - aptbot 知识体系"', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      expect(html).toContain('<html lang="zh-CN">');
+      expect(html).toContain('<title>反馈 - aptbot 知识体系</title>');
+    });
+
+    it('引入 Inter 字体 link（与列表页一致）', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      expect(html).toContain(
+        '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">',
+      );
+    });
+
+    it('复用列表页 design tokens（--bg-base / --text-primary / --text-secondary / --bg-muted）', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      expect(html).toContain('--bg-base:');
+      expect(html).toContain('--text-primary:');
+      expect(html).toContain('--text-secondary:');
+      expect(html).toContain('--bg-muted:');
+    });
+  });
+
+  describe('nav（同列表页）', () => {
+    it('含 aptbot wordmark + 首页 / 知识（active） / Demo', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      expect(html).toContain('href="/"');
+      expect(html).toContain('aptbot');
+      expect(html).toContain('首页');
+      expect(html).toContain('href="/learn"');
+      expect(html).toContain('知识');
+      expect(html).toContain('href="/demo"');
+      expect(html).toContain('Demo');
+      // 知识 tab 标记 active
+      expect(html).toMatch(/href="\/learn"[^>]*class="[^"]*active/);
+    });
+  });
+
+  describe('main 头部 — H1 + 副标题', () => {
+    it('含 H1 "反馈"', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      expect(html).toMatch(/<h1[^>]*>\s*反馈\s*<\/h1>/);
+    });
+
+    it('含副标题 "用户提交的想法与问题"', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      expect(html).toContain('用户提交的想法与问题');
+    });
+  });
+
+  describe('状态筛选 tabs', () => {
+    it('含 [全部] [open] [resolved] [archived] 四个 tab', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      expect(html).toContain('全部');
+      // 状态 tab 用英文 status 值作为标签（与 FeedbackStatus 类型一致）
+      expect(html).toMatch(/data-status="open"[^>]*>\s*open/);
+      expect(html).toMatch(/data-status="resolved"[^>]*>\s*resolved/);
+      expect(html).toMatch(/data-status="archived"[^>]*>\s*archived/);
+      // 全部 tab data-status="all"
+      expect(html).toMatch(/data-status="all"[^>]*>\s*全部/);
+    });
+
+    it('全部 tab 默认 active', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      expect(html).toMatch(/data-status="all"[^>]*class="[^"]*active/);
+    });
+
+    it('含 sticky 筛选栏 top: 56px（与列表页一致）', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      expect(html).toMatch(/top:\s*56px/);
+      expect(html).toContain('filter-bar');
+    });
+  });
+
+  describe('反馈条目渲染', () => {
+    it('渲染所有条目的 id（短形式，rand6hex 段）', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      for (const entry of FEEDBACK_ENTRIES) {
+        const shortId = entry.id.split('-').pop();
+        expect(shortId).toBeDefined();
+        expect(html).toContain(shortId!);
+      }
+    });
+
+    it('渲染所有条目的完整 id（data-feedback-id 属性）', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      for (const entry of FEEDBACK_ENTRIES) {
+        expect(html).toContain(`data-feedback-id="${entry.id}"`);
+      }
+    });
+
+    it('渲染所有条目的 message', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      for (const entry of FEEDBACK_ENTRIES) {
+        expect(html).toContain(entry.message);
+      }
+    });
+
+    it('渲染所有条目的 category（badge）', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      expect(html).toContain('article');
+      expect(html).toContain('feature');
+      expect(html).toContain('bug');
+      expect(html).toContain('general');
+    });
+
+    it('渲染所有条目的 status（badge）', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      // 4 个 entry：2 open / 1 resolved / 1 archived
+      // status badge 出现次数（data-status 属性 in item + tab + badge 文本）
+      expect(html).toContain('resolved');
+      expect(html).toContain('archived');
+    });
+
+    it('渲染所有条目的 createdAt', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      for (const entry of FEEDBACK_ENTRIES) {
+        // createdAt 完整 ISO 或日期部分至少出现一次
+        expect(html).toContain(entry.createdAt);
+      }
+    });
+
+    it('条目 data-status 属性与 entry.status 一致（用于筛选）', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      for (const entry of FEEDBACK_ENTRIES) {
+        // feedback-item 容器有 data-status 属性
+        expect(html).toMatch(
+          new RegExp(`data-feedback-id="${entry.id}"[^>]*data-status="${entry.status}"`),
+        );
+      }
+    });
+
+    it('含 articleSlug 时渲染文章 slug 链接（仅 article 类别条目）', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      // article 类条目含 articleSlug
+      expect(html).toContain('react-loop');
+      // 渲染为 /learn/<slug> 链接
+      expect(html).toContain('href="/learn/react-loop"');
+    });
+
+    it('不含 articleSlug 的条目不渲染文章链接', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      // feature 类条目无 articleSlug — 其 id 对应的条目块内不应含 /learn/ 链接
+      const featureEntry = FEEDBACK_ENTRIES.find((e) => e.category === 'feature')!;
+      const itemMatch = html.match(
+        new RegExp(`data-feedback-id="${featureEntry.id}"[\\s\\S]*?(?=<div class="feedback-item"|$)`),
+      );
+      expect(itemMatch).not.toBeNull();
+      expect(itemMatch![0]).not.toContain('href="/learn/');
+    });
+
+    it('含 contact 时渲染 contact', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      expect(html).toContain('evan@example.com');
+      expect(html).toContain('https://github.com/evan3060');
+    });
+
+    it('不含 contact 的条目不渲染 contact 区', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      // bug 类条目无 contact
+      const bugEntry = FEEDBACK_ENTRIES.find((e) => e.category === 'bug')!;
+      const itemMatch = html.match(
+        new RegExp(`data-feedback-id="${bugEntry.id}"[\\s\\S]*?(?=<div class="feedback-item"|$)`),
+      );
+      expect(itemMatch).not.toBeNull();
+      expect(itemMatch![0]).not.toContain('feedback-contact');
+    });
+  });
+
+  describe('空状态', () => {
+    it('entries 为空时显示 "暂无反馈" 提示', () => {
+      const html = createFeedbackHtml([]);
+      expect(html).toContain('暂无反馈');
+    });
+
+    it('entries 为空时不渲染 feedback-item', () => {
+      const html = createFeedbackHtml([]);
+      // 检查元素形态（class="feedback-item"），避免误匹配 CSS 规则定义
+      expect(html).not.toContain('class="feedback-item"');
+      expect(html).not.toContain('data-feedback-id');
+    });
+
+    it('空状态时仍含 H1 + 状态筛选 tabs + nav + footer', () => {
+      const html = createFeedbackHtml([]);
+      expect(html).toMatch(/<h1[^>]*>\s*反馈\s*<\/h1>/);
+      expect(html).toContain('data-status="all"');
+      expect(html).toContain('href="/learn"');
+      expect(html).toContain('© 2026 aptbot');
+    });
+  });
+
+  describe('footer（同列表页）', () => {
+    it('含 aptbot wordmark + GitHub + MIT + © 2026 aptbot', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      expect(html).toContain('https://github.com/evan3060/aptbot');
+      expect(html).toContain('MIT');
+      expect(html).toContain('© 2026 aptbot');
+    });
+  });
+
+  describe('内联 script — 状态筛选 tab 切换', () => {
+    it('含内联 <script>', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      expect(html).toContain('<script>');
+      expect(html).toContain('</script>');
+    });
+
+    it('script 含 status-tab 切换 + URL hash 记忆', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      expect(html).toContain('status-tab');
+      expect(html).toContain('location.hash');
+    });
+
+    it('script 根据 data-status 切换条目显示', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      expect(html).toContain('feedback-item');
+      // 切换逻辑：遍历 .feedback-item 检查 data-status
+      expect(html).toMatch(/dataset\.status/);
+    });
+  });
+
+  describe('无 emoji 契约', () => {
+    it('渲染产物不含彩色 emoji', () => {
+      const html = createFeedbackHtml(FEEDBACK_ENTRIES);
+      expect(EMOJI_REGEX.test(html)).toBe(false);
+    });
+
+    it('空状态渲染产物不含彩色 emoji', () => {
+      const html = createFeedbackHtml([]);
+      expect(EMOJI_REGEX.test(html)).toBe(false);
+    });
+  });
+
+  describe('HTML 转义', () => {
+    it('message 含 HTML 特殊字符时正确转义', () => {
+      const entry: FeedbackEntry = {
+        id: 'fb-1750000004-xss1test',
+        message: '<script>alert("xss")</script> & <img src=x>',
+        category: 'general',
+        ip: '127.0.0.1',
+        status: 'open',
+        createdAt: '2026-06-30T12:00:00.000Z',
+      };
+      const html = createFeedbackHtml([entry]);
+      expect(html).not.toContain('<script>alert("xss")</script>');
+      expect(html).toContain('&lt;script&gt;');
+      expect(html).toContain('&amp;');
+    });
+
+    it('contact 含 HTML 特殊字符时正确转义', () => {
+      const entry: FeedbackEntry = {
+        id: 'fb-1750000005-xss2test',
+        message: '正常反馈',
+        category: 'general',
+        contact: '<b>evil@mail</b>',
+        ip: '127.0.0.1',
+        status: 'open',
+        createdAt: '2026-06-30T12:00:00.000Z',
+      };
+      const html = createFeedbackHtml([entry]);
+      expect(html).not.toContain('<b>evil@mail</b>');
+      expect(html).toContain('&lt;b&gt;evil@mail&lt;/b&gt;');
     });
   });
 });
