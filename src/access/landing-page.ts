@@ -1,11 +1,221 @@
+import type { Article, ArticleState, TrackMeta } from '../learn/article-types.js';
+
 /**
  * 落地页 HTML 生成器（adept.ai 风格）。
  *
  * 纯字符串拼接函数，无 I/O，无异常路径。
  * Task 2 建立骨架（<head> + <style> design tokens + 空 <body>）。
  * Task 3 填充 5 sections 内容 + nav + footer + i18n 字典 + applyLang() + IntersectionObserver。
+ * Task 7 扩展：learnEnabled 时新增第 6 section "知识" + nav 链接 + Hero 副标题更新 + 数据条扩展。
  */
-export function createLandingPageHtml(): string {
+
+const DIFFICULTY_LABELS: Readonly<Record<string, string>> = {
+  beginner: '入门',
+  intermediate: '进阶',
+  advanced: '深入',
+};
+
+/** 转义 HTML 特殊字符，防止文章元数据注入 */
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => {
+    switch (c) {
+      case '&':
+        return '&amp;';
+      case '<':
+        return '&lt;';
+      case '>':
+        return '&gt;';
+      case '"':
+        return '&quot;';
+      case "'":
+        return '&#39;';
+      default:
+        return c;
+    }
+  });
+}
+
+interface ChapterGroup {
+  readonly name: string;
+  readonly articles: readonly Article[];
+}
+
+/** 按章节分组文章，保持 chapter 在该 track 内首次出现的顺序。 */
+function groupByChapter(articles: readonly Article[]): ChapterGroup[] {
+  const groups: ChapterGroup[] = [];
+  const seen = new Map<string, number>();
+  for (const article of articles) {
+    const name = article.meta.chapter;
+    const idx = seen.get(name);
+    if (idx === undefined) {
+      seen.set(name, groups.length);
+      groups.push({ name, articles: [article] });
+    } else {
+      const existing = groups[idx];
+      groups[idx] = { name, articles: [...existing.articles, article] };
+    }
+  }
+  return groups;
+}
+
+function renderKnowledgeArticleCard(article: Article): string {
+  const meta = article.meta;
+  const difficultyLabel = DIFFICULTY_LABELS[meta.difficulty] ?? meta.difficulty;
+  const metaRow = `${escapeHtml(difficultyLabel)} · ${meta.estimatedReadingTime} 分钟`;
+  if (meta.status === 'planned') {
+    return `        <div class="article-card article-card-planned" data-track="${escapeHtml(meta.track)}">
+          <div class="article-meta">${metaRow}</div>
+          <h3 class="article-title">${escapeHtml(meta.title)}</h3>
+          <p class="article-desc">${escapeHtml(meta.description)}</p>
+          <div class="article-footer">
+            <span class="coming-soon-badge">coming soon</span>
+          </div>
+        </div>`;
+  }
+  return `        <a class="article-card" href="/learn/${escapeHtml(meta.slug)}" data-track="${escapeHtml(meta.track)}">
+          <div class="article-meta">${metaRow}</div>
+          <h3 class="article-title">${escapeHtml(meta.title)}</h3>
+          <p class="article-desc">${escapeHtml(meta.description)}</p>
+          <div class="article-footer">
+            <span class="article-arrow" aria-hidden="true">→</span>
+          </div>
+        </a>`;
+}
+
+/** 渲染单个 chapter：限显 4 张卡片，超出含 "+N 更多" 链接跳 /learn */
+function renderKnowledgeChapter(chapter: ChapterGroup): string {
+  const visible = chapter.articles.slice(0, 4);
+  const hiddenCount = chapter.articles.length - visible.length;
+  const cardsHtml = visible.map(renderKnowledgeArticleCard).join('\n');
+  const moreLink = hiddenCount > 0
+    ? `\n        <a class="chapter-more-link" href="/learn">+${hiddenCount} 更多</a>`
+    : '';
+  return `      <div class="chapter">
+        <div class="chapter-name">${escapeHtml(chapter.name)}</div>
+        <div class="card-grid">
+${cardsHtml}
+        </div>${moreLink}
+      </div>`;
+}
+
+function renderKnowledgeTrack(track: TrackMeta, articles: readonly Article[], trackNumber: number): string {
+  const chapters = groupByChapter(articles);
+  const chaptersHtml = chapters.map(renderKnowledgeChapter).join('\n');
+  return `    <div class="track-container" data-track="${escapeHtml(track.id)}">
+      <div class="track-label">TRACK ${trackNumber}</div>
+      <h3 class="track-title">${escapeHtml(track.title)}</h3>
+      <p class="track-desc">${escapeHtml(track.description)}</p>
+${chaptersHtml}
+    </div>`;
+}
+
+/** 渲染知识 section（learnEnabled 时调用）。articleState 可选——缺失时用占位 0。 */
+function renderKnowledgeSection(articleState: ArticleState | undefined): string {
+  const totalArticles = articleState?.articles.length ?? 0;
+  const totalTracks = articleState?.tracks.length ?? 0;
+  const sortedTracks = articleState ? [...articleState.tracks].sort((a, b) => a.order - b.order) : [];
+  const track1Articles = articleState?.byTrack.get('agent-practice') ?? [];
+  const track2Articles = articleState?.byTrack.get('ai-coding-practice') ?? [];
+  const track1Count = track1Articles.length;
+  const track2Count = track2Articles.length;
+  const tracksHtml = sortedTracks
+    .map((t, i) => renderKnowledgeTrack(t, articleState?.byTrack.get(t.id) ?? [], i + 1))
+    .join('\n');
+  return `  <section id="learn">
+    <div class="container">
+      <h2 class="section-h2-md" data-i18n="learn.h2">边用边学，从 0 理解 agent</h2>
+      <p class="knowledge-subtitle" data-i18n="learn.subtitle">${totalArticles} 篇结构化文章，覆盖 agent 原理、实现与演进。</p>
+      <div class="data-bar">
+        <div>
+          <div class="eval-label">Articles</div>
+          <div class="eval-value">${totalArticles}</div>
+          <div class="card-desc">篇文章</div>
+        </div>
+        <div>
+          <div class="eval-label">Tracks</div>
+          <div class="eval-value">${totalTracks}</div>
+          <div class="card-desc">个 Track</div>
+        </div>
+        <div>
+          <div class="eval-label">Track 1</div>
+          <div class="eval-value">${track1Count}</div>
+          <div class="card-desc">Agent 体系实践</div>
+        </div>
+        <div>
+          <div class="eval-label">Track 2</div>
+          <div class="eval-value">${track2Count}</div>
+          <div class="card-desc">AI 辅助编码实践</div>
+        </div>
+      </div>
+${tracksHtml}
+      <a href="/learn" class="btn-pill btn-pill-primary knowledge-cta" data-i18n="learn.cta">查看全部文章 →</a>
+    </div>
+  </section>`;
+}
+
+export interface LandingPageOptions {
+  readonly learnEnabled?: boolean;
+  readonly articleState?: ArticleState;
+}
+
+export function createLandingPageHtml(opts: LandingPageOptions = {}): string {
+  const learnEnabled = opts.learnEnabled === true;
+  const articleState = opts.articleState;
+
+  const learnNavLink = learnEnabled
+    ? '\n    <a href="#learn" data-i18n="nav.learn">知识</a>'
+    : '';
+
+  const heroSubtitleZh = learnEnabled
+    ? '开源 · 自托管 · 完全属于你的 AI 助手 —— 同时也是一个学习型项目：边开发边记录，19 篇文章带你从 0 理解 agent 原理、实现与演进，以及 AI 辅助编码的实践方法论。'
+    : '不只是聊天机器人，而是一个会思考、会行动、会记忆的 agent。能通过工具操作你的本地环境，能记住你的跨会话偏好，能通过 CLI / WebUI / IM 多端接入。';
+  const heroSubtitleI18nKey = learnEnabled ? 'hero.subtitle.learn' : 'hero.subtitle';
+
+  const heroTaglineHtml = learnEnabled
+    ? '\n      <p class="hero-tagline" data-i18n="hero.tagline">Demo 是学习内容的实操练习场 —— 看完文章来这里动手验证。</p>'
+    : '';
+
+  const archExtraDataBar = learnEnabled
+    ? `\n        <div>
+          <div class="eval-label">Articles</div>
+          <div class="eval-value">${articleState?.articles.length ?? 0}</div>
+          <div class="card-desc" data-i18n="architecture.eval5.label">篇文章</div>
+        </div>
+        <div>
+          <div class="eval-label">Tracks</div>
+          <div class="eval-value">${articleState?.tracks.length ?? 0}</div>
+          <div class="card-desc" data-i18n="architecture.eval6.label">个 Track</div>
+        </div>`
+    : '';
+
+  const knowledgeSectionHtml = learnEnabled
+    ? '\n' + renderKnowledgeSection(articleState) + '\n'
+    : '';
+
+  // learn 相关 i18n 条目仅在 learnEnabled 时注入字典，避免 !learnEnabled 时
+  // "查看全部文章" / "篇文章" / "学习型项目" / "实操练习场" 等字符串污染 v0.2.2 渲染产物
+  const learnI18nZh = learnEnabled
+    ? `,\n      'nav.learn': '知识',
+      'hero.subtitle.learn': '开源 · 自托管 · 完全属于你的 AI 助手 —— 同时也是一个学习型项目：边开发边记录，19 篇文章带你从 0 理解 agent 原理、实现与演进，以及 AI 辅助编码的实践方法论。',
+      'hero.tagline': 'Demo 是学习内容的实操练习场 —— 看完文章来这里动手验证。',
+      'architecture.eval5.label': '篇文章',
+      'architecture.eval6.label': '个 Track',
+      'learn.h2': '边用边学，从 0 理解 agent',
+      'learn.subtitle': '19 篇结构化文章，覆盖 agent 原理、实现与演进。',
+      'learn.cta': '查看全部文章 →'`
+    : '';
+
+  const learnI18nEn = learnEnabled
+    ? `,\n      'nav.learn': 'Learn',
+      'hero.subtitle.learn': "Open-source · Self-hosted · An AI assistant that's truly yours — also a learning project: 19 articles take you from 0 to understanding agent principles, implementation, and evolution, plus AI-assisted coding methodology.",
+      'hero.tagline': 'The demo is a hands-on practice ground for the learning content — read the articles, then verify here.',
+      'architecture.eval5.label': 'articles',
+      'architecture.eval6.label': 'tracks',
+      'learn.h2': 'Learn while using, understand agents from 0',
+      'learn.subtitle': '19 structured articles covering agent principles, implementation, and evolution.',
+      'learn.cta': 'View all articles →'`
+    : '';
+
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -248,6 +458,122 @@ export function createLandingPageHtml(): string {
     letter-spacing: -0.5px;
   }
 
+  /* Hero tagline (Task 7: learnEnabled 时显示) */
+  .hero-tagline {
+    font-size: 16px;
+    line-height: 22px;
+    letter-spacing: -0.3px;
+    color: var(--text-secondary);
+    margin-bottom: 48px;
+    max-width: 620px;
+  }
+
+  /* Knowledge section (Task 7: learnEnabled 时渲染) */
+  #learn { background: var(--bg-muted); }
+  .knowledge-subtitle {
+    font-size: 20px;
+    line-height: 25px;
+    letter-spacing: -0.5px;
+    color: var(--text-secondary);
+    margin-bottom: 48px;
+    max-width: 760px;
+  }
+  .track-container { margin-top: 64px; }
+  .track-container:first-of-type { margin-top: 80px; }
+  .track-label {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.7px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+  }
+  .track-title {
+    font-size: 28px;
+    font-weight: 400;
+    color: var(--text-primary);
+    letter-spacing: -0.5px;
+    margin-bottom: 8px;
+  }
+  .track-desc {
+    font-size: 16px;
+    line-height: 22px;
+    color: var(--text-secondary);
+    margin-bottom: 32px;
+  }
+  .chapter { margin-bottom: 32px; }
+  .chapter-name {
+    font-size: 18px;
+    font-weight: 500;
+    color: var(--text-primary);
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+    letter-spacing: -0.3px;
+  }
+  .chapter-more-link {
+    display: inline-block;
+    margin-top: 16px;
+    font-size: 14px;
+    color: var(--accent);
+    letter-spacing: -0.3px;
+  }
+  .chapter-more-link:hover { text-decoration: underline; }
+  .article-card {
+    display: block;
+    padding: 24px;
+    background: transparent;
+    cursor: pointer;
+    transition: background 200ms ease-in-out;
+  }
+  .article-card:hover { background: var(--bg-base); }
+  .article-card-planned { opacity: 0.55; pointer-events: none; }
+  .article-meta {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    letter-spacing: 0.3px;
+  }
+  .article-title {
+    font-size: 20px;
+    font-weight: 400;
+    color: var(--text-primary);
+    margin-bottom: 12px;
+    letter-spacing: -0.5px;
+    line-height: 1.3;
+  }
+  .article-desc {
+    font-size: 15px;
+    line-height: 22px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .article-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .article-arrow {
+    font-size: 18px;
+    color: var(--text-primary);
+    line-height: 1;
+  }
+  .coming-soon-badge {
+    font-size: 12px;
+    padding: 2px 8px;
+    background: var(--text-primary);
+    color: var(--bg-base);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    letter-spacing: 0.5px;
+  }
+  .knowledge-cta { margin-top: 80px; }
+
   /* CTA section */
   #cta { background: var(--bg-warm); text-align: center; }
   .cta-subtitle {
@@ -340,6 +666,22 @@ export function createLandingPageHtml(): string {
     .use-case-cta { font-size: 16px; margin-top: 32px; }
     .cta-subtitle { font-size: 16px; line-height: 22px; margin-bottom: 28px; }
 
+    /* Task 7: 知识 section 移动端字号缩放（H2 由 .section-h2-md 24px 覆盖；卡片 H3 17px；摘要 14px；网格 1 列） */
+    .hero-tagline { font-size: 14px; line-height: 20px; margin-bottom: 28px; }
+    .knowledge-subtitle { font-size: 16px; line-height: 22px; margin-bottom: 32px; }
+    .track-container { margin-top: 48px; }
+    .track-container:first-of-type { margin-top: 56px; }
+    .track-title { font-size: 22px; }
+    .track-desc { font-size: 14px; line-height: 20px; margin-bottom: 24px; }
+    .chapter-name { font-size: 16px; padding: 10px 0; margin-bottom: 12px; }
+    #learn .card-grid { grid-template-columns: 1fr; gap: 16px; }
+    .article-card { padding: 16px; }
+    .article-title { font-size: 17px; margin-bottom: 8px; }
+    .article-desc { font-size: 14px; line-height: 20px; margin-bottom: 12px; }
+    .article-meta { font-size: 11px; margin-bottom: 8px; }
+    .chapter-more-link { font-size: 13px; margin-top: 12px; }
+    .knowledge-cta { margin-top: 56px; }
+
     footer { padding: 40px 20px; }
     .footer-grid { grid-template-columns: 1fr; gap: 24px; }
     .footer-wordmark { font-size: 20px; }
@@ -361,7 +703,7 @@ export function createLandingPageHtml(): string {
   <nav class="nav-links">
     <a href="#features" data-i18n="nav.features">特性</a>
     <a href="#architecture" data-i18n="nav.architecture">架构</a>
-    <a href="#use-cases" data-i18n="nav.useCases">场景</a>
+    <a href="#use-cases" data-i18n="nav.useCases">场景</a>${learnNavLink}
   </nav>
   <div class="nav-actions">
     <a href="#" class="nav-lang" data-i18n="nav.lang" onclick="applyLang(document.documentElement.lang === 'zh-CN' ? 'en' : 'zh'); return false;">EN</a>
@@ -374,7 +716,7 @@ export function createLandingPageHtml(): string {
   <section id="hero">
     <div class="hero-content">
       <h1 data-i18n="hero.h1">开源 · 自托管 · 完全属于你的 AI 助手</h1>
-      <p class="hero-subtitle" data-i18n="hero.subtitle">不只是聊天机器人，而是一个会思考、会行动、会记忆的 agent。能通过工具操作你的本地环境，能记住你的跨会话偏好，能通过 CLI / WebUI / IM 多端接入。</p>
+      <p class="hero-subtitle" data-i18n="${heroSubtitleI18nKey}">${heroSubtitleZh}</p>${heroTaglineHtml}
       <div class="hero-ctas">
         <a href="/demo" class="btn-pill btn-pill-primary" data-i18n="hero.cta.primary">体验 Demo →</a>
         <a href="https://github.com/evan3060/aptbot" class="btn-pill btn-pill-secondary" data-i18n="hero.cta.secondary">查看 GitHub</a>
@@ -443,7 +785,7 @@ export function createLandingPageHtml(): string {
       <div class="data-bar">
         <div>
           <div class="eval-label">Eval</div>
-          <div class="eval-value">584</div>
+          <div class="eval-value">938</div>
           <div class="card-desc" data-i18n="architecture.eval1.label">项测试通过</div>
         </div>
         <div>
@@ -460,7 +802,7 @@ export function createLandingPageHtml(): string {
           <div class="eval-label">Eval</div>
           <div class="eval-value">MIT</div>
           <div class="card-desc" data-i18n="architecture.eval4.label">开源协议</div>
-        </div>
+        </div>${archExtraDataBar}
       </div>
     </div>
   </section>
@@ -488,7 +830,7 @@ export function createLandingPageHtml(): string {
       <a href="https://github.com/evan3060/aptbot/issues/new" class="use-case-cta" data-i18n="useCases.cta">分享你的使用场景 →</a>
     </div>
   </section>
-
+${knowledgeSectionHtml}
   <section id="cta">
     <div class="container">
       <h2 class="section-h2-lg" data-i18n="cta.h2">立即体验 aptbot</h2>
@@ -574,7 +916,7 @@ export function createLandingPageHtml(): string {
       'footer.documentation': '文档',
       'footer.changelog': '更新日志',
       'footer.license': '开源协议',
-      'footer.bottom': '用心打造 · 开源 · 可自托管'
+      'footer.bottom': '用心打造 · 开源 · 可自托管'${learnI18nZh}
     },
     en: {
       'nav.features': 'Features',
@@ -626,7 +968,7 @@ export function createLandingPageHtml(): string {
       'footer.documentation': 'Documentation',
       'footer.changelog': 'Changelog',
       'footer.license': 'License',
-      'footer.bottom': 'Made with care · Open source · Self-hostable'
+      'footer.bottom': 'Made with care · Open source · Self-hostable'${learnI18nEn}
     }
   };
 
