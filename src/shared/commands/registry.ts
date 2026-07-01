@@ -259,7 +259,8 @@ const labelCommand: Command = {
       return { output: 'Usage: /label <name>' };
     }
     const label = args.join(' ').slice(0, LABEL_MAX_LENGTH);
-    await ctx.storage.updateSessionLabel(ctx.sessionId, label);
+    // §4.10 Task 10: 手动 /label 设置 labelSource='custom'，永久跳过后续自动摘要
+    await ctx.storage.updateSessionLabel(ctx.sessionId, label, 'custom');
     return { output: `Session label set: ${label}` };
   },
 };

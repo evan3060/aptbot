@@ -4,6 +4,11 @@ import type { Provider, Model, Context } from '../provider/types.js';
 import type { ToolRegistry } from '../tool/types.js';
 import type { AgentMessage, ToolCall } from '../memory/agent-message.js';
 import type { HookRegistry, HookSession, ExitReason } from './hooks.js';
+import type { StorageAdapter } from '../../infrastructure/storage/file-storage.js';
+import { triggerSessionSummary } from './session-summary.js';
+import { createLogger } from '../../infrastructure/logger.js';
+
+const summaryLog = createLogger('agent-loop');
 
 export const DEFAULT_MAX_ITERATIONS = 10;
 export const MAX_STEERING_QUEUE = 5;
@@ -26,6 +31,8 @@ export interface AgentLoopConfig {
   maxIterations?: number;
   hooks?: HookRegistry;
   session?: HookSession;
+  /** §4.10 Task 10: 传入后，turn_end 后异步触发 LLM 摘要作为默认 label。 */
+  storage?: StorageAdapter;
 }
 
 /**
@@ -225,6 +232,24 @@ async function* agentLoopImpl(
       }
 
       yield { type: 'turn_end', turnId };
+
+      // §4.10 Task 10: turn_end 后异步触发 LLM 摘要（fire-and-forget，不阻塞主流程）。
+      // 仅当传入 storage + session 时触发；用户手动 /label 后永久跳过（hasCustomLabel 内部判断）。
+      if (config.storage && session) {
+        void triggerSessionSummary({
+          sessionId: session.sessionId,
+          provider,
+          model,
+          // 快照当前对话，避免后续 turn 修改 messages 导致摘要读到竞态数据
+          messages: [...contextMessages],
+          storage: config.storage,
+        }).catch((e) => {
+          summaryLog.warn('triggerSessionSummary error', {
+            sessionId: session.sessionId,
+            error: String(e),
+          });
+        });
+      }
 
       if (!hadToolCall) {
         completed = true;

@@ -11,8 +11,11 @@ export interface SessionRepo {
   /** Task 5: list 新增 userId 过滤 */
   list(userId?: string): Promise<SessionMetadata[]>;
   delete(id: string): Promise<void>;
-  /** Task 5: 更新 session label */
-  updateLabel(id: string, label: string): Promise<void>;
+  /** Task 5: 更新 session label。
+   *  §4.10 Task 10: source 默认 'custom'（手动 /label），'auto' 为 LLM 自动摘要。 */
+  updateLabel(id: string, label: string, source?: 'custom' | 'auto'): Promise<void>;
+  /** §4.10 Task 10: 是否已有用户手动设置的 custom label（永久跳过自动摘要）。 */
+  hasCustomLabel(id: string): Promise<boolean>;
 }
 
 /**
@@ -124,8 +127,12 @@ export function createSessionRepo(storage: StorageAdapter): SessionRepo {
       await storage.deleteSession(id);
     },
 
-    async updateLabel(id: string, label: string): Promise<void> {
-      await storage.updateSessionLabel(id, label);
+    async updateLabel(id: string, label: string, source?: 'custom' | 'auto'): Promise<void> {
+      await storage.updateSessionLabel(id, label, source);
+    },
+
+    async hasCustomLabel(id: string): Promise<boolean> {
+      return storage.hasCustomLabel(id);
     },
   };
 }
