@@ -253,7 +253,7 @@
 
 ### Task 10: Session 自动摘要命名
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** LLM 生成 ≤20 字符摘要替代首 20 字符，提升侧边栏可读性；用户手动 /label 优先。
 
