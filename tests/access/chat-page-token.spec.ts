@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, beforeEach } from 'vitest';
-import { resolveToken, persistToken, buildWsUrl } from '../../src/access/chat-page-token.js';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { resolveToken, persistToken, buildWsUrl, isCookieEnabled, resolveWsToken } from '../../src/access/chat-page-token.js';
 import { createChatPageHtml } from '../../src/access/chat-page.js';
 
 /**
@@ -87,6 +87,51 @@ describe('Task 1: chat-page token 记忆与自动携带', () => {
     });
   });
 
+  describe('Task 4 (0.2.2): isCookieEnabled 纯函数', () => {
+    const originalCookieEnabled = (navigator as { cookieEnabled?: boolean }).cookieEnabled;
+    afterEach(() => {
+      // 恢复 navigator.cookieEnabled 原值，避免污染其他测试
+      Object.defineProperty(navigator, 'cookieEnabled', {
+        value: originalCookieEnabled,
+        configurable: true,
+        writable: true,
+      });
+    });
+
+    it('navigator.cookieEnabled 为 true 时返回 true', () => {
+      Object.defineProperty(navigator, 'cookieEnabled', {
+        value: true, configurable: true, writable: true,
+      });
+      expect(isCookieEnabled()).toBe(true);
+    });
+
+    it('navigator.cookieEnabled 为 false 时返回 false', () => {
+      Object.defineProperty(navigator, 'cookieEnabled', {
+        value: false, configurable: true, writable: true,
+      });
+      expect(isCookieEnabled()).toBe(false);
+    });
+  });
+
+  describe('Task 4 (0.2.2): resolveWsToken 纯函数', () => {
+    it('提供 urlToken 时返回 urlToken（跨设备链接优先级最高）', () => {
+      expect(resolveWsToken('url-token', 'stored-token', true)).toBe('url-token');
+      // cookie 禁用时 urlToken 仍优先
+      expect(resolveWsToken('url-token', 'stored-token', false)).toBe('url-token');
+    });
+
+    it('cookie 可用且无 urlToken 时返回 null（让浏览器带 cookie）', () => {
+      expect(resolveWsToken(null, 'stored-token', true)).toBeNull();
+      expect(resolveWsToken(null, null, true)).toBeNull();
+    });
+
+    it('cookie 禁用且无 urlToken 时返回 storedToken（sessionStorage fallback）', () => {
+      expect(resolveWsToken(null, 'stored-token', false)).toBe('stored-token');
+      // storedToken 也为空时返回 null
+      expect(resolveWsToken(null, null, false)).toBeNull();
+    });
+  });
+
   describe('防漂移：chat-page.ts 内联 JS 与纯函数逻辑同步', () => {
     const html = createChatPageHtml('/ws');
 
@@ -117,6 +162,19 @@ describe('Task 1: chat-page token 记忆与自动携带', () => {
       expect(html).toContain('params.set(\'lastEventSeq\'');
       // Task 6 I1 fix: lastEventSeq 总是 set（不再有 > 0 条件）
       expect(html).not.toContain('if (lastEventSeq > 0) params.set');
+    });
+
+    it('内联 JS isCookieEnabled 逻辑：navigator.cookieEnabled 探测 + document.cookie 兜底', () => {
+      // 验证内联 JS 包含与 chat-page-token.ts isCookieEnabled 一致的探测逻辑
+      expect(html).toContain('navigator.cookieEnabled');
+      expect(html).toContain('document.cookie = \'aptbot_test=1');
+    });
+
+    it('内联 JS resolveWsToken 逻辑：urlToken 优先，cookie 禁用 fallback，cookie 可用返回 null', () => {
+      // 验证内联 JS 包含与 chat-page-token.ts resolveWsToken 一致的优先级逻辑
+      expect(html).toContain('if (urlToken) return urlToken');
+      expect(html).toContain('if (!cookieEnabled && token) return token');
+      expect(html).toContain('return null;  // cookie 可用 — 浏览器自动带 cookie');
     });
   });
 

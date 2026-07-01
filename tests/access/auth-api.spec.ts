@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, beforeEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -7,6 +7,7 @@ import { startWebSocketServer, type WebSocketServer } from '../../src/access/web
 import { InMemoryMessageBus } from '../../src/bus/message-bus.js';
 import { createUserStorage, type UserStorage } from '../../src/infrastructure/user-storage.js';
 import { createChatPageHtml } from '../../src/access/chat-page.js';
+import { isCookieEnabled, resolveWsToken } from '../../src/access/chat-page-token.js';
 
 /**
  * Task 3: HTTP 认证 API 端点
@@ -455,28 +456,40 @@ describe('Task 4 (0.2.2): HttpOnly cookie 安全增强', () => {
     });
   });
 
-  describe('cookie 被禁用时 fallback 到 sessionStorage（前端逻辑）', () => {
+  describe('cookie 被禁用时 fallback 到 sessionStorage（纯函数运行时行为）', () => {
     const html = createChatPageHtml('/ws');
 
-    it('内联 JS 检测 cookie 是否可用（cookieEnabled 探测）', () => {
-      expect(html).toContain('cookieEnabled');
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('isCookieEnabled 在 navigator.cookieEnabled=true 时返回 true', () => {
+      vi.stubGlobal('navigator', { cookieEnabled: true });
+      expect(isCookieEnabled()).toBe(true);
+    });
+
+    it('isCookieEnabled 在 navigator.cookieEnabled=false 时返回 false', () => {
+      vi.stubGlobal('navigator', { cookieEnabled: false });
+      expect(isCookieEnabled()).toBe(false);
+    });
+
+    it('resolveWsToken 提供 urlToken 时返回 urlToken（URL 优先级最高）', () => {
+      expect(resolveWsToken('url-token', 'stored-token', true)).toBe('url-token');
+      expect(resolveWsToken('url-token', 'stored-token', false)).toBe('url-token');
+    });
+
+    it('resolveWsToken cookie 可用且无 urlToken 时返回 null（让浏览器带 cookie）', () => {
+      expect(resolveWsToken(null, 'stored-token', true)).toBeNull();
+      expect(resolveWsToken(null, null, true)).toBeNull();
+    });
+
+    it('resolveWsToken cookie 禁用且无 urlToken 时返回 storedToken（sessionStorage fallback）', () => {
+      expect(resolveWsToken(null, 'stored-token', false)).toBe('stored-token');
+      expect(resolveWsToken(null, null, false)).toBeNull();
     });
 
     it('内联 JS fetch 调用包含 credentials: include（自动带 cookie）', () => {
       expect(html).toContain("credentials: 'include'");
-    });
-
-    it('内联 JS cookie 可用时不附加 ?token= 到 WS URL（让浏览器带 cookie）', () => {
-      // cookieEnabled 为 true 时，resolveWsToken 返回 null（不附加到 URL）
-      expect(html).toContain('cookieEnabled');
-      // buildWsUrl 使用 resolveWsToken 决定是否附加 ?token=
-      expect(html).toContain('resolveWsToken');
-      expect(html).toContain("if (wsToken) params.set('token'");
-    });
-
-    it('内联 JS cookie 禁用时从 sessionStorage 取 token 作为 fallback', () => {
-      // 验证 sessionStorage.getItem(TOKEN_KEY) 仍存在作为 fallback
-      expect(html).toContain('sessionStorage.getItem(TOKEN_KEY)');
     });
 
     it('内联 JS 登出时调用 /api/logout 清除服务端 cookie', () => {

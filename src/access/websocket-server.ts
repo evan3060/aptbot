@@ -121,7 +121,12 @@ function isHttpsRequest(req: IncomingMessage): boolean {
     || req.headers['x-forwarded-proto'] === 'https';
 }
 
-/** Task 4 (0.2.2): 构建 Set-Cookie 值，HTTPS 时附加 Secure 属性 */
+/**
+ * Task 4 (0.2.2): 构建 Set-Cookie 值，HTTPS 时附加 Secure 属性。
+ *
+ * Secure 属性仅在 HTTPS 下附加：浏览器会拒绝在 HTTP 连接上设置带 Secure 的 cookie，
+ * 这会导致本地 localhost（http://）开发环境下 cookie 无法写入。因此 Secure 必须条件附加。
+ */
 function buildAuthCookieValue(token: string, isHttps: boolean): string {
   const parts = [
     `${AUTH_COOKIE_NAME}=${token}`,

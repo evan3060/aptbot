@@ -31,6 +31,47 @@ export function resolveToken(): string | null {
 }
 
 /**
+ * Task 4 (0.2.2): 检测 cookie 是否可用 — cookie 可用时浏览器自动带 HttpOnly cookie，
+ * 无需在 WS URL 中暴露 token（防 XSS 窃取）；cookie 禁用时 fallback 到 sessionStorage。
+ *
+ * 逻辑与 chat-page.ts 内联 JS 的 isCookieEnabled 保持一致（防漂移）。
+ * 修改此处需同步修改 chat-page.ts 内联 JS。
+ */
+export function isCookieEnabled(): boolean {
+  if (typeof navigator !== 'undefined' && typeof navigator.cookieEnabled === 'boolean') {
+    return navigator.cookieEnabled;
+  }
+  // 兜底：尝试写入测试 cookie
+  try {
+    document.cookie = 'aptbot_test=1; SameSite=Lax; path=/';
+    return document.cookie.indexOf('aptbot_test=') !== -1;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Task 4 (0.2.2): 解析 WS URL 使用的 token — URL ?token= > cookie 禁用时的 sessionStorage > null。
+ * cookie 可用时返回 null（让浏览器带 cookie），避免 token 暴露在 URL 中。
+ *
+ * 逻辑与 chat-page.ts 内联 JS 的 resolveWsToken 保持一致（防漂移）。
+ * 修改此处需同步修改 chat-page.ts 内联 JS。
+ *
+ * @param urlToken URL ?token= 参数（优先级最高，跨设备链接）
+ * @param storedToken sessionStorage 中的 token（cookie 禁用 fallback）
+ * @param cookieEnabled cookie 是否可用（isCookieEnabled() 返回值）
+ */
+export function resolveWsToken(
+  urlToken: string | null,
+  storedToken: string | null,
+  cookieEnabled: boolean,
+): string | null {
+  if (urlToken) return urlToken;  // URL ?token= 优先级最高（跨设备链接）
+  if (!cookieEnabled && storedToken) return storedToken;  // cookie 禁用 fallback
+  return null;  // cookie 可用 — 浏览器自动带 cookie
+}
+
+/**
  * 持久化 token 到 sessionStorage（在 WebSocket 连接成功后调用）。
  * sessionStorage 不可用时静默降级。
  */
