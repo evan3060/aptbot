@@ -131,7 +131,7 @@
 
 ### Task 5: MixinProvider 多 provider 故障转移
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 单 provider 故障时自动切换备 provider，提升可用性；为 0.3.0 不同 agent 用不同 provider 铺路。
 
