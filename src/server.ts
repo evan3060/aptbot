@@ -359,6 +359,8 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
       // Task 11: /session 动态属性句柄 + 文件逃生口数据目录
       sessionAttrs: session,
       dataDir: aptbotConfig.dataDir,
+      // Task 12: /feedback 命令使用的反馈存储；feedbackEnabled:false 时为 undefined
+      feedbackStorage: learnWiring.feedbackStorage,
     },
   };
 

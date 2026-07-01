@@ -7,6 +7,8 @@ import { FeedbackStorage } from '../../src/infrastructure/feedback-storage.js';
 import type { AptbotConfig } from '../../src/infrastructure/config-types.js';
 // resolveLearnWiring 将在 src/server.ts 中导出（TDD RED：当前未实现）
 import { resolveLearnWiring } from '../../src/server.js';
+import { createCommandRegistry } from '../../src/shared/commands/registry.js';
+import type { StorageAdapter } from '../../src/infrastructure/storage/file-storage.js';
 
 /**
  * Task 11 (0.2.3): server.ts 装配测试
@@ -182,5 +184,80 @@ describe('Task 11: server.ts learn wiring (resolveLearnWiring)', () => {
       expect(state.articles).toEqual([]);
       expect(loadSpy).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+/**
+ * Task 12 回归测试：server.ts slashHandler.ctx 必须注入 feedbackStorage
+ *
+ * Bug（0.2.3 whole-branch review）：server.ts 的 slashHandler.ctx 漏掉 feedbackStorage，
+ * 导致 Web UI（WS server 上下文）下 /feedback 即使 feedbackEnabled=true 也提示
+ * "反馈功能未启用"。CLI（src/cli/index.tsx）正确注入，server.ts 未注入。
+ *
+ * 此处复现 server.ts 的 ctx 装配契约：feedbackStorage: learnWiring.feedbackStorage，
+ * 并实际执行 /feedback 命令验证不会误报"未启用"。
+ */
+describe('Task 12 回归: slashHandler.ctx 注入 feedbackStorage（server.ts 装配契约）', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'aptbot-slash-feedback-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('feedbackEnabled=true → learnWiring.feedbackStorage 注入 ctx 后 /feedback 不提示未启用', async () => {
+    const config = makeConfig({ dataDir: tempDir }); // feedbackEnabled 缺省视为 true
+    const learnWiring = await resolveLearnWiring({ aptbotConfig: config, articlesDir: join(tempDir, 'articles') });
+
+    // 回归断言：feedbackEnabled=true 时 learnWiring 必须返回 feedbackStorage
+    expect(learnWiring.feedbackEnabled).toBe(true);
+    expect(learnWiring.feedbackStorage).toBeInstanceOf(FeedbackStorage);
+
+    // 复现 server.ts slashHandler.ctx 装配（src/server.ts:353-365）
+    const mockStorage = {} as StorageAdapter;
+    const ctx = {
+      sessionId: 'test-session',
+      model: 'test-model',
+      storage: mockStorage,
+      dataDir: tempDir,
+      feedbackStorage: learnWiring.feedbackStorage, // ← 修复前 server.ts 漏掉此行
+    };
+
+    const registry = createCommandRegistry();
+    const resolved = registry.resolve('/feedback');
+    expect(resolved).not.toBeNull();
+    const result = await resolved!.command.execute(resolved!.args, ctx);
+
+    // 关键回归断言：feedbackStorage 已注入 → 不应提示"反馈功能未启用"
+    expect(result.output).not.toBe('反馈功能未启用');
+    // 空库时应返回 "No open feedback."
+    expect(result.output).toBe('No open feedback.');
+  });
+
+  it('feedbackEnabled=false → learnWiring.feedbackStorage 为 undefined，/feedback 提示未启用', async () => {
+    const config = makeConfig({ feedbackEnabled: false, dataDir: tempDir });
+    const learnWiring = await resolveLearnWiring({ aptbotConfig: config, articlesDir: join(tempDir, 'articles') });
+
+    expect(learnWiring.feedbackEnabled).toBe(false);
+    expect(learnWiring.feedbackStorage).toBeUndefined();
+
+    // 复现 server.ts slashHandler.ctx 装配：feedbackStorage 为 undefined
+    const mockStorage = {} as StorageAdapter;
+    const ctx = {
+      sessionId: 'test-session',
+      model: 'test-model',
+      storage: mockStorage,
+      dataDir: tempDir,
+      feedbackStorage: learnWiring.feedbackStorage,
+    };
+
+    const registry = createCommandRegistry();
+    const resolved = registry.resolve('/feedback');
+    const result = await resolved!.command.execute(resolved!.args, ctx);
+
+    expect(result.output).toBe('反馈功能未启用');
   });
 });
