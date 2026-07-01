@@ -154,7 +154,7 @@
 
 ### Task 6: Config 热重载
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 修改配置文件免重启，运行中 turn 用旧配置，下个 turn 用新配置，避免影响进行中的对话。
 
