@@ -44,7 +44,7 @@ export interface ChannelCapability {
 }
 
 /**
- * §7.2 Channel: 通道接口。
+ * §7.2 Channel: 通道接口（bus-facing，应用层）。
  */
 export interface Channel {
   readonly name: string;
@@ -53,6 +53,28 @@ export interface Channel {
   start(bus: MessageBus): Promise<void>;
   stop(): Promise<void>;
   consume(envelope: AgentEventEnvelope): void | Promise<void>;
+  /**
+   * §4.12 可选健康检查：TransportChannel-backed adapter 实现此方法，
+   * ChannelManager 在 consume 失败后调用以判断是否自动 unbind。
+   * 普通 Channel 不实现（保持向后兼容，consume 抛错不触发 unbind）。
+   */
+  isAlive?(): boolean;
+}
+
+/**
+ * §4.12 TransportChannel: 最小传输层接口（4 个方法），供 IM-style channel 实现。
+ * 与 bus-facing Channel 解耦：IM channel（Telegram bot chat、Discord channel）实现此接口，
+ * 通过 wrapTransportChannel 适配为完整 Channel 后注册到 ChannelManager。
+ */
+export interface TransportChannel {
+  /** 传输类型标识：'websocket' | 'telegram' | 'discord' | ... */
+  readonly type: string;
+  /** 发送原始数据（JSON 字符串或二进制），传输断开时抛错 */
+  send(data: string | Uint8Array): Promise<void>;
+  /** 关闭传输连接 */
+  close(): Promise<void>;
+  /** 传输是否仍存活 */
+  isAlive(): boolean;
 }
 
 /**
