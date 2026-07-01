@@ -201,7 +201,7 @@
 
 ### Task 8: Skills 系统基础（§8.5/§8.6）
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 建立 Skills 加载/校验/注入基础设施，为 0.3.0 agent 独立技能绑定铺路；MVP/L1 阶段 Skills 系统从未实现，本 task 补齐基础。
 
