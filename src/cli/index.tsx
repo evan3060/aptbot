@@ -3,6 +3,7 @@ import { render, Box, Text } from 'ink';
 import type { Channel, MessageBus } from '../bus/types.js';
 import type { CommandRegistry } from '../shared/commands/registry.js';
 import type { StorageAdapter } from '../infrastructure/storage/file-storage.js';
+import type { FeedbackStorage } from '../infrastructure/feedback-storage.js';
 import { coreReducer, initialUIState, type UIState } from '../shared/ui-state/reducer.js';
 import { AssistantMessage } from './components/assistant-message.js';
 import { UserMessage } from './components/user-message.js';
@@ -23,6 +24,8 @@ export interface CLIAppConfig {
   // I7 修复：注入真实 StorageAdapter + sessionId，取代 handleSubmit 中的 fake storage
   storage: StorageAdapter;
   sessionId: string;
+  // Task 12: 可选 FeedbackStorage，feedbackEnabled:false 时不传入，/feedback 提示未启用
+  feedbackStorage?: FeedbackStorage;
 }
 
 /**
@@ -30,7 +33,7 @@ export interface CLIAppConfig {
  * Ink + Yoga 渲染，reducer 驱动 UIState，斜杠命令通过 CommandRegistry 分发。
  */
 export function createCLIApp(config: CLIAppConfig): CLIApp {
-  const { channel, registry, model, bus, storage, sessionId } = config;
+  const { channel, registry, model, bus, storage, sessionId, feedbackStorage } = config;
 
   return {
     async start(): Promise<void> {
@@ -43,6 +46,7 @@ export function createCLIApp(config: CLIAppConfig): CLIApp {
           bus={bus}
           storage={storage}
           sessionId={sessionId}
+          feedbackStorage={feedbackStorage}
         />,
       );
       await waitUntilExit();
@@ -60,12 +64,14 @@ export function CLIAppRoot({
   bus,
   storage,
   sessionId,
+  feedbackStorage,
 }: {
   registry: CommandRegistry;
   model: string;
   bus: MessageBus;
   storage: StorageAdapter;
   sessionId: string;
+  feedbackStorage?: FeedbackStorage;
 }): React.ReactElement {
   const [state, setState] = useState<UIState>(initialUIState);
 
@@ -109,6 +115,7 @@ export function CLIAppRoot({
           sessionId,
           model,
           storage,
+          feedbackStorage,
         });
         // I8 修复：渲染命令输出到 UI
         if (result.output) {
