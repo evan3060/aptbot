@@ -5,6 +5,7 @@ import { createLogger } from '../infrastructure/logger.js';
 import type { MessageBus, InboundMessage, AgentEventEnvelope } from '../bus/types.js';
 import { type UserStorage, UsernameExistsError } from '../infrastructure/user-storage.js';
 import type { StorageAdapter } from '../infrastructure/storage/file-storage.js';
+import type { ReplayMessage } from '../core/memory/session-repo.js';
 
 const log = createLogger('websocket-server');
 
@@ -46,6 +47,12 @@ export interface WebSocketServerOptions {
   onSessionRenamed?: (sessionId: string, label: string) => void;
   /** Task 1 (0.2.2): 全局 ring buffer 总条目上限，触发时按 LRU 淘汰最旧 sessionKey 的全部 buffer。默认 50000 */
   globalBufferLimit?: number;
+  /**
+   * Task 3 (0.2.2): ring buffer 未命中时从 JSONL 读取历史的回调函数。
+   * 仅限 wsServer 调用，不进入 agent 工具表（agent 仍受 data/sessions/ 访问禁令）。
+   * 当 historyLimit 触发历史回放且 ring buffer（inbound + outbound）为空时调用。
+   */
+  readHistoryForReplay?: (sessionId: string, limit: number) => Promise<ReplayMessage[]>;
 }
 
 export interface WebSocketServer {
@@ -143,7 +150,7 @@ async function identifyUser(
  */
 export function startWebSocketServer(options: WebSocketServerOptions): Promise<WebSocketServer> {
   return new Promise((resolve, reject) => {
-    const { port, bus, authToken, serveHtml, serveDemoHtml, host, userStorage, fallbackSessionKey, getCurrentSessionId, onSessionBound, onSessionUnbound, sessionStorage, onSessionRenamed, globalBufferLimit } = options;
+    const { port, bus, authToken, serveHtml, serveDemoHtml, host, userStorage, fallbackSessionKey, getCurrentSessionId, onSessionBound, onSessionUnbound, sessionStorage, onSessionRenamed, globalBufferLimit, readHistoryForReplay } = options;
     const globalLimit = globalBufferLimit ?? WS_GLOBAL_BUFFER_MAX;
     const httpServer = createServer((req, res) => {
       const pathname = new URL(req.url ?? '/', `http://localhost:${port}`).pathname;
@@ -440,7 +447,23 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
           const limit = Number.isNaN(parsed) || parsed <= 0 ? 20 : parsed;
           // Task 1 (0.2.2): 读取访问更新 LRU（最近读取时间）
           touchSession(sessionKey);
-          replayHistory(ws, getInboundBuffer(sessionKey), getRingBuffer(sessionKey), limit);
+          const inboundBuffer = getInboundBuffer(sessionKey);
+          const outboundBuffer = getRingBuffer(sessionKey);
+          // Task 3 (0.2.2): ring buffer 未命中时（服务重启后清空）从 JSONL 兜底回放
+          // 仅当 inbound + outbound buffer 均为空且提供 readHistoryForReplay 回调时调用
+          // 性能优先：ring buffer 有数据时不读 JSONL
+          if (inboundBuffer.length === 0 && outboundBuffer.length === 0 && readHistoryForReplay) {
+            try {
+              const messages = await readHistoryForReplay(sessionKey, limit);
+              if (messages.length > 0) {
+                safeSend(ws, { type: 'replay', replay: true, source: 'jsonl', messages });
+              }
+            } catch (err) {
+              log.warn('readHistoryForReplay failed', { error: String(err), sessionKey });
+            }
+          } else {
+            replayHistory(ws, inboundBuffer, outboundBuffer, limit);
+          }
         } else if (lastEventSeqStr !== null) {
           const lastEventSeq = parseInt(lastEventSeqStr, 10);
           if (!Number.isNaN(lastEventSeq)) {

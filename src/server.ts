@@ -21,6 +21,7 @@ import type { Channel, ChannelCapability, AgentEventEnvelope } from './bus/types
 import { startWebSocketServer, type WebSocketServer } from './access/websocket-server.js';
 import { createChatPageHtml } from './access/chat-page.js';
 import { createLandingPageHtml } from './access/landing-page.js';
+import { readHistoryForReplay } from './core/memory/session-repo.js';
 import {
   installProcessHandlers,
   startMemoryMonitor,
@@ -200,6 +201,9 @@ Important constraints:
     onSessionRenamed: (sid, label) => {
       wsServer.sendToSessionKey(sid, { type: 'session_renamed', sessionId: sid, label });
     },
+    // Task 3 (0.2.2): ring buffer 未命中时从 JSONL 兜底回放历史
+    // 仅限 wsServer 调用，agent 仍受 data/sessions/ 访问禁令
+    readHistoryForReplay: (id, limit) => readHistoryForReplay(storage, id, limit),
   });
 
   // C8 修复：注册 WebSocket Channel 并绑定 sessionKey，使出站事件能路由到 WS 客户端

@@ -1058,6 +1058,29 @@ export function createChatPageHtml(wsPath: string): string {
       }
       return;
     }
+    // Task 3 (0.2.2): JSONL 历史回放 — ring buffer 未命中时从 JSONL 兜底
+    // replay: true 标记使前端不触发 appendUserMsg 等副作用，直接渲染 div（前端去重）
+    if (msg.type === 'replay' && msg.source === 'jsonl' && msg.messages) {
+      // loadHistory 进行中时忽略，避免重复渲染
+      if (historyLoading) return;
+      msg.messages.forEach(function(m) {
+        if (m.replay !== true) return;
+        var content = typeof m.content === 'string' ? m.content : '';
+        var el = document.createElement('div');
+        if (m.role === 'user') {
+          el.className = 'msg user';
+          el.innerHTML = '<div class="label">You</div>' + escapeHtml(content);
+        } else if (m.role === 'assistant') {
+          el.className = 'msg assistant';
+          el.innerHTML = '<div class="label">Assistant</div>' + escapeHtml(content);
+        } else {
+          return;
+        }
+        messagesEl.appendChild(el);
+      });
+      scrollBottom();
+      return;
+    }
     if (msg.type === 'event' && msg.event) {
       // 验收修复：loadHistory 进行中时忽略事件渲染（避免 ring buffer replay 重复渲染/闪烁）
       if (historyLoading) return;
