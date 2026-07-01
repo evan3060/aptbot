@@ -614,8 +614,9 @@ export function createChatPageHtml(wsPath: string): string {
   }
 
   // Task 2: 显示排队等待提示（前方 N 条消息），turn_start/turn_end 清除
+  // position 含自身（chainLength + 1），文案"前方 N 条"应排除自身，故显示 position - 1
   function setWaiting(position) {
-    workingEl.textContent = '等待中... (前方 ' + position + ' 条消息)';
+    workingEl.textContent = '等待中... (前方 ' + (position - 1) + ' 条消息)';
     workingEl.classList.add('show');
     sendBtn.disabled = false;
   }
