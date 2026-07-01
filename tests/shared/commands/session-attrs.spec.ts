@@ -331,14 +331,58 @@ describe('/session dynamic attributes', () => {
     expect(handler.getProviderAttr('temperature')).toBeUndefined();
   });
 
-  // Edge: invalid value range (temperature=5) returns error
-  it('rejects invalid value range (temperature=5)', async () => {
+  // Edge: invalid value range (temperature=5) returns error + lists valid range
+  it('rejects invalid value range (temperature=5) and lists valid range', async () => {
     const reg = createCommandRegistry();
     const handler = makeMockHandler();
 
     const result = await exec(reg, '/session temperature 5', makeCtx(handler));
     expect(result.output).toMatch(/invalid|range|error/i);
+    // §4.11: must list valid range for range-bound attrs
+    expect(result.output).toMatch(/valid range/i);
+    expect(result.output).toMatch(/\[0, 2\]/);
     expect(handler.getProviderAttr('temperature')).toBeUndefined();
+  });
+
+  // §4.11: invalid enum value for reasoningEffort must list all valid values
+  it('rejects invalid reasoningEffort with valid values listed', async () => {
+    const reg = createCommandRegistry();
+    const handler = makeMockHandler();
+
+    const result = await exec(
+      reg,
+      '/session reasoningEffort invalid',
+      makeCtx(handler),
+    );
+    expect(result.output).toMatch(/invalid|error/i);
+    // Must list all 6 valid values
+    expect(result.output).toMatch(/valid/i);
+    expect(result.output).toContain('none');
+    expect(result.output).toContain('minimal');
+    expect(result.output).toContain('low');
+    expect(result.output).toContain('medium');
+    expect(result.output).toContain('high');
+    expect(result.output).toContain('xhigh');
+    expect(handler.getProviderAttr('reasoningEffort')).toBeUndefined();
+  });
+
+  // §4.11: invalid enum value for thinkingType must list all valid values
+  it('rejects invalid thinkingType with valid values listed', async () => {
+    const reg = createCommandRegistry();
+    const handler = makeMockHandler();
+
+    const result = await exec(
+      reg,
+      '/session thinkingType invalid',
+      makeCtx(handler),
+    );
+    expect(result.output).toMatch(/invalid|error/i);
+    // Must list all 3 valid values
+    expect(result.output).toMatch(/valid/i);
+    expect(result.output).toContain('adaptive');
+    expect(result.output).toContain('enabled');
+    expect(result.output).toContain('disabled');
+    expect(handler.getProviderAttr('thinkingType')).toBeUndefined();
   });
 
   // Edge: /session.reset doesn't affect other sessions

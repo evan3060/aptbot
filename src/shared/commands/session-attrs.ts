@@ -6,17 +6,31 @@ import * as fs from 'node:fs/promises';
  * 校验规则与 design-notes §12.4 参考实现一致。
  */
 export const SESSION_ATTRS = {
-  temperature: { type: 'number' as const, validate: (v: number) => v >= 0 && v <= 2 },
-  maxTokens: { type: 'number' as const, validate: (v: number) => v > 0 && v <= 200000 },
+  temperature: {
+    type: 'number' as const,
+    validate: (v: number) => v >= 0 && v <= 2,
+    validRange: '[0, 2]',
+  },
+  maxTokens: {
+    type: 'number' as const,
+    validate: (v: number) => v > 0 && v <= 200000,
+    validRange: '(0, 200000]',
+  },
   reasoningEffort: {
     type: 'string' as const,
     validate: (v: string) => ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'].includes(v),
+    validValues: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'],
   },
   thinkingType: {
     type: 'string' as const,
     validate: (v: string) => ['adaptive', 'enabled', 'disabled'].includes(v),
+    validValues: ['adaptive', 'enabled', 'disabled'],
   },
-  thinkingBudgetTokens: { type: 'number' as const, validate: (v: number) => v > 0 },
+  thinkingBudgetTokens: {
+    type: 'number' as const,
+    validate: (v: number) => v > 0,
+    validRange: '> 0',
+  },
 };
 
 export type SessionAttrName = keyof typeof SESSION_ATTRS;
@@ -95,7 +109,10 @@ export async function handleSessionAttr(
 
   // 范围校验
   if (!spec.validate(value as never)) {
-    return `❌ invalid value: ${key}=${JSON.stringify(value)}`;
+    if ('validValues' in spec) {
+      return `❌ invalid value: ${key}=${JSON.stringify(value)} (valid: ${spec.validValues.join(', ')})`;
+    }
+    return `❌ invalid value: ${key}=${JSON.stringify(value)} (valid range: ${spec.validRange})`;
   }
 
   handler.setProviderAttr(key, value);
