@@ -302,7 +302,7 @@
 
 ### Task 12: Channel 接口抽象
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 抽象 Channel 接口为 0.4.0 IM 接入铺路；WebSocket 作为 Channel 实现之一，不影响现有功能。
 
