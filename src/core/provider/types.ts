@@ -54,3 +54,23 @@ export interface Provider {
     options?: StreamOptions,
   ): AsyncGenerator<AssistantMessageEvent>;
 }
+
+/**
+ * §4.5 MixinProvider 配置。
+ * maxRetries：单个 provider 的最大尝试次数（默认 3）。
+ * springBackMs：fallback 后弹回主 provider 的等待毫秒数（默认 300_000，0=不弹回）。
+ */
+export interface MixinConfig {
+  maxRetries?: number;
+  springBackMs?: number;
+}
+
+/**
+ * §4.5 / §12.1 可广播属性的 Provider 接口（MixinProvider 实现）。
+ * Task 11 /session 动态属性依赖此接口广播属性到所有子 provider。
+ */
+export interface BroadcastableProvider extends Provider {
+  readonly sessions: readonly Provider[];
+  readonly currentIndex: number;
+  broadcastAttr(key: string, value: unknown): void;
+}
