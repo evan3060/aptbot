@@ -47,11 +47,12 @@ describe('L1 index: loadSkills populates contentLines/contentBytes/tags', () => 
     const result = await loadSkills(env, [workspaceDir]);
     expect(result.skills).toHaveLength(1);
     const skill = result.skills[0];
-    // contentLines/contentBytes 基于 parseFrontmatter 解析后的 content（含 frontmatter 后的 leading \n）
-    expect(skill.contentLines).toBe(skill.content.split('\n').length);
-    expect(skill.contentBytes).toBe(Buffer.byteLength(skill.content, 'utf-8'));
-    // 验证中文按 UTF-8 字节计（中文内容 = 12 字节）
-    expect(skill.contentBytes).toBeGreaterThan(Buffer.byteLength('# Title', 'utf-8'));
+    // content = '\n' + body = '\n# Title\n\n中文内容\nline4\n'
+    //   (parseFrontmatter 保留 frontmatter 闭合 --- 后的 \n 作为 leading)
+    // split('\n') → ['', '# Title', '', '中文内容', 'line4', ''] → 6 lines
+    expect(skill.contentLines).toBe(6);
+    // bytes: 1(\n) + 7(# Title) + 2(\n\n) + 12(中文内容 = 4×3) + 1(\n) + 5(line4) + 1(\n) = 29
+    expect(skill.contentBytes).toBe(29);
   });
 
   it('parses tags from frontmatter array syntax', async () => {

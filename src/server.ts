@@ -4,9 +4,12 @@ import { createUserStorage, type UserStorage } from './infrastructure/user-stora
 import type { AptbotConfig, ProviderConfig } from './infrastructure/config-types.js';
 import { createToolRegistry } from './core/tool/types.js';
 import { bashTool } from './core/tool/tools/bash.js';
-import { readTool } from './core/tool/tools/read.js';
+import { createReadTool } from './core/tool/tools/read.js';
 import { editTool } from './core/tool/tools/edit.js';
 import { createUpdateWorkingMemoryTool } from './core/tool/tools/update-working-memory.js';
+import { createSkillState, type SkillState } from './core/skills/loader.js';
+import { formatSkillsForSystemPrompt } from './core/skills/system-prompt.js';
+import { createNodeExecutionEnv } from './core/skills/env.js';
 import { createProvider } from './core/provider/models.js';
 import type { ProviderDeclaration } from './core/provider/models.js';
 import type { Provider, Model } from './core/provider/types.js';
@@ -30,6 +33,8 @@ import {
 import { createLogger } from './infrastructure/logger.js';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 const FULL_CAP: ChannelCapability = {
   streaming: true,
@@ -117,6 +122,31 @@ export async function resolveSessionId(storage: StorageAdapter): Promise<string>
   return randomUUID();
 }
 
+/**
+ * §4.9 L1 索引：拼装 system prompt = base + skills 索引段。
+ * - skillState 为 undefined（创建失败降级）时仅返回 base
+ * - formatSkillsForSystemPrompt 失败时降级到 base（不阻塞 server 启动 / rebuild）
+ * - 热重载后调用方传入 reloaded skillState 以拿到最新索引
+ */
+function buildSystemPrompt(skillState: SkillState | undefined): string {
+  const base = `You are aptbot, a personal learning and work assistant.
+
+Important constraints:
+- You are running inside a server process. NEVER execute commands that would kill, stop, or restart the server process (e.g., kill, pkill, killall, pnpm kill, shutdown, reboot). If asked to restart/stop the server, explain that you cannot do this and the user should do it manually.
+- NEVER modify the server's own source code or configuration files (under /Users/evan/projects/aptbot/src/, config/, package.json) while the server is running.
+- NEVER read or access files under the data/sessions/ directory. These are internal session storage files. Session history is managed automatically by the system (via /resume, /continue commands). Do not attempt to read, cat, or parse them.
+- When bash command output is long, summarize the key information instead of pasting everything.`;
+  if (!skillState) return base;
+  try {
+    const skillsSection = formatSkillsForSystemPrompt([...skillState.skills]);
+    if (!skillsSection) return base;
+    return `${base}\n\n${skillsSection}`;
+  } catch (e) {
+    log.warn('format skills for system prompt failed', { error: String(e) });
+    return base;
+  }
+}
+
 export async function startServer(config: ServerConfig): Promise<ServerHandle> {
   log.info('starting server', { port: config.port, deploy: config.deploy });
 
@@ -131,9 +161,29 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
   // Task 5: 用户存储 — 始终创建，供 /api/register /api/login /api/me 与 WS 认证使用
   const userStorage: UserStorage = createUserStorage(aptbotConfig.dataDir);
 
+  // §4.8 Skills 系统：workspace (~/.aptbot/skills/) + builtin (src/skills/) 双层加载
+  // workspace 优先级高（覆盖 builtin 同名），builtin 兜底
+  // 降级：SkillState 创建失败时 skillState=undefined，server 仍可启动（无 skills 索引）
+  const skillEnv = createNodeExecutionEnv(process.cwd());
+  const workspaceSkillsDir = path.join(os.homedir(), '.aptbot', 'skills');
+  const builtinSkillsDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'skills');
+  let skillState: SkillState | undefined;
+  try {
+    skillState = await createSkillState(skillEnv, [workspaceSkillsDir, builtinSkillsDir]);
+    log.info('skills loaded', {
+      count: skillState.skills.length,
+      workspace: workspaceSkillsDir,
+      builtin: builtinSkillsDir,
+    });
+  } catch (e) {
+    log.warn('skill state creation failed, continuing without skills', { error: String(e) });
+    skillState = undefined;
+  }
+
   const registry = createToolRegistry();
   registry.register(bashTool);
-  registry.register(readTool);
+  // §12.5 read_file 特判：传入 skillState 后，读取 skill 文件时更新 lastUsed（联动 L1 索引重排序）
+  registry.register(createReadTool({ skillState }));
   registry.register(editTool);
 
   const { provider: providerDecl, providerConfig, model } = findModelFromConfig(aptbotConfig);
@@ -150,13 +200,8 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
   const sessionId = await resolveSessionId(storage);
   registry.register(createUpdateWorkingMemoryTool(storage, sessionId));
 
-  const systemPrompt = `You are aptbot, a personal learning and work assistant.
-
-Important constraints:
-- You are running inside a server process. NEVER execute commands that would kill, stop, or restart the server process (e.g., kill, pkill, killall, pnpm kill, shutdown, reboot). If asked to restart/stop the server, explain that you cannot do this and the user should do it manually.
-- NEVER modify the server's own source code or configuration files (under /Users/evan/projects/aptbot/src/, config/, package.json) while the server is running.
-- NEVER read or access files under the data/sessions/ directory. These are internal session storage files. Session history is managed automatically by the system (via /resume, /continue commands). Do not attempt to read, cat, or parse them.
-- When bash command output is long, summarize the key information instead of pasting everything.`;
+  // §4.9 L1 索引注入 system prompt（skillState 降级时仅 base）
+  const systemPrompt = buildSystemPrompt(skillState);
 
   const session = createAgentSession({
     storage,
@@ -245,8 +290,17 @@ Important constraints:
 
   // §4.6 Config 热重载 rebuild：用新配置重建 provider/model/session（下个 turn 生效）
   // 当前 turn 不受影响（sessionRef.current 在 afterTurn 才被替换）
-  const rebuildSession: (newConfig: AptbotConfig) => void = (newConfig) => {
+  // §4.9 Skills 热重载联动：rebuild 前 await skillState.reload()，新 session 拿到最新 skills
+  const rebuildSession: (newConfig: AptbotConfig) => Promise<void> = async (newConfig) => {
     try {
+      // Skills 热重载优先于 session 重建（失败降级到旧 skills，不阻塞 provider/model rebuild）
+      if (skillState) {
+        try {
+          await skillState.reload();
+        } catch (e) {
+          log.warn('skills reload failed, keeping old skills', { error: String(e) });
+        }
+      }
       const { provider: newDecl, providerConfig: newPc, model: newModel } = findModelFromConfig(newConfig);
       const newApiKey = resolveApiKey(newPc);
       if (!newApiKey) {
@@ -254,6 +308,7 @@ Important constraints:
         return;
       }
       const newProvider = createProvider(newDecl, newApiKey);
+      const newSystemPrompt = buildSystemPrompt(skillState);
       sessionRef.current = createAgentSession({
         storage,
         sessionId: sessionRef.currentKey,
@@ -261,7 +316,7 @@ Important constraints:
         provider: newProvider,
         model: newModel,
         tools: registry,
-        systemPrompt,
+        systemPrompt: newSystemPrompt,
       });
       if (slashHandler) slashHandler.ctx.model = newModel.id;
       log.info('config hot-reloaded', { model: newModel.id, provider: newDecl.id });
@@ -322,8 +377,9 @@ export type SessionFactory = (sessionId: string) => ReturnType<typeof createAgen
  */
 export interface ConfigReload {
   readonly loader: ConfigLoader<AptbotConfig>;
-  /** 用新配置重建 provider/model/session（下个 turn 生效） */
-  rebuild: (config: AptbotConfig) => void;
+  /** 用新配置重建 provider/model/session（下个 turn 生效）。
+   *  返回 void | Promise<void>：允许同步或异步 rebuild（§4.9 Skills 热重载联动需要 async reload） */
+  rebuild: (config: AptbotConfig) => void | Promise<void>;
 }
 
 /**
@@ -436,7 +492,8 @@ export async function runInboundLoop(
         // I5 fix: ctx.userId 在链内设置，避免并行 sessionKey 间的竞态
         if (senderUserId && slashHandler) slashHandler.ctx.userId = senderUserId;
         // §4.6 beforeTurn：检查 config mtimeNs 变化（当前 turn 用旧快照，pending 等 afterTurn 应用）
-        let pendingConfigApply: (() => void) | null = null;
+        // rebuild 可同步或异步（§4.9 Skills 热重载联动需 await skillState.reload()）
+        let pendingConfigApply: (() => void | Promise<void>) | null = null;
         if (configReload) {
           try {
             const reloadResult = await configReload.loader.load();
@@ -518,9 +575,11 @@ export async function runInboundLoop(
             loopLog.warn('markTurnEnd failed', { error: String(e) });
           }
           // §4.6 afterTurn：应用 pending config（下个 turn 生效）
+          // §4.9 Skills 热重载联动：rebuild 内部 await skillState.reload()，需 await 以确保
+          // 下个 turn 看到新 skills（reload 失败降级到旧 skills，不阻塞 rebuild）
           if (pendingConfigApply) {
             try {
-              pendingConfigApply();
+              await pendingConfigApply();
             } catch (e) {
               loopLog.error('config apply failed', { error: String(e) });
             }
