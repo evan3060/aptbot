@@ -177,7 +177,7 @@
 
 ### Task 7: Hook 系统（8 hook 点）
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 8 个 hook 点支持可插拔扩展（日志/监控/审计），吞异常不中断主流程，为 0.3.0 注入 agent 个性铺路。
 
