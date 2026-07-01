@@ -15,6 +15,8 @@ export const WS_INBOUND_RATE_LIMIT_PER_SEC = 10;
 export const WS_HEARTBEAT_TIMEOUT_MS = 60000;
 export const WS_HEARTBEAT_INTERVAL_MS = 30000;
 export const WS_OUTBOUND_BUFFER_MAX = 1000;
+/** Task 1 (0.2.2): 全局 ring buffer 总条目上限，触发时按 LRU 淘汰最旧 sessionKey 的全部 buffer */
+export const WS_GLOBAL_BUFFER_MAX = 50000;
 const RATE_LIMIT_WINDOW_MS = 1000;
 const RATE_LIMIT_WARN_THRESHOLD = 3;
 
@@ -42,6 +44,8 @@ export interface WebSocketServerOptions {
   sessionStorage?: StorageAdapter;
   /** 会话重命名后触发，用于广播 session_renamed 控制消息到同 session 其他连接 */
   onSessionRenamed?: (sessionId: string, label: string) => void;
+  /** Task 1 (0.2.2): 全局 ring buffer 总条目上限，触发时按 LRU 淘汰最旧 sessionKey 的全部 buffer。默认 50000 */
+  globalBufferLimit?: number;
 }
 
 export interface WebSocketServer {
@@ -139,7 +143,8 @@ async function identifyUser(
  */
 export function startWebSocketServer(options: WebSocketServerOptions): Promise<WebSocketServer> {
   return new Promise((resolve, reject) => {
-    const { port, bus, authToken, serveHtml, serveDemoHtml, host, userStorage, fallbackSessionKey, getCurrentSessionId, onSessionBound, onSessionUnbound, sessionStorage, onSessionRenamed } = options;
+    const { port, bus, authToken, serveHtml, serveDemoHtml, host, userStorage, fallbackSessionKey, getCurrentSessionId, onSessionBound, onSessionUnbound, sessionStorage, onSessionRenamed, globalBufferLimit } = options;
+    const globalLimit = globalBufferLimit ?? WS_GLOBAL_BUFFER_MAX;
     const httpServer = createServer((req, res) => {
       const pathname = new URL(req.url ?? '/', `http://localhost:${port}`).pathname;
 
@@ -183,6 +188,10 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
     const inboundBuffers = new Map<string, BufferedInbound[]>();
     // Task 5 C2 fix: 跟踪每个 sessionKey 的活跃连接数，归零时触发 onSessionUnbound
     const sessionRefCount = new Map<string, number>();
+    // Task 1 (0.2.2): LRU 排序依据 — 最近一次写入或读取时间。
+    // Map 的迭代顺序为插入顺序；每次 touch 通过 delete + set 将 sessionKey 移到末尾（最新），
+    // 迭代器首个元素即为最旧（LRU 淘汰候选）。
+    const lastAccess = new Map<string, number>();
 
     function getRingBuffer(sessionKey: string): BufferedEvent[] {
       let buf = ringBuffers.get(sessionKey);
@@ -203,6 +212,56 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
       return buf;
     }
 
+    /** Task 1 (0.2.2): 更新 sessionKey 的 LRU 最近访问时间（写入或读取时调用） */
+    function touchSession(sessionKey: string): void {
+      // delete + set 把 sessionKey 移到 Map 迭代末尾（最新），保证迭代器首元素为最旧
+      lastAccess.delete(sessionKey);
+      lastAccess.set(sessionKey, Date.now());
+    }
+
+    /** Task 1 (0.2.2): 计算全局 ring buffer 总条目数（outbound + inbound） */
+    function getGlobalBufferCount(): number {
+      let total = 0;
+      for (const buf of ringBuffers.values()) total += buf.length;
+      for (const buf of inboundBuffers.values()) total += buf.length;
+      return total;
+    }
+
+    /**
+     * Task 1 (0.2.2): 淘汰最旧 sessionKey 的全部 buffer（outbound + inbound）。
+     * exclude 参数防止淘汰刚写入的 sessionKey（保证写入不丢失）。
+     * 返回被淘汰的 sessionKey，无可淘汰时返回 null。
+     */
+    function evictOldestSession(exclude?: string): string | null {
+      for (const key of lastAccess.keys()) {
+        if (key === exclude) continue;
+        ringBuffers.delete(key);
+        inboundBuffers.delete(key);
+        lastAccess.delete(key);
+        log.warn('LRU evicted session buffer (global limit exceeded)', { sessionKey: key });
+        return key;
+      }
+      return null;
+    }
+
+    /**
+     * Task 1 (0.2.2): 全局上限强制淘汰。循环淘汰最旧 sessionKey 直至总条目数 ≤ limit。
+     * exclude 防止淘汰刚写入的 sessionKey；若无可淘汰（仅剩 exclude 自身）则记 warn 并停止。
+     */
+    function enforceGlobalLimit(exclude?: string): void {
+      while (getGlobalBufferCount() > globalLimit) {
+        const evicted = evictOldestSession(exclude);
+        if (!evicted) {
+          log.warn('global buffer limit exceeded but no evictable session', {
+            total: getGlobalBufferCount(),
+            limit: globalLimit,
+            exclude,
+          });
+          break;
+        }
+      }
+    }
+
     function incSessionRef(sessionKey: string): void {
       const c = sessionRefCount.get(sessionKey) ?? 0;
       sessionRefCount.set(sessionKey, c + 1);
@@ -216,6 +275,8 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
         ringBuffers.delete(sessionKey);
         // Task 8: 清理 inboundBuffer
         inboundBuffers.delete(sessionKey);
+        // Task 1 (0.2.2): 清理 LRU 跟踪
+        lastAccess.delete(sessionKey);
         // 通知 server.ts 解绑 channelManager
         if (onSessionUnbound) {
           try {
@@ -377,10 +438,14 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
           // Task 8: 历史回放 — 合并入站+出站消息，限制数量
           const parsed = parseInt(historyLimitStr, 10);
           const limit = Number.isNaN(parsed) || parsed <= 0 ? 20 : parsed;
+          // Task 1 (0.2.2): 读取访问更新 LRU（最近读取时间）
+          touchSession(sessionKey);
           replayHistory(ws, getInboundBuffer(sessionKey), getRingBuffer(sessionKey), limit);
         } else if (lastEventSeqStr !== null) {
           const lastEventSeq = parseInt(lastEventSeqStr, 10);
           if (!Number.isNaN(lastEventSeq)) {
+            // Task 1 (0.2.2): 读取访问更新 LRU
+            touchSession(sessionKey);
             replayBufferedEvents(ws, getRingBuffer(sessionKey), lastEventSeq);
           }
         }
@@ -391,12 +456,19 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
         });
 
         ws.on('message', (data) => {
-          handleMessage(ws, state, data as Buffer, bus, inboundBuffers);
+          handleMessage(ws, state, data as Buffer, bus, inboundBuffers, (sk) => {
+            // Task 1 (0.2.2): 入站写入后更新 LRU + 强制全局上限淘汰
+            touchSession(sk);
+            enforceGlobalLimit(sk);
+          });
         });
 
         // 重放缓冲的早期消息
         for (const msg of earlyMessages) {
-          handleMessage(ws, state, msg, bus, inboundBuffers);
+          handleMessage(ws, state, msg, bus, inboundBuffers, (sk) => {
+            touchSession(sk);
+            enforceGlobalLimit(sk);
+          });
         }
 
         ws.on('close', () => {
@@ -464,6 +536,7 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
           ringBuffers.clear();
           inboundBuffers.clear();
           sessionRefCount.clear();
+          lastAccess.clear();
           wss.close();
           await new Promise<void>((r) => httpServer.close(() => r()));
         },
@@ -478,6 +551,9 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
           if (ringBuffer.length > WS_OUTBOUND_BUFFER_MAX) {
             ringBuffer.shift();
           }
+          // Task 1 (0.2.2): 写入后更新 LRU，并强制全局上限淘汰（exclude 当前 sessionKey 防止淘汰自身）
+          touchSession(envelope.sessionKey);
+          enforceGlobalLimit(envelope.sessionKey);
           // 广播 {type:'event', seq, event} wrapper 给 sessionKey 匹配的客户端
           const payload = JSON.stringify({ type: 'event', seq: envelope.seq, event: envelope.event });
           for (const [ws, state] of connections) {
@@ -593,6 +669,8 @@ function handleMessage(
   data: Buffer,
   bus: MessageBus,
   inboundBuffers: Map<string, BufferedInbound[]>,
+  /** Task 1 (0.2.2): 入站写入后回调，用于更新 LRU + 强制全局上限淘汰 */
+  onInboundBuffered?: (sessionKey: string) => void,
 ): void {
   let parsed: { type?: string; content?: string };
   try {
@@ -638,6 +716,8 @@ function handleMessage(
       if (inboundBuffer.length > WS_OUTBOUND_BUFFER_MAX) {
         inboundBuffer.shift();
       }
+      // Task 1 (0.2.2): 入站写入后更新 LRU + 强制全局上限淘汰
+      onInboundBuffered?.(state.sessionKey);
     }
     const inbound: InboundMessage = {
       channel: 'websocket',
