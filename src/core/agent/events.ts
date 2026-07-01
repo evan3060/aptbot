@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 export type AgentEvent =
   | { type: 'agent_start' }
   | { type: 'turn_start'; turnId: string }
+  | { type: 'turn_busy'; position: number }
   | { type: 'user_message'; text: string; senderId: string }
   | { type: 'message_start'; messageId: string }
   | { type: 'message_delta'; text: string }

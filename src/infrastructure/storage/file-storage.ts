@@ -33,6 +33,8 @@ interface SessionMetaFile {
   userId?: string;
   label?: string;
   preview?: string;
+  /** §4.10 Task 10: label 来源。'custom'=用户手动 /label（永久跳过自动摘要）；'auto'=LLM 自动摘要。 */
+  labelSource?: 'custom' | 'auto';
 }
 
 /**
@@ -60,10 +62,13 @@ export interface StorageAdapter {
   claimSession(id: string, userId: string): Promise<void>;
   /** 强制覆盖 session owner（用于 agent 共享 session 转移给当前登录用户） */
   forceClaimSession(id: string, userId: string): Promise<void>;
-  /** Task 5: 更新 session label（写入 sidecar .meta.json） */
-  updateSessionLabel(id: string, label: string): Promise<void>;
+  /** Task 5: 更新 session label（写入 sidecar .meta.json）。
+   *  §4.10 Task 10: source 可选，'custom'（默认，用户手动 /label）/ 'auto'（LLM 自动摘要）。 */
+  updateSessionLabel(id: string, label: string, source?: 'custom' | 'auto'): Promise<void>;
   /** Task 5 C2 fix: 读取 session 当前 owner（未 claim 返回 undefined） */
   getSessionOwner(id: string): Promise<string | undefined>;
+  /** §4.10 Task 10: 是否已有用户手动设置的 custom label（永久跳过自动摘要）。 */
+  hasCustomLabel(id: string): Promise<boolean>;
 }
 
 /**
@@ -227,15 +232,26 @@ export class FileStorage implements StorageAdapter {
     });
   }
 
-  /** Task 5: 更新 session label（加锁防竞态） */
-  async updateSessionLabel(id: string, label: string): Promise<void> {
+  /** Task 5: 更新 session label（加锁防竞态）。
+   *  §4.10 Task 10: source 默认 'custom'（手动 /label），'auto' 为 LLM 自动摘要。 */
+  async updateSessionLabel(
+    id: string,
+    label: string,
+    source: 'custom' | 'auto' = 'custom',
+  ): Promise<void> {
     if (!isValidSessionId(id)) {
       throw new Error(`invalid sessionId: ${id}`);
     }
     await withJsonlLock(id, () => {
-      this.writeMetaAtomic(id, { label });
+      this.writeMetaAtomic(id, { label, labelSource: source });
       return Promise.resolve();
     });
+  }
+
+  /** §4.10 Task 10: 是否已有用户手动设置的 custom label（永久跳过自动摘要）。 */
+  async hasCustomLabel(id: string): Promise<boolean> {
+    if (!isValidSessionId(id)) return false;
+    return this.readMeta(id).labelSource === 'custom';
   }
 
   /** Task 5 C2 fix: 读取 session 当前 owner */

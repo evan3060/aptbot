@@ -11,8 +11,62 @@ export interface SessionRepo {
   /** Task 5: list 新增 userId 过滤 */
   list(userId?: string): Promise<SessionMetadata[]>;
   delete(id: string): Promise<void>;
-  /** Task 5: 更新 session label */
-  updateLabel(id: string, label: string): Promise<void>;
+  /** Task 5: 更新 session label。
+   *  §4.10 Task 10: source 默认 'custom'（手动 /label），'auto' 为 LLM 自动摘要。 */
+  updateLabel(id: string, label: string, source?: 'custom' | 'auto'): Promise<void>;
+  /** §4.10 Task 10: 是否已有用户手动设置的 custom label（永久跳过自动摘要）。 */
+  hasCustomLabel(id: string): Promise<boolean>;
+}
+
+/**
+ * Task 3 (0.2.2): JSONL 历史回放消息结构。
+ * 仅包含 user/assistant 角色消息，标记 replay: true 供前端去重。
+ * 不包含 tool 角色消息和含 toolCalls 的 assistant 消息（避免泄漏内部状态）。
+ */
+export interface ReplayMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: number;
+  replay: true;
+}
+
+/**
+ * Task 3 (0.2.2): 从 JSONL 读取历史消息用于回放。
+ *
+ * 行为：
+ * - 仅返回 type === 'message' 的 SessionEntry
+ * - 过滤 tool 角色消息和含 toolCalls 的 assistant 消息（避免泄漏内部状态）
+ * - 仅返回最近 limit 条（默认 20）
+ * - 每条消息标记 replay: true，前端不重复渲染
+ * - JSONL 文件损坏时由 storage.readSession 内部的 repairJsonl 自动截断修复
+ *
+ * 安全约束：此函数仅限 wsServer 调用，不进入 agent 工具表。
+ */
+export async function readHistoryForReplay(
+  storage: StorageAdapter,
+  sessionId: string,
+  limit: number = 20,
+): Promise<ReplayMessage[]> {
+  const entries = await storage.readSession(sessionId);
+  const messages = entries
+    .filter((e): e is Extract<SessionEntry, { type: 'message' }> => e.type === 'message')
+    .filter((e) => {
+      // 不返回 tool 角色消息（避免泄漏内部状态）
+      if (e.message.role === 'tool') return false;
+      // 不返回含 toolCalls 的 assistant 消息（避免泄漏内部状态）
+      if (e.message.toolCalls && e.message.toolCalls.length > 0) return false;
+      return true;
+    })
+    .map((e) => ({
+      id: e.message.id,
+      role: e.message.role as 'user' | 'assistant',
+      content: typeof e.message.content === 'string' ? e.message.content : '',
+      timestamp: e.timestamp,
+      replay: true as const,
+    }));
+  // 仅返回最近 limit 条
+  return messages.slice(-limit);
 }
 
 /**
@@ -73,8 +127,12 @@ export function createSessionRepo(storage: StorageAdapter): SessionRepo {
       await storage.deleteSession(id);
     },
 
-    async updateLabel(id: string, label: string): Promise<void> {
-      await storage.updateSessionLabel(id, label);
+    async updateLabel(id: string, label: string, source?: 'custom' | 'auto'): Promise<void> {
+      await storage.updateSessionLabel(id, label, source);
+    },
+
+    async hasCustomLabel(id: string): Promise<boolean> {
+      return storage.hasCustomLabel(id);
     },
   };
 }

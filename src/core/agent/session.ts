@@ -6,9 +6,10 @@ import type { SessionEntry } from '../memory/types.js';
 import type { AgentEvent } from './events.js';
 import { MAX_STEERING_QUEUE, maybeToolCalls } from './loop.js';
 import type { AgentLoopConfig } from './loop.js';
-import type { Provider, Model, ContextMessage } from '../provider/types.js';
+import type { Provider, Model, ContextMessage, BroadcastableProvider } from '../provider/types.js';
 import type { ToolRegistry } from '../tool/types.js';
 import type { StorageAdapter } from '../../infrastructure/storage/file-storage.js';
+import type { HookRegistry } from './hooks.js';
 
 export interface AgentSessionConfig {
   storage: StorageAdapter;
@@ -19,6 +20,7 @@ export interface AgentSessionConfig {
   tools: ToolRegistry;
   systemPrompt: string;
   reserveTokens?: number;
+  hooks?: HookRegistry;
 }
 
 export interface AgentSession {
@@ -26,6 +28,14 @@ export interface AgentSession {
   run(userMessage: string): AsyncGenerator<AgentEvent>;
   pushSteering(message: AgentMessage): void;
   getWorkingMemory(): Promise<string | null>;
+  /** Task 11: 设置 provider 动态属性；若 provider 为 BroadcastableProvider 则广播到所有子 provider */
+  setProviderAttr(key: string, value: unknown): void;
+  /** Task 11: 读取当前动态属性值（未设置返回 undefined） */
+  getProviderAttr(key: string): unknown;
+  /** Task 11: 读取所有动态属性 */
+  getAllProviderAttrs(): Record<string, unknown>;
+  /** Task 11: 重置所有动态属性（清除内存态，回退到 provider 默认） */
+  resetProviderAttrs(): void;
 }
 
 /**
@@ -36,12 +46,15 @@ export interface AgentSession {
 export function createAgentSession(config: AgentSessionConfig): AgentSession {
   const log = createLogger('agent-session');
   const { storage, sessionId, agentLoop, provider, model, tools, systemPrompt } = config;
+  const hookRegistry = config.hooks;
   const contextMessages: ContextMessage[] = [];
   const steeringQueue: AgentMessage[] = [];
   // I5 修复：per-session turn 互斥锁，防止并发 run() 交错 mutating contextMessages
   const turnMutex = new Mutex();
   // 修复：重启后加载历史上下文，避免 session 记忆丢失
   let historyLoaded = false;
+  // Task 11: /session 动态属性内存态存储（重启还原，不持久化）
+  const providerAttrs = new Map<string, unknown>();
 
   async function loadHistory(): Promise<void> {
     if (historyLoaded) return;
@@ -108,6 +121,8 @@ export function createAgentSession(config: AgentSessionConfig): AgentSession {
           tools: tools.getDefinitions(),
         },
         systemPrompt,
+        hooks: hookRegistry,
+        session: { sessionId },
       });
 
       while (true) {
@@ -216,10 +231,39 @@ export function createAgentSession(config: AgentSessionConfig): AgentSession {
     return storage.readWorkingMemory(sessionId);
   }
 
+  /**
+   * Task 11: 设置 provider 动态属性。
+   * 内存态存储 + 若 provider 实现 BroadcastableProvider 则广播到所有子 provider。
+   * 非 BroadcastableProvider（普通 Provider）仅存储到本地 map，不广播。
+   */
+  function setProviderAttr(key: string, value: unknown): void {
+    providerAttrs.set(key, value);
+    // 鸭子类型检测：provider 暴露 broadcastAttr 方法即视为 BroadcastableProvider
+    if (provider && typeof (provider as BroadcastableProvider).broadcastAttr === 'function') {
+      (provider as BroadcastableProvider).broadcastAttr(key, value);
+    }
+  }
+
+  function getProviderAttr(key: string): unknown {
+    return providerAttrs.get(key);
+  }
+
+  function getAllProviderAttrs(): Record<string, unknown> {
+    return Object.fromEntries(providerAttrs);
+  }
+
+  function resetProviderAttrs(): void {
+    providerAttrs.clear();
+  }
+
   return {
     sessionId,
     run,
     pushSteering,
     getWorkingMemory,
+    setProviderAttr,
+    getProviderAttr,
+    getAllProviderAttrs,
+    resetProviderAttrs,
   };
 }

@@ -605,20 +605,58 @@ export function createChatPageHtml(wsPath: string): string {
   }
 
   function setWorking(on) {
-    if (on) { workingEl.classList.add('show'); sendBtn.disabled = false; }
-    else { workingEl.classList.remove('show'); sendBtn.disabled = false; }
+    if (on) {
+      // Task 2: turn_start 恢复默认文案（清除 turn_busy 的等待提示）
+      workingEl.textContent = 'assistant working';
+      workingEl.classList.add('show');
+      sendBtn.disabled = false;
+    } else { workingEl.classList.remove('show'); sendBtn.disabled = false; }
   }
 
-  // 从 URL 或 sessionStorage 读取 token（Task 1: token 记忆与自动携带）
+  // Task 2: 显示排队等待提示（前方 N 条消息），turn_start/turn_end 清除
+  // position 含自身（chainLength + 1），文案"前方 N 条"应排除自身，故显示 position - 1
+  function setWaiting(position) {
+    workingEl.textContent = '等待中... (前方 ' + (position - 1) + ' 条消息)';
+    workingEl.classList.add('show');
+    sendBtn.disabled = false;
+  }
+
+  // Task 4 (0.2.2): token 解析 — URL ?token= 优先，cookie 可用时靠浏览器自动带 cookie，
+  // cookie 禁用时 fallback 到 sessionStorage。token 同时存 cookie + sessionStorage（双写）。
   // 逻辑与 src/access/chat-page-token.ts 的 resolveToken 保持一致
   // 修改此处需同步修改 chat-page-token.ts
   var TOKEN_KEY = 'aptbot:token';
   var urlToken = new URLSearchParams(window.location.search).get('token');
-  var token = null;
-  if (urlToken) {
-    token = urlToken;  // 连接成功后才存入 sessionStorage（见 ws.onopen）
-  } else {
-    token = sessionStorage.getItem(TOKEN_KEY) || null;
+  var storedToken = sessionStorage.getItem(TOKEN_KEY) || null;
+  // token 用于 UI 鉴权状态判断（urlToken 或 storedToken 都表示已登录）
+  var token = urlToken || storedToken;
+
+  // Task 4 (0.2.2): 检测 cookie 是否可用 — cookie 可用时浏览器自动带 HttpOnly cookie，
+  // 无需在 WS URL 中暴露 token（防 XSS 窃取）；cookie 禁用时 fallback 到 sessionStorage
+  // 逻辑与 src/access/chat-page-token.ts 的 isCookieEnabled 保持一致（防漂移）
+  // 修改此处需同步修改 chat-page-token.ts
+  function isCookieEnabled() {
+    if (typeof navigator !== 'undefined' && typeof navigator.cookieEnabled === 'boolean') {
+      return navigator.cookieEnabled;
+    }
+    // 兜底：尝试写入测试 cookie
+    try {
+      document.cookie = 'aptbot_test=1; SameSite=Lax; path=/';
+      return document.cookie.indexOf('aptbot_test=') !== -1;
+    } catch (e) {
+      return false;
+    }
+  }
+  var cookieEnabled = isCookieEnabled();
+
+  // Task 4 (0.2.2): 解析 WS URL 使用的 token — URL ?token= > cookie 禁用时的 sessionStorage > null
+  // cookie 可用时返回 null（让浏览器带 cookie），避免 token 暴露在 URL 中
+  // 逻辑与 src/access/chat-page-token.ts 的 resolveWsToken 保持一致（防漂移）
+  // 修改此处需同步修改 chat-page-token.ts
+  function resolveWsToken() {
+    if (urlToken) return urlToken;  // URL ?token= 优先级最高（跨设备链接）
+    if (!cookieEnabled && token) return token;  // cookie 禁用 fallback
+    return null;  // cookie 可用 — 浏览器自动带 cookie
   }
 
   // Task 6: sessionId 持久化（localStorage，跨刷新/重连恢复）
@@ -651,11 +689,16 @@ export function createChatPageHtml(wsPath: string): string {
     var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     var base = proto + '//' + location.host + '${wsPath}';
     var params = new URLSearchParams();
-    if (token) params.set('token', token);
+    // Task 4 (0.2.2): cookie 可用时不附加 ?token=（让浏览器带 HttpOnly cookie，防 XSS）
+    // cookie 禁用时 fallback 到 sessionStorage token；URL ?token= 始终优先（跨设备链接）
+    var wsToken = resolveWsToken();
+    if (wsToken) params.set('token', wsToken);
     if (sessionId) params.set('session', sessionId);
     // Task 6 I1 fix: 总是带 lastEventSeq（包括 0），确保 session_changed 重连时
     // 服务端能 replay 新 sessionKey 的 ring buffer（/new 后的确认 turn 事件）
     params.set('lastEventSeq', String(lastEventSeq));
+    // Task 3: 携带 historyLimit 触发服务端历史回放（ring buffer 未命中时从 JSONL 兜底）
+    params.set('historyLimit', '20');
     var qs = params.toString();
     return qs ? base + '?' + qs : base;
   }
@@ -723,7 +766,8 @@ export function createChatPageHtml(wsPath: string): string {
   // callback(sessionIdChanged: boolean) 在恢复完成后调用
   function restoreSession(callback) {
     if (!token) { callback(false); return; }
-    fetch('/api/sessions?token=' + encodeURIComponent(token))
+    // Task 4 (0.2.2): credentials: 'include' 让浏览器自动带 HttpOnly cookie
+    fetch('/api/sessions?token=' + encodeURIComponent(token), { credentials: 'include' })
       .then(function(res) { return res.json(); })
       .then(function(data) {
         var changed = false;
@@ -743,8 +787,10 @@ export function createChatPageHtml(wsPath: string): string {
   }
 
   // 登录成功后：持久化 token → 更新 UI → 恢复最近 session → 连接 WS
+  // Task 4 (0.2.2): 双写 — 服务端 Set-Cookie 已设置 HttpOnly cookie，前端同时存 sessionStorage 作为 fallback
   function onAuthSuccess(newToken, username) {
     token = newToken;
+    storedToken = newToken;
     try { sessionStorage.setItem(TOKEN_KEY, token); } catch (e) { /* sessionStorage 不可用 */ }
     if (userNameEl && username) userNameEl.textContent = username;
     updateAuthUI(true);
@@ -785,10 +831,12 @@ export function createChatPageHtml(wsPath: string): string {
       var username = document.getElementById('login-username').value.trim();
       var password = document.getElementById('login-password').value;
       if (!username || !password) return;
+      // Task 4 (0.2.2): credentials: 'include' 接收并存储 HttpOnly cookie
       fetch('/api/login', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ username: username, password: password }),
+        credentials: 'include',
       }).then(function(res) {
         return res.json().then(function(d) { return { status: res.status, data: d }; });
       }).then(function(r) {
@@ -817,10 +865,12 @@ export function createChatPageHtml(wsPath: string): string {
         showAuthError('密码至少 6 位');
         return;
       }
+      // Task 4 (0.2.2): credentials: 'include' 接收并存储 HttpOnly cookie
       fetch('/api/register', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ username: username, password: password }),
+        credentials: 'include',
       }).then(function(res) {
         return res.json().then(function(d) { return { status: res.status, data: d }; });
       }).then(function(r) {
@@ -848,7 +898,8 @@ export function createChatPageHtml(wsPath: string): string {
     if (!token || !sid) return;
     var reqId = ++historyRequestId;
     historyLoading = true;
-    fetch('/api/sessions/' + sid + '/messages?token=' + encodeURIComponent(token))
+    // Task 4 (0.2.2): credentials: 'include' 让浏览器自动带 HttpOnly cookie
+    fetch('/api/sessions/' + sid + '/messages?token=' + encodeURIComponent(token), { credentials: 'include' })
       .then(function(res) {
         if (res.status === 404) {
           // 新 session 无历史文件 — 清空消息区
@@ -1002,6 +1053,7 @@ export function createChatPageHtml(wsPath: string): string {
     // auth_failed：token 失效，回到未登录状态
     if (msg.type === 'error' && msg.code === 'auth_failed') {
       token = null;
+      storedToken = null;
       try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) { /* ignore */ }
       updateAuthUI(false);
       setStatus('未登录', 'disconnected');
@@ -1046,6 +1098,29 @@ export function createChatPageHtml(wsPath: string): string {
       }
       return;
     }
+    // Task 3 (0.2.2): JSONL 历史回放 — ring buffer 未命中时从 JSONL 兜底
+    // replay: true 标记使前端不触发 appendUserMsg 等副作用，直接渲染 div（前端去重）
+    if (msg.type === 'replay' && msg.source === 'jsonl' && msg.messages) {
+      // loadHistory 进行中时忽略，避免重复渲染
+      if (historyLoading) return;
+      msg.messages.forEach(function(m) {
+        if (m.replay !== true) return;
+        var content = typeof m.content === 'string' ? m.content : '';
+        var el = document.createElement('div');
+        if (m.role === 'user') {
+          el.className = 'msg user';
+          el.innerHTML = '<div class="label">You</div>' + escapeHtml(content);
+        } else if (m.role === 'assistant') {
+          el.className = 'msg assistant';
+          el.innerHTML = '<div class="label">Assistant</div>' + escapeHtml(content);
+        } else {
+          return;
+        }
+        messagesEl.appendChild(el);
+      });
+      scrollBottom();
+      return;
+    }
     if (msg.type === 'event' && msg.event) {
       // 验收修复：loadHistory 进行中时忽略事件渲染（避免 ring buffer replay 重复渲染/闪烁）
       if (historyLoading) return;
@@ -1057,6 +1132,10 @@ export function createChatPageHtml(wsPath: string): string {
           break;
         case 'turn_start':
           setWorking(true);
+          break;
+        case 'turn_busy':
+          // Task 2: 排队等待提示，turn_start/turn_end 自动清除
+          setWaiting(e.position);
           break;
         case 'user_message':
           // 验收修复：跨客户端同步用户消息
@@ -1271,10 +1350,12 @@ export function createChatPageHtml(wsPath: string): string {
           return;
         }
         // POST 重命名请求
+        // Task 4 (0.2.2): credentials: 'include' 让浏览器自动带 HttpOnly cookie
         fetch('/api/sessions/' + encodeURIComponent(sid) + '/label?token=' + encodeURIComponent(token), {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ label: newLabel }),
+          credentials: 'include',
         })
           .then(function(res) { return res.json(); })
           .then(function(data) {
@@ -1309,7 +1390,8 @@ export function createChatPageHtml(wsPath: string): string {
       renderSessionList([]);
       return;
     }
-    fetch('/api/sessions?token=' + encodeURIComponent(token))
+    // Task 4 (0.2.2): credentials: 'include' 让浏览器自动带 HttpOnly cookie
+    fetch('/api/sessions?token=' + encodeURIComponent(token), { credentials: 'include' })
       .then(function(res) { return res.json(); })
       .then(function(data) {
         if (data && data.sessions) {
@@ -1349,11 +1431,17 @@ export function createChatPageHtml(wsPath: string): string {
   }
 
   // Task 10: 登出按钮 — 清除 token 并刷新
+  // Task 4 (0.2.2): HttpOnly cookie 无法被 JS 清除，必须调用 /api/logout 让服务端设置 Max-Age=0
   if (logoutBtn) {
     logoutBtn.addEventListener('click', function() {
       try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) { /* ignore */ }
       try { localStorage.removeItem(SESSION_ID_KEY); } catch (e) { /* ignore */ }
-      window.location.href = window.location.pathname;
+      // 调用 /api/logout 清除服务端 cookie，完成后刷新页面
+      fetch('/api/logout', { method: 'POST', credentials: 'include' })
+        .catch(function() { /* 即使 logout 请求失败也继续刷新 */ })
+        .finally(function() {
+          window.location.href = window.location.pathname;
+        });
     });
   }
 

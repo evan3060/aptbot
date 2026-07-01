@@ -3,6 +3,7 @@ import { InMemoryMessageBus } from '../../src/bus/message-bus.js';
 import { runInboundLoop, type SlashCommandHandler } from '../../src/server.js';
 import { createCommandRegistry } from '../../src/shared/commands/registry.js';
 import type { AgentEvent } from '../../src/core/agent/events.js';
+import type { AgentEventEnvelope } from '../../src/bus/types.js';
 import type { StorageAdapter } from '../../src/infrastructure/storage/file-storage.js';
 
 /**
@@ -163,8 +164,9 @@ describe('Task 7: per-sessionKey 串行化', () => {
       );
 
       // 跨客户端同步修复：每条消息 3 个事件（user_message + agent_start + turn_end）
-      // 3 条消息共 9 个事件
-      for (let i = 0; i < 9; i++) {
+      // Task 2: 第 2、3 条消息各多 1 个 turn_busy 事件
+      // 3 条消息共 9 + 2 = 11 个事件
+      for (let i = 0; i < 11; i++) {
         await bus.consumeOutbound();
       }
       await new Promise((r) => setTimeout(r, 50));
@@ -363,8 +365,9 @@ describe('Task 7: per-sessionKey 串行化', () => {
 
       // 第一条消息：emit 一个 error 事件（catch 块内 emit）
       // 第二条消息：emit agent_start + turn_end
+      // Task 2: 第二条消息入队前还会 emit turn_busy
       const envelopes = [];
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < 6; i++) {
         const env = await Promise.race([
           bus.consumeOutbound(),
           new Promise<null>((r) => setTimeout(() => r(null), 1000)),
@@ -374,19 +377,273 @@ describe('Task 7: per-sessionKey 串行化', () => {
       }
 
       // 跨客户端同步修复：每条消息先 emit user_message，再进入 agent
-      // 事件序列：user_message(1) → error(1, catch) → user_message(2) → agent_start(2) → turn_end(2)
-      expect(envelopes.length).toBeGreaterThanOrEqual(5);
+      // Task 2: 第二条消息入队前 emit turn_busy
+      // 事件序列：turn_busy(2, 入队前) → user_message(1) → error(1, catch) → user_message(2) → agent_start(2) → turn_end(2)
+      // 过滤 turn_busy 后检查 agent 错误传播逻辑
+      const agentEnvelopes = envelopes.filter((e) => e.event.type !== 'turn_busy');
+      expect(agentEnvelopes.length).toBeGreaterThanOrEqual(5);
       // 第一个应为 user_message（agent 处理前 emit）
-      expect(envelopes[0].event.type).toBe('user_message');
+      expect(agentEnvelopes[0].event.type).toBe('user_message');
       // 第二个应为 error（第一条消息 agent 抛错后 catch emit）
-      expect(envelopes[1].event.type).toBe('error');
+      expect(agentEnvelopes[1].event.type).toBe('error');
       // 后续应有 agent_start 和 turn_end（第二条消息正常处理）
-      const eventTypes = envelopes.map((e) => e.event.type);
+      const eventTypes = agentEnvelopes.map((e) => e.event.type);
       expect(eventTypes).toContain('agent_start');
       expect(eventTypes).toContain('turn_end');
 
       // session.run 被调用 2 次（两条消息都进入 agent 路径）
       expect(session.run).toHaveBeenCalledTimes(2);
+
+      loopPromise.catch(() => {});
+    });
+  });
+});
+
+/**
+ * Task 2: turn_busy 响应
+ *
+ * 测试覆盖（设计契约 §4.2）：
+ * 1. 同 sessionKey 排队时发 turn_busy 且 position 反映队列深度
+ * 2. 不同 sessionKey 互不影响
+ * 3. turn_busy 发送失败时静默忽略不阻塞主流程
+ * 4. 前端清除：每条消息的 turn_end 正常发送（前端靠 turn_end 恢复）
+ */
+describe('Task 2: turn_busy 响应', () => {
+  describe('同 sessionKey 排队时发 turn_busy', () => {
+    it('3 条同 sessionKey 消息：第 2、3 条入队前发 turn_busy，position 反映队列深度', async () => {
+      const bus = new InMemoryMessageBus();
+      const watchdog = { markTurnStart: vi.fn(), markTurnEnd: vi.fn() };
+      const session = makeMockSession();
+
+      const slashHandler: SlashCommandHandler = {
+        registry: createCommandRegistry(),
+        ctx: { sessionId: 's1', model: 'm', storage: makeMockStorage() as StorageAdapter },
+      };
+
+      for (const text of ['m1', 'm2', 'm3']) {
+        await bus.publishInbound({
+          channel: 'test', senderId: 'user', chatId: 'c1',
+          content: text, metadata: { sessionKey: 'busy-test' },
+        });
+      }
+
+      const loopPromise = runInboundLoop(
+        bus,
+        { current: session as never, currentKey: 's1' },
+        watchdog,
+        slashHandler,
+      );
+
+      // 3 条消息 × 3 events + 2 turn_busy = 11
+      const envelopes: AgentEventEnvelope[] = [];
+      for (let i = 0; i < 11; i++) {
+        const env = await Promise.race([
+          bus.consumeOutbound(),
+          new Promise<null>((r) => setTimeout(() => r(null), 3000)),
+        ]);
+        if (env === null) break;
+        envelopes.push(env);
+      }
+
+      const turnBusyEvents = envelopes.filter((e) => e.event.type === 'turn_busy');
+      expect(turnBusyEvents.length).toBe(2);
+      // 第 2 条消息：position = 2（1 running + itself）
+      // 第 3 条消息：position = 3（1 running + 1 queued + itself）
+      expect(turnBusyEvents[0].event).toMatchObject({ type: 'turn_busy', position: 2 });
+      expect(turnBusyEvents[1].event).toMatchObject({ type: 'turn_busy', position: 3 });
+
+      // turn_busy 应在对应消息的 user_message 之前（入队前反馈）
+      const eventTypes = envelopes.map((e) => e.event.type);
+      const firstBusyIdx = eventTypes.indexOf('turn_busy');
+      // 第二个 user_message 是第二条消息的，turn_busy 应在其之前
+      const firstUserMsgIdx = eventTypes.indexOf('user_message');
+      const secondUserMsgIdx = eventTypes.indexOf('user_message', firstUserMsgIdx + 1);
+      expect(firstBusyIdx).toBeGreaterThanOrEqual(0);
+      expect(firstBusyIdx).toBeLessThan(secondUserMsgIdx);
+
+      loopPromise.catch(() => {});
+    });
+
+    it('首条消息不触发 turn_busy（无 running turn）', async () => {
+      const bus = new InMemoryMessageBus();
+      const watchdog = { markTurnStart: vi.fn(), markTurnEnd: vi.fn() };
+      const session = makeMockSession();
+
+      const slashHandler: SlashCommandHandler = {
+        registry: createCommandRegistry(),
+        ctx: { sessionId: 's1', model: 'm', storage: makeMockStorage() as StorageAdapter },
+      };
+
+      await bus.publishInbound({
+        channel: 'test', senderId: 'user', chatId: 'c1',
+        content: 'only', metadata: { sessionKey: 'solo-test' },
+      });
+
+      const loopPromise = runInboundLoop(
+        bus,
+        { current: session as never, currentKey: 's1' },
+        watchdog,
+        slashHandler,
+      );
+
+      const envelopes: AgentEventEnvelope[] = [];
+      for (let i = 0; i < 3; i++) {
+        const env = await Promise.race([
+          bus.consumeOutbound(),
+          new Promise<null>((r) => setTimeout(() => r(null), 2000)),
+        ]);
+        if (env === null) break;
+        envelopes.push(env);
+      }
+
+      expect(envelopes.filter((e) => e.event.type === 'turn_busy').length).toBe(0);
+
+      loopPromise.catch(() => {});
+    });
+  });
+
+  describe('不同 sessionKey 互不影响', () => {
+    it('不同 sessionKey 的消息不触发对方的 turn_busy', async () => {
+      const bus = new InMemoryMessageBus();
+      const watchdog = { markTurnStart: vi.fn(), markTurnEnd: vi.fn() };
+      const session = makeMockSession();
+
+      const slashHandler: SlashCommandHandler = {
+        registry: createCommandRegistry(),
+        ctx: { sessionId: 's1', model: 'm', storage: makeMockStorage() as StorageAdapter },
+      };
+
+      // 每个 sessionKey 各 2 条消息，第 2 条触发 turn_busy
+      await bus.publishInbound({ channel: 'test', senderId: 'user', chatId: 'c1', content: 'a1', metadata: { sessionKey: 's1' } });
+      await bus.publishInbound({ channel: 'test', senderId: 'user', chatId: 'c1', content: 'b1', metadata: { sessionKey: 's2' } });
+      await bus.publishInbound({ channel: 'test', senderId: 'user', chatId: 'c1', content: 'a2', metadata: { sessionKey: 's1' } });
+      await bus.publishInbound({ channel: 'test', senderId: 'user', chatId: 'c1', content: 'b2', metadata: { sessionKey: 's2' } });
+
+      const loopPromise = runInboundLoop(
+        bus,
+        { current: session as never, currentKey: 's1' },
+        watchdog,
+        slashHandler,
+      );
+
+      // 4 msgs × 3 events + 2 turn_busy (each sessionKey 的第 2 条) = 14
+      const envelopes: AgentEventEnvelope[] = [];
+      for (let i = 0; i < 14; i++) {
+        const env = await Promise.race([
+          bus.consumeOutbound(),
+          new Promise<null>((r) => setTimeout(() => r(null), 3000)),
+        ]);
+        if (env === null) break;
+        envelopes.push(env);
+      }
+
+      // 每个 sessionKey 各 1 个 turn_busy，position 均为 2（仅前方 1 条 + itself）
+      const s1Busy = envelopes.filter((e) => e.sessionKey === 's1' && e.event.type === 'turn_busy');
+      const s2Busy = envelopes.filter((e) => e.sessionKey === 's2' && e.event.type === 'turn_busy');
+      expect(s1Busy.length).toBe(1);
+      expect(s2Busy.length).toBe(1);
+      expect(s1Busy[0].event).toMatchObject({ type: 'turn_busy', position: 2 });
+      expect(s2Busy[0].event).toMatchObject({ type: 'turn_busy', position: 2 });
+
+      loopPromise.catch(() => {});
+    });
+  });
+
+  describe('turn_busy 发送失败时静默忽略', () => {
+    it('turn_busy emit 抛错时，消息仍正常入队处理，主流程不阻塞', async () => {
+      const bus = new InMemoryMessageBus();
+      const watchdog = { markTurnStart: vi.fn(), markTurnEnd: vi.fn() };
+      const session = makeMockSession();
+
+      const slashHandler: SlashCommandHandler = {
+        registry: createCommandRegistry(),
+        ctx: { sessionId: 's1', model: 'm', storage: makeMockStorage() as StorageAdapter },
+      };
+
+      // Mock publishOutbound 对 turn_busy 事件抛错，其他事件正常入队
+      const originalPublish = bus.publishOutbound.bind(bus);
+      vi.spyOn(bus, 'publishOutbound').mockImplementation(async (env) => {
+        if (env.event.type === 'turn_busy') {
+          throw new Error('simulated turn_busy emit failure');
+        }
+        return originalPublish(env);
+      });
+
+      await bus.publishInbound({ channel: 'test', senderId: 'user', chatId: 'c1', content: 'first', metadata: { sessionKey: 'fail-test' } });
+      await bus.publishInbound({ channel: 'test', senderId: 'user', chatId: 'c1', content: 'second', metadata: { sessionKey: 'fail-test' } });
+
+      const loopPromise = runInboundLoop(
+        bus,
+        { current: session as never, currentKey: 's1' },
+        watchdog,
+        slashHandler,
+      );
+
+      // turn_busy 抛错不入队：2 msgs × 3 events = 6
+      const envelopes: AgentEventEnvelope[] = [];
+      for (let i = 0; i < 6; i++) {
+        const env = await Promise.race([
+          bus.consumeOutbound(),
+          new Promise<null>((r) => setTimeout(() => r(null), 3000)),
+        ]);
+        if (env === null) break;
+        envelopes.push(env);
+      }
+
+      // turn_busy 不在队列中（publishOutbound 抛错被静默吞掉）
+      expect(envelopes.filter((e) => e.event.type === 'turn_busy').length).toBe(0);
+      // 两条消息都正常处理（主流程未阻塞）
+      expect(session.run).toHaveBeenCalledTimes(2);
+      expect(envelopes.filter((e) => e.event.type === 'turn_end').length).toBe(2);
+
+      loopPromise.catch(() => {});
+    });
+  });
+
+  describe('前端清除：turn_end 正常发送', () => {
+    it('排队消息的 turn_end 正常发送（前端靠 turn_end 清除等待提示）', async () => {
+      const bus = new InMemoryMessageBus();
+      const watchdog = { markTurnStart: vi.fn(), markTurnEnd: vi.fn() };
+      const session = makeMockSession();
+
+      const slashHandler: SlashCommandHandler = {
+        registry: createCommandRegistry(),
+        ctx: { sessionId: 's1', model: 'm', storage: makeMockStorage() as StorageAdapter },
+      };
+
+      for (const text of ['m1', 'm2']) {
+        await bus.publishInbound({
+          channel: 'test', senderId: 'user', chatId: 'c1',
+          content: text, metadata: { sessionKey: 'clear-test' },
+        });
+      }
+
+      const loopPromise = runInboundLoop(
+        bus,
+        { current: session as never, currentKey: 's1' },
+        watchdog,
+        slashHandler,
+      );
+
+      // 2 msgs × 3 events + 1 turn_busy = 7
+      const envelopes: AgentEventEnvelope[] = [];
+      for (let i = 0; i < 7; i++) {
+        const env = await Promise.race([
+          bus.consumeOutbound(),
+          new Promise<null>((r) => setTimeout(() => r(null), 3000)),
+        ]);
+        if (env === null) break;
+        envelopes.push(env);
+      }
+
+      // 每条消息各一个 turn_end（前端靠此清除等待提示）
+      expect(envelopes.filter((e) => e.event.type === 'turn_end').length).toBe(2);
+      // turn_busy 在最后一个 turn_end 之前
+      const eventTypes = envelopes.map((e) => e.event.type);
+      const busyIdx = eventTypes.indexOf('turn_busy');
+      const lastEndIdx = eventTypes.lastIndexOf('turn_end');
+      expect(busyIdx).toBeGreaterThanOrEqual(0);
+      expect(busyIdx).toBeLessThan(lastEndIdx);
 
       loopPromise.catch(() => {});
     });

@@ -64,6 +64,22 @@ export function createChannelManager(bus: MessageBus): ChannelManager {
       targets.map((ch) => Promise.resolve().then(() => ch.consume(envelope))),
     );
 
+    // §4.12 channel 断开时自动 unbind：consume 失败且 isAlive()=false 的 channel 从该 sessionKey 解绑。
+    // 仅对实现了 isAlive 的 channel（TransportChannel-backed adapter）生效；普通 Channel 保持原行为。
+    for (let i = 0; i < targets.length; i++) {
+      const r = results[i];
+      if (r.status !== 'rejected') continue;
+      const ch = targets[i];
+      if (typeof ch.isAlive === 'function' && !ch.isAlive()) {
+        bindings.get(envelope.sessionKey)?.delete(ch);
+        log.warn('dispatch_unbind_dead_channel', {
+          sessionKey: envelope.sessionKey,
+          channel: ch.name,
+          seq: envelope.seq,
+        });
+      }
+    }
+
     const allFailed = results.every((r) => r.status === 'rejected');
     if (allFailed) {
       addDeadLetter(envelope);
@@ -72,6 +88,10 @@ export function createChannelManager(bus: MessageBus): ChannelManager {
 
   return {
     register(channel: Channel): void {
+      // §4.12 channel type 未知时拒绝注册：name 必须为非空字符串（不做白名单，IM type 留待 0.4.0）
+      if (typeof channel.name !== 'string' || channel.name.length === 0) {
+        throw new Error(`channel_register_rejected: name must be a non-empty string`);
+      }
       channels.set(channel.name, channel);
     },
 

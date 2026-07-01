@@ -1,11 +1,18 @@
 import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import WebSocket from 'ws';
+import { Window } from 'happy-dom';
+import { existsSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   startWebSocketServer,
   type WebSocketServer,
 } from '../../src/access/websocket-server.js';
 import { InMemoryMessageBus } from '../../src/bus/message-bus.js';
 import type { MessageBus, AgentEventEnvelope } from '../../src/bus/types.js';
+import { FileStorage } from '../../src/infrastructure/storage/file-storage.js';
+import { readHistoryForReplay } from '../../src/core/memory/session-repo.js';
+import { createChatPageHtml } from '../../src/access/chat-page.js';
+import type { SessionEntry } from '../../src/core/memory/types.js';
 
 const TEST_PORT = 18770;
 
@@ -310,5 +317,547 @@ describe('WebSocket history replay (Task 8)', () => {
     const seqs = replayMsg.messages.map((m: any) => m.seq).sort((a: number, b: number) => a - b);
     expect(seqs[0]).toBe(5);
     expect(seqs[seqs.length - 1]).toBe(24);
+  });
+});
+
+/**
+ * Task 1 (0.2.2): per-sessionKey ring buffer 分片 + LRU 淘汰
+ * - 单 sessionKey 上限 1000 不变
+ * - 新增全局总条目上限（默认 50000），触发时按 LRU 淘汰最旧 sessionKey 的全部 buffer
+ * - sessionKey refCount 归零时清理对应 buffer
+ * - LRU 淘汰后新 sessionKey 可正常写入
+ */
+describe('Ring buffer sharding + LRU eviction (Task 1, 0.2.2)', () => {
+  let server: WebSocketServer | null = null;
+  let bus: MessageBus;
+  const clients: WebSocket[] = [];
+
+  beforeEach(() => {
+    bus = new InMemoryMessageBus();
+  });
+
+  afterEach(async () => {
+    for (const c of clients) {
+      c.removeAllListeners();
+      c.close();
+    }
+    clients.length = 0;
+    if (server) {
+      await server.stop();
+      server = null;
+    }
+  });
+
+  /** 等待指定毫秒 */
+  function sleep(ms: number): Promise<void> {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
+  /** 等待一条消息或超时返回 null（用于断言"无消息"） */
+  function waitForMessageOrNull(ws: WebSocket, timeoutMs = 300): Promise<any> {
+    return new Promise<any>((resolve) => {
+      const timer = setTimeout(() => resolve(null), timeoutMs);
+      ws.once('message', (data) => {
+        clearTimeout(timer);
+        resolve(JSON.parse(data.toString()));
+      });
+    });
+  }
+
+  it('单 sessionKey 超 1000 截断（per-sessionKey 上限不变）', async () => {
+    server = await startWebSocketServer({ port: TEST_PORT, bus, fallbackSessionKey: 's1' });
+
+    // 广播 1001 条出站事件，应被截断为最近 1000 条
+    for (let i = 0; i < 1001; i++) {
+      server!.broadcast(makeEnvelope(i, 's1', 'message_delta'));
+    }
+
+    // historyLimit=2000 > 1000，可观察到截断后的实际 buffer 大小
+    const { ws, open } = connectWithListener(TEST_PORT, { session: 's1', historyLimit: 2000 });
+    clients.push(ws);
+    const replayPromise = waitForMessage(ws);
+    await open;
+    const replayMsg = await replayPromise;
+
+    expect(replayMsg.type).toBe('replay');
+    // 应回放 1000 条（seq 1..1000，seq 0 被截断）
+    expect(replayMsg.messages.length).toBe(1000);
+    const seqs = replayMsg.messages.map((m: any) => m.seq).sort((a: number, b: number) => a - b);
+    expect(seqs[0]).toBe(1);
+    expect(seqs[seqs.length - 1]).toBe(1000);
+  });
+
+  it('全局 limit 触发 LRU 淘汰最旧 sessionKey 的全部 buffer', async () => {
+    // 使用小全局上限便于测试
+    server = await startWebSocketServer({ port: TEST_PORT, bus, globalBufferLimit: 10 });
+
+    // 向 s1 广播 6 条（older）
+    for (let i = 0; i < 6; i++) {
+      server!.broadcast(makeEnvelope(i, 's1', 'message_delta'));
+    }
+    // 向 s2 广播 6 条（newer），总 12 > 10 → 触发 LRU 淘汰 s1
+    for (let i = 0; i < 6; i++) {
+      server!.broadcast(makeEnvelope(i, 's2', 'message_delta'));
+    }
+
+    // s1 应被整 sessionKey 淘汰，连接 s1 请求历史 — 无 replay 消息
+    // 注意：listener 必须在 open 前注册，避免错过 server 在 identifyUser().then() 中发送的 replay
+    const { ws: ws1, open: ws1Open } = connectWithListener(TEST_PORT, { session: 's1', historyLimit: 20 });
+    clients.push(ws1);
+    const msg1Promise = waitForMessageOrNull(ws1);
+    await ws1Open;
+    const msg1 = await msg1Promise;
+    expect(msg1).toBeNull();
+
+    // s2 应保留，连接 s2 请求历史 — 6 条 replay
+    const { ws: ws2, open: ws2Open } = connectWithListener(TEST_PORT, { session: 's2', historyLimit: 20 });
+    clients.push(ws2);
+    const replayPromise = waitForMessage(ws2);
+    await ws2Open;
+    const replayMsg = await replayPromise;
+    expect(replayMsg.type).toBe('replay');
+    expect(replayMsg.messages.length).toBe(6);
+  });
+
+  it('refCount 归零时清理对应 sessionKey 的 buffer', async () => {
+    server = await startWebSocketServer({ port: TEST_PORT, bus, fallbackSessionKey: 's1' });
+
+    // 连接 s1 并广播事件
+    const ws1 = await connect(TEST_PORT, { session: 's1' });
+    clients.push(ws1);
+    server!.broadcast(makeEnvelope(0, 's1', 'agent_start'));
+    // 等待事件送达 ws1，确保 ringBuffer 已填充
+    await waitForMessage(ws1);
+
+    // 关闭 ws1，refCount 归零，buffer 应被清理
+    ws1.close();
+    await sleep(150);
+
+    // 新连接请求历史 — 应无 replay（buffer 已清理）
+    // listener 必须在 open 前注册，确保若 buffer 未清理能捕获到 replay 并失败
+    const { ws: ws2, open: ws2Open } = connectWithListener(TEST_PORT, { session: 's1', historyLimit: 20 });
+    clients.push(ws2);
+    const msgPromise = waitForMessageOrNull(ws2);
+    await ws2Open;
+    const msg = await msgPromise;
+    expect(msg).toBeNull();
+  });
+
+  it('LRU 淘汰后新 sessionKey 可正常写入', async () => {
+    server = await startWebSocketServer({ port: TEST_PORT, bus, globalBufferLimit: 5 });
+
+    // 触发 LRU 淘汰：s1 写 3 条，s2 写 3 条（总 6 > 5 → 淘汰 s1）
+    for (let i = 0; i < 3; i++) {
+      server!.broadcast(makeEnvelope(i, 's1', 'message_delta'));
+    }
+    for (let i = 0; i < 3; i++) {
+      server!.broadcast(makeEnvelope(i, 's2', 'message_delta'));
+    }
+
+    // 验证 s1 已被 LRU 淘汰（无 replay）
+    const { ws: ws1, open: ws1Open } = connectWithListener(TEST_PORT, { session: 's1', historyLimit: 20 });
+    clients.push(ws1);
+    const msg1Promise = waitForMessageOrNull(ws1);
+    await ws1Open;
+    const msg1 = await msg1Promise;
+    expect(msg1).toBeNull();
+
+    // 写入新 sessionKey s3 — 淘汰后系统仍可正常写入
+    server!.broadcast(makeEnvelope(0, 's3', 'agent_start'));
+
+    // 连接 s3 请求历史 — 应有 1 条 replay
+    const { ws, open } = connectWithListener(TEST_PORT, { session: 's3', historyLimit: 20 });
+    clients.push(ws);
+    const replayPromise = waitForMessage(ws);
+    await open;
+    const replayMsg = await replayPromise;
+    expect(replayMsg.type).toBe('replay');
+    expect(replayMsg.messages.length).toBe(1);
+    expect(replayMsg.messages[0].event.type).toBe('agent_start');
+  });
+});
+
+/**
+ * Task 3 (0.2.2): JSONL 历史持久化 — ring buffer 未命中时从 JSONL 兜底回放
+ *
+ * 行为：
+ * - ring buffer 空时调用 readHistoryForReplay(id, limit) 读 JSONL
+ * - 仅返回 type === 'message'，不返回 tool_call / compaction / working_memory（避免泄漏内部状态）
+ * - 标记 replay: true，前端不重复渲染
+ * - limit 默认 20
+ * - JSONL 文件损坏时增量流式解析 + 自动截断修复（fs.truncateSync）
+ */
+describe('WebSocket history replay — JSONL fallback (Task 3, 0.2.2)', () => {
+  let server: WebSocketServer | null = null;
+  let bus: MessageBus;
+  let storage: FileStorage;
+  const clients: WebSocket[] = [];
+  const TMP_DIR = './tests/.tmp-jsonl-history-replay';
+
+  /** 构造 message 类型 SessionEntry */
+  function makeMessageEntry(
+    role: 'user' | 'assistant' | 'tool',
+    content: string,
+    id: string,
+    timestamp: number,
+  ): SessionEntry {
+    return {
+      type: 'message',
+      id,
+      message: { id, role, content, timestamp },
+      timestamp,
+    };
+  }
+
+  beforeEach(() => {
+    bus = new InMemoryMessageBus();
+    if (existsSync(TMP_DIR)) rmSync(TMP_DIR, { recursive: true, force: true });
+    mkdirSync(TMP_DIR, { recursive: true });
+    storage = new FileStorage(TMP_DIR);
+  });
+
+  afterEach(async () => {
+    for (const c of clients) {
+      c.removeAllListeners();
+      c.close();
+    }
+    clients.length = 0;
+    if (server) {
+      await server.stop();
+      server = null;
+    }
+    if (existsSync(TMP_DIR)) rmSync(TMP_DIR, { recursive: true, force: true });
+  });
+
+  it('ring buffer 空时从 JSONL 读取历史', async () => {
+    const sessionId = '11111111-2222-3333-4444-555555555555';
+    // 写入 3 条消息到 JSONL
+    await storage.appendSession(sessionId, makeMessageEntry('user', 'hello', 'm1', 1000));
+    await storage.appendSession(sessionId, makeMessageEntry('assistant', 'hi there', 'm2', 2000));
+    await storage.appendSession(sessionId, makeMessageEntry('user', 'how are you', 'm3', 3000));
+
+    server = await startWebSocketServer({
+      port: TEST_PORT,
+      bus,
+      fallbackSessionKey: sessionId,
+      readHistoryForReplay: (id, limit) => readHistoryForReplay(storage, id, limit),
+    });
+
+    // ring buffer 为空（服务刚启动），连接请求历史 — 应从 JSONL 读取
+    const { ws, open } = connectWithListener(TEST_PORT, { session: sessionId, historyLimit: 20 });
+    clients.push(ws);
+    const replayPromise = waitForMessage(ws);
+    await open;
+    const replayMsg = await replayPromise;
+
+    expect(replayMsg.type).toBe('replay');
+    expect(replayMsg.replay).toBe(true);
+    expect(Array.isArray(replayMsg.messages)).toBe(true);
+    expect(replayMsg.messages.length).toBe(3);
+    // 验证消息内容
+    expect(replayMsg.messages[0].role).toBe('user');
+    expect(replayMsg.messages[0].content).toBe('hello');
+    expect(replayMsg.messages[1].role).toBe('assistant');
+    expect(replayMsg.messages[1].content).toBe('hi there');
+    expect(replayMsg.messages[2].role).toBe('user');
+    expect(replayMsg.messages[2].content).toBe('how are you');
+    // 每条消息标记 replay: true
+    for (const m of replayMsg.messages) {
+      expect(m.replay).toBe(true);
+    }
+  });
+
+  it('仅返回 message 类型不含 tool_call（避免泄漏内部状态）', async () => {
+    const sessionId = '22222222-3333-4444-5555-666666666666';
+    // 写入混合类型的 entries
+    await storage.appendSession(sessionId, makeMessageEntry('user', 'user msg', 'm1', 1000));
+    await storage.appendSession(sessionId, makeMessageEntry('assistant', 'assistant msg', 'm2', 2000));
+    // assistant with toolCalls — 应被过滤（避免泄漏内部状态）
+    await storage.appendSession(sessionId, {
+      type: 'message',
+      id: 'm3',
+      message: {
+        id: 'm3',
+        role: 'assistant',
+        content: 'calling tool',
+        toolCalls: [{ id: 'tc1', name: 'bash', arguments: '{}' }],
+        timestamp: 3000,
+      },
+      timestamp: 3000,
+    });
+    // tool role message — 应被过滤
+    await storage.appendSession(sessionId, makeMessageEntry('tool', 'tool result', 'm4', 4000));
+    // compaction — 应被过滤
+    await storage.appendSession(sessionId, {
+      type: 'compaction',
+      id: 'c1',
+      summary: 'summary',
+      tokensBefore: 100,
+      firstKeptEntryId: 'm1',
+      timestamp: 5000,
+    });
+    // working_memory — 应被过滤
+    await storage.appendSession(sessionId, {
+      type: 'working_memory',
+      id: 'wm1',
+      keyInfo: 'key info',
+      timestamp: 6000,
+    });
+
+    server = await startWebSocketServer({
+      port: TEST_PORT,
+      bus,
+      fallbackSessionKey: sessionId,
+      readHistoryForReplay: (id, limit) => readHistoryForReplay(storage, id, limit),
+    });
+
+    const { ws, open } = connectWithListener(TEST_PORT, { session: sessionId, historyLimit: 20 });
+    clients.push(ws);
+    const replayPromise = waitForMessage(ws);
+    await open;
+    const replayMsg = await replayPromise;
+
+    expect(replayMsg.type).toBe('replay');
+    // 仅 user + assistant (无 toolCalls)，其余全部过滤
+    expect(replayMsg.messages.length).toBe(2);
+    expect(replayMsg.messages[0].role).toBe('user');
+    expect(replayMsg.messages[0].content).toBe('user msg');
+    expect(replayMsg.messages[1].role).toBe('assistant');
+    expect(replayMsg.messages[1].content).toBe('assistant msg');
+  });
+
+  it('limit 参数生效（仅返回最近 N 条）', async () => {
+    const sessionId = '33333333-4444-5555-6666-777777777777';
+    // 写入 10 条消息
+    for (let i = 0; i < 10; i++) {
+      await storage.appendSession(
+        sessionId,
+        makeMessageEntry('user', `msg-${i}`, `m${i}`, 1000 + i),
+      );
+    }
+
+    server = await startWebSocketServer({
+      port: TEST_PORT,
+      bus,
+      fallbackSessionKey: sessionId,
+      readHistoryForReplay: (id, limit) => readHistoryForReplay(storage, id, limit),
+    });
+
+    // limit=5 — 仅返回最近 5 条（msg-5..msg-9）
+    const { ws, open } = connectWithListener(TEST_PORT, { session: sessionId, historyLimit: 5 });
+    clients.push(ws);
+    const replayPromise = waitForMessage(ws);
+    await open;
+    const replayMsg = await replayPromise;
+
+    expect(replayMsg.type).toBe('replay');
+    expect(replayMsg.messages.length).toBe(5);
+    expect(replayMsg.messages[0].content).toBe('msg-5');
+    expect(replayMsg.messages[4].content).toBe('msg-9');
+  });
+
+  it('JSONL 文件损坏时增量流式解析 + 自动截断修复', async () => {
+    const sessionId = '55555555-6666-7777-8888-999999999999';
+    // 写入损坏的 JSONL：2 条合法 + 1 条破损尾部
+    const validLine1 = JSON.stringify(makeMessageEntry('user', 'msg1', 'm1', 1000));
+    const validLine2 = JSON.stringify(makeMessageEntry('assistant', 'msg2', 'm2', 2000));
+    const brokenLine = '{"type":"message","id":"broken","message":{"id":"broken","role":"user","content":"broken","timestamp":3000},"timestamp":3000';
+    const filePath = join(TMP_DIR, `${sessionId}.jsonl`);
+    writeFileSync(filePath, `${validLine1}\n${validLine2}\n${brokenLine}\n`, 'utf-8');
+
+    server = await startWebSocketServer({
+      port: TEST_PORT,
+      bus,
+      fallbackSessionKey: sessionId,
+      readHistoryForReplay: (id, limit) => readHistoryForReplay(storage, id, limit),
+    });
+
+    const { ws, open } = connectWithListener(TEST_PORT, { session: sessionId, historyLimit: 20 });
+    clients.push(ws);
+    const replayPromise = waitForMessage(ws);
+    await open;
+    const replayMsg = await replayPromise;
+
+    // 仅 2 条合法消息（破损行被流式解析跳过）
+    expect(replayMsg.type).toBe('replay');
+    expect(replayMsg.messages.length).toBe(2);
+    expect(replayMsg.messages[0].content).toBe('msg1');
+    expect(replayMsg.messages[1].content).toBe('msg2');
+
+    // 验证文件已自动截断修复（破损行被移除）
+    const repairedContent = readFileSync(filePath, 'utf-8');
+    expect(repairedContent).not.toContain('broken');
+    expect(repairedContent).toContain('msg1');
+    expect(repairedContent).toContain('msg2');
+  });
+
+  it('ring buffer 有数据时不读 JSONL（性能优先）', async () => {
+    const sessionId = '44444444-5555-6666-7777-888888888888';
+    // 写入 JSONL 历史
+    await storage.appendSession(sessionId, makeMessageEntry('user', 'jsonl msg', 'm1', 1000));
+
+    server = await startWebSocketServer({
+      port: TEST_PORT,
+      bus,
+      fallbackSessionKey: sessionId,
+      readHistoryForReplay: (id, limit) => readHistoryForReplay(storage, id, limit),
+    });
+
+    // 先广播一条出站事件填充 ring buffer
+    server!.broadcast(makeEnvelope(0, sessionId, 'agent_start'));
+
+    // 连接请求历史 — ring buffer 有数据，应走 ring buffer replay 而非 JSONL
+    const { ws, open } = connectWithListener(TEST_PORT, { session: sessionId, historyLimit: 20 });
+    clients.push(ws);
+    const replayPromise = waitForMessage(ws);
+    await open;
+    const replayMsg = await replayPromise;
+
+    expect(replayMsg.type).toBe('replay');
+    // ring buffer replay 返回 outbound 事件（含 event 字段），JSONL replay 返回 role/content
+    expect(replayMsg.messages.length).toBe(1);
+    expect(replayMsg.messages[0].event).toBeDefined();
+    expect(replayMsg.messages[0].event.type).toBe('agent_start');
+    // 不应包含 JSONL 的 'jsonl msg'
+    const contents = replayMsg.messages.map((m: any) => m.content).filter(Boolean);
+    expect(contents).not.toContain('jsonl msg');
+  });
+});
+
+/**
+ * 从脚本中找到 startMarker，从其后第一个 `{` 开始按花括号配平提取整块代码。
+ * 跳过字符串字面量（'...' / "..." / `...`）内的花括号，避免误配平。
+ * 用于可靠提取内联 JS 中某个 if/函数 块，配合真实 DOM 做运行时行为验证。
+ */
+function extractBraceBlock(script: string, startMarker: string): string {
+  const startIdx = script.indexOf(startMarker);
+  if (startIdx === -1) return '';
+  let i = script.indexOf('{', startIdx);
+  if (i === -1) return '';
+  let depth = 0;
+  let inSingle = false, inDouble = false, inBack = false;
+  for (; i < script.length; i++) {
+    const c = script[i];
+    if (inSingle) { if (c === '\\') { i++; continue; } if (c === "'") inSingle = false; continue; }
+    if (inDouble) { if (c === '\\') { i++; continue; } if (c === '"') inDouble = false; continue; }
+    if (inBack) { if (c === '\\') { i++; continue; } if (c === '`') inBack = false; continue; }
+    if (c === "'") { inSingle = true; continue; }
+    if (c === '"') { inDouble = true; continue; }
+    if (c === '`') { inBack = true; continue; }
+    if (c === '{') depth++;
+    else if (c === '}') { depth--; if (depth === 0) return script.slice(startIdx, i + 1); }
+  }
+  return '';
+}
+
+/**
+ * Task 3 (0.2.2): 前端 replay 消息去重 — chat-page.ts 内联 JS 处理 replay 消息
+ *
+ * 行为：replay: true 标记使前端不触发 appendUserMsg 等副作用，直接渲染 div
+ */
+describe('chat-page replay dedup (Task 3, 0.2.2)', () => {
+  it('内联 JS 处理 replay 消息类型', () => {
+    const html = createChatPageHtml('/ws');
+    expect(html).toContain("type === 'replay'");
+  });
+
+  it('replay 消息处理不调用 appendUserMsg（避免副作用，前端去重）', () => {
+    const html = createChatPageHtml('/ws');
+    const replayIdx = html.indexOf("type === 'replay'");
+    expect(replayIdx).toBeGreaterThan(-1);
+    // 取 replay 处理块后的 1000 字符，验证不调用 appendUserMsg
+    const replayBlock = html.slice(replayIdx, replayIdx + 1000);
+    expect(replayBlock).not.toContain('appendUserMsg');
+  });
+
+  it('replay 消息处理直接创建 div 渲染', () => {
+    const html = createChatPageHtml('/ws');
+    const replayIdx = html.indexOf("type === 'replay'");
+    expect(replayIdx).toBeGreaterThan(-1);
+    const replayBlock = html.slice(replayIdx, replayIdx + 1000);
+    // 应直接创建 div 渲染，不通过 appendUserMsg
+    expect(replayBlock).toContain('document.createElement');
+    expect(replayBlock).toContain('appendChild');
+  });
+
+  /**
+   * 运行时行为验证（Task 3 code-review fix）：
+   * 从内联 JS 提取 replay 处理块，在真实 DOM（happy-dom）中执行，
+   * 验证 onmessage 收到 replay 消息后 DOM 中 .msg div 的数量与角色正确。
+   * 这是逻辑验证而非字符串匹配 —— 若 replay 逻辑出错（漏判 replay 标记、
+   * 角色分支颠倒、historyLoading 去重失效等），本测试会失败。
+   */
+  it('replay 消息在真实 DOM 中渲染正确数量与角色的 .msg div（运行时验证）', () => {
+    const html = createChatPageHtml('/ws');
+    // 提取内联 <script> 内容（选取含 replay 处理逻辑的那个 script 块）
+    const scriptMatches = html.match(/<script[^>]*>([\s\S]*?)<\/script>/g);
+    expect(scriptMatches).not.toBeNull();
+    expect(scriptMatches!.length).toBeGreaterThan(0);
+    const marker = "if (msg.type === 'replay' && msg.source === 'jsonl' && msg.messages)";
+    const targetScript = scriptMatches!.find((s) => s.includes(marker)) ?? scriptMatches![scriptMatches!.length - 1];
+    const script = targetScript.replace(/^<script[^>]*>/, '').replace(/<\/script>$/, '');
+
+    // 提取 replay 处理块
+    const block = extractBraceBlock(script, marker);
+    expect(block).toBeTruthy();
+    expect(block).toMatch(/^if\s*\(/);
+
+    // 真实 DOM（happy-dom）
+    const win = new Window();
+    const document = win.document;
+    const messagesEl = document.createElement('div');
+    document.body.appendChild(messagesEl);
+
+    // 真实 escapeHtml（与内联 JS 行为一致），用于验证 innerHTML 转义
+    function escapeHtml(s: string): string {
+      return String(s).replace(/[&<>"']/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+    }
+    let scrollCalled = 0;
+    const scrollBottom = (): void => { scrollCalled++; };
+
+    // 把提取的 if 块包装为函数（块内 return 从该函数返回）
+    const handler = new Function(
+      'msg', 'historyLoading', 'document', 'escapeHtml', 'messagesEl', 'scrollBottom',
+      block,
+    ) as (msg: unknown, historyLoading: boolean, document: Document, escapeHtml: (s: string) => string, messagesEl: HTMLElement, scrollBottom: () => void) => void;
+
+    // replay 消息：3 条应渲染（1 user + 2 assistant），2 条应跳过
+    const replayMsg = {
+      type: 'replay',
+      replay: true,
+      source: 'jsonl',
+      messages: [
+        { replay: true, role: 'user', content: 'hello <b>' },
+        { replay: true, role: 'assistant', content: 'hi there' },
+        { replay: true, role: 'tool', content: 'should be skipped' },        // role 非 user/assistant → 跳过
+        { replay: false, role: 'user', content: 'should be skipped' },       // replay !== true → 跳过
+        { replay: true, role: 'assistant', content: { blocks: [] } as any }, // content 非字符串 → ''
+      ],
+    };
+
+    handler(replayMsg, false, document, escapeHtml, messagesEl, scrollBottom);
+
+    // 验证 DOM 状态：3 个 .msg div（1 user + 2 assistant）
+    expect(messagesEl.querySelectorAll('.msg').length).toBe(3);
+    expect(messagesEl.querySelectorAll('.msg.user').length).toBe(1);
+    expect(messagesEl.querySelectorAll('.msg.assistant').length).toBe(2);
+    // user div 应含转义后的内容与 You 标签（验证 escapeHtml 接入正确）
+    const userDiv = messagesEl.querySelector('.msg.user');
+    expect(userDiv).not.toBeNull();
+    expect(userDiv!.innerHTML).toContain('&lt;b&gt;');
+    expect(userDiv!.innerHTML).toContain('<div class="label">You</div>');
+    // scrollBottom 应被调用一次
+    expect(scrollCalled).toBe(1);
+
+    // historyLoading=true 时应跳过渲染（loadHistory 进行中时的去重保护）
+    const before = messagesEl.querySelectorAll('.msg').length;
+    handler(replayMsg, true, document, escapeHtml, messagesEl, scrollBottom);
+    expect(messagesEl.querySelectorAll('.msg').length).toBe(before);
+
+    // 条件门控运行时验证：source 非 'jsonl'（如 ring buffer replay）不应渲染
+    const ringReplay = { type: 'replay', source: 'ring', messages: [{ replay: true, role: 'user', content: 'x' }] };
+    handler(ringReplay, false, document, escapeHtml, messagesEl, scrollBottom);
+    expect(messagesEl.querySelectorAll('.msg').length).toBe(before);
   });
 });

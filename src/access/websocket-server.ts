@@ -5,6 +5,7 @@ import { createLogger } from '../infrastructure/logger.js';
 import type { MessageBus, InboundMessage, AgentEventEnvelope } from '../bus/types.js';
 import { type UserStorage, UsernameExistsError } from '../infrastructure/user-storage.js';
 import type { StorageAdapter } from '../infrastructure/storage/file-storage.js';
+import type { ReplayMessage } from '../core/memory/session-repo.js';
 
 const log = createLogger('websocket-server');
 
@@ -15,6 +16,8 @@ export const WS_INBOUND_RATE_LIMIT_PER_SEC = 10;
 export const WS_HEARTBEAT_TIMEOUT_MS = 60000;
 export const WS_HEARTBEAT_INTERVAL_MS = 30000;
 export const WS_OUTBOUND_BUFFER_MAX = 1000;
+/** Task 1 (0.2.2): 全局 ring buffer 总条目上限，触发时按 LRU 淘汰最旧 sessionKey 的全部 buffer */
+export const WS_GLOBAL_BUFFER_MAX = 50000;
 const RATE_LIMIT_WINDOW_MS = 1000;
 const RATE_LIMIT_WARN_THRESHOLD = 3;
 
@@ -42,6 +45,14 @@ export interface WebSocketServerOptions {
   sessionStorage?: StorageAdapter;
   /** 会话重命名后触发，用于广播 session_renamed 控制消息到同 session 其他连接 */
   onSessionRenamed?: (sessionId: string, label: string) => void;
+  /** Task 1 (0.2.2): 全局 ring buffer 总条目上限，触发时按 LRU 淘汰最旧 sessionKey 的全部 buffer。默认 50000 */
+  globalBufferLimit?: number;
+  /**
+   * Task 3 (0.2.2): ring buffer 未命中时从 JSONL 读取历史的回调函数。
+   * 仅限 wsServer 调用，不进入 agent 工具表（agent 仍受 data/sessions/ 访问禁令）。
+   * 当 historyLimit 触发历史回放且 ring buffer（inbound + outbound）为空时调用。
+   */
+  readHistoryForReplay?: (sessionId: string, limit: number) => Promise<ReplayMessage[]>;
 }
 
 export interface WebSocketServer {
@@ -77,12 +88,89 @@ interface BufferedInbound {
 /** Task 4: 共享 authToken 的固定 userId */
 const SHARED_USER_ID = '__shared__';
 
+/** Task 4 (0.2.2): HttpOnly cookie 名称，存储用户 token */
+const AUTH_COOKIE_NAME = 'aptbot_token';
+/** Task 4 (0.2.2): cookie Max-Age 30 天（秒） */
+const AUTH_COOKIE_MAX_AGE = 2592000;
+
 /** Task 4 M1: 常量时间比较 authToken，防时序攻击 */
 function safeEqualAuthToken(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
   const bufB = Buffer.from(b);
   if (bufA.length !== bufB.length) return false;
   return timingSafeEqual(bufA, bufB);
+}
+
+/** Task 4 (0.2.2): 解析 Cookie 头为 name→value 映射 */
+function parseCookies(cookieHeader: string | undefined): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (!cookieHeader) return result;
+  for (const part of cookieHeader.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx === -1) continue;
+    const name = part.slice(0, idx).trim();
+    const value = part.slice(idx + 1).trim();
+    if (name) result[name] = decodeURIComponent(value);
+  }
+  return result;
+}
+
+/** Task 4 (0.2.2): 判断请求是否为 HTTPS（req.socket.encrypted 或反代 X-Forwarded-Proto） */
+function isHttpsRequest(req: IncomingMessage): boolean {
+  return (req.socket as { encrypted?: boolean }).encrypted === true
+    || req.headers['x-forwarded-proto'] === 'https';
+}
+
+/**
+ * Task 4 (0.2.2): 构建 Set-Cookie 值，HTTPS 时附加 Secure 属性。
+ *
+ * Secure 属性仅在 HTTPS 下附加：浏览器会拒绝在 HTTP 连接上设置带 Secure 的 cookie，
+ * 这会导致本地 localhost（http://）开发环境下 cookie 无法写入。因此 Secure 必须条件附加。
+ */
+function buildAuthCookieValue(token: string, isHttps: boolean): string {
+  const parts = [
+    `${AUTH_COOKIE_NAME}=${token}`,
+    'HttpOnly',
+    'SameSite=Strict',
+    'Path=/',
+    `Max-Age=${AUTH_COOKIE_MAX_AGE}`,
+  ];
+  if (isHttps) parts.push('Secure');
+  return parts.join('; ');
+}
+
+/** Task 4 (0.2.2): 构建清除 cookie 的 Set-Cookie 值（Max-Age=0） */
+function buildClearCookieValue(isHttps: boolean): string {
+  const parts = [
+    `${AUTH_COOKIE_NAME}=`,
+    'HttpOnly',
+    'SameSite=Strict',
+    'Path=/',
+    'Max-Age=0',
+  ];
+  if (isHttps) parts.push('Secure');
+  return parts.join('; ');
+}
+
+/**
+ * Task 4 (0.2.2): 从请求中提取 token，优先级 cookie > Authorization: Bearer > URL ?token=
+ * 用于 HTTP API 端点（/api/me 等）。
+ */
+function extractAuthToken(req: IncomingMessage): string | null {
+  // 1. Cookie（最高优先级，HttpOnly 防 XSS）
+  const cookieHeader = req.headers.cookie;
+  if (cookieHeader) {
+    const cookies = parseCookies(cookieHeader);
+    if (cookies[AUTH_COOKIE_NAME]) return cookies[AUTH_COOKIE_NAME];
+  }
+  // 2. Authorization: Bearer（兼容旧客户端 / 跨设备链接）
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    return authHeader.slice('Bearer '.length);
+  }
+  // 3. URL ?token=（兼容旧客户端）
+  const url = new URL(req.url ?? '', 'http://localhost');
+  return url.searchParams.get('token');
 }
 
 /**
@@ -139,7 +227,8 @@ async function identifyUser(
  */
 export function startWebSocketServer(options: WebSocketServerOptions): Promise<WebSocketServer> {
   return new Promise((resolve, reject) => {
-    const { port, bus, authToken, serveHtml, serveDemoHtml, host, userStorage, fallbackSessionKey, getCurrentSessionId, onSessionBound, onSessionUnbound, sessionStorage, onSessionRenamed } = options;
+    const { port, bus, authToken, serveHtml, serveDemoHtml, host, userStorage, fallbackSessionKey, getCurrentSessionId, onSessionBound, onSessionUnbound, sessionStorage, onSessionRenamed, globalBufferLimit, readHistoryForReplay } = options;
+    const globalLimit = globalBufferLimit ?? WS_GLOBAL_BUFFER_MAX;
     const httpServer = createServer((req, res) => {
       const pathname = new URL(req.url ?? '/', `http://localhost:${port}`).pathname;
 
@@ -183,6 +272,10 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
     const inboundBuffers = new Map<string, BufferedInbound[]>();
     // Task 5 C2 fix: 跟踪每个 sessionKey 的活跃连接数，归零时触发 onSessionUnbound
     const sessionRefCount = new Map<string, number>();
+    // Task 1 (0.2.2): LRU 排序依据 — 最近一次写入或读取时间。
+    // Map 的迭代顺序为插入顺序；每次 touch 通过 delete + set 将 sessionKey 移到末尾（最新），
+    // 迭代器首个元素即为最旧（LRU 淘汰候选）。
+    const lastAccess = new Map<string, number>();
 
     function getRingBuffer(sessionKey: string): BufferedEvent[] {
       let buf = ringBuffers.get(sessionKey);
@@ -203,6 +296,56 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
       return buf;
     }
 
+    /** Task 1 (0.2.2): 更新 sessionKey 的 LRU 最近访问时间（写入或读取时调用） */
+    function touchSession(sessionKey: string): void {
+      // delete + set 把 sessionKey 移到 Map 迭代末尾（最新），保证迭代器首元素为最旧
+      lastAccess.delete(sessionKey);
+      lastAccess.set(sessionKey, Date.now());
+    }
+
+    /** Task 1 (0.2.2): 计算全局 ring buffer 总条目数（outbound + inbound） */
+    function getGlobalBufferCount(): number {
+      let total = 0;
+      for (const buf of ringBuffers.values()) total += buf.length;
+      for (const buf of inboundBuffers.values()) total += buf.length;
+      return total;
+    }
+
+    /**
+     * Task 1 (0.2.2): 淘汰最旧 sessionKey 的全部 buffer（outbound + inbound）。
+     * exclude 参数防止淘汰刚写入的 sessionKey（保证写入不丢失）。
+     * 返回被淘汰的 sessionKey，无可淘汰时返回 null。
+     */
+    function evictOldestSession(exclude?: string): string | null {
+      for (const key of lastAccess.keys()) {
+        if (key === exclude) continue;
+        ringBuffers.delete(key);
+        inboundBuffers.delete(key);
+        lastAccess.delete(key);
+        log.warn('LRU evicted session buffer (global limit exceeded)', { sessionKey: key });
+        return key;
+      }
+      return null;
+    }
+
+    /**
+     * Task 1 (0.2.2): 全局上限强制淘汰。循环淘汰最旧 sessionKey 直至总条目数 ≤ limit。
+     * exclude 防止淘汰刚写入的 sessionKey；若无可淘汰（仅剩 exclude 自身）则记 warn 并停止。
+     */
+    function enforceGlobalLimit(exclude?: string): void {
+      while (getGlobalBufferCount() > globalLimit) {
+        const evicted = evictOldestSession(exclude);
+        if (!evicted) {
+          log.warn('global buffer limit exceeded but no evictable session', {
+            total: getGlobalBufferCount(),
+            limit: globalLimit,
+            exclude,
+          });
+          break;
+        }
+      }
+    }
+
     function incSessionRef(sessionKey: string): void {
       const c = sessionRefCount.get(sessionKey) ?? 0;
       sessionRefCount.set(sessionKey, c + 1);
@@ -216,6 +359,8 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
         ringBuffers.delete(sessionKey);
         // Task 8: 清理 inboundBuffer
         inboundBuffers.delete(sessionKey);
+        // Task 1 (0.2.2): 清理 LRU 跟踪
+        lastAccess.delete(sessionKey);
         // 通知 server.ts 解绑 channelManager
         if (onSessionUnbound) {
           try {
@@ -256,7 +401,10 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
 
     wss.on('connection', (ws, req) => {
       const url = new URL(req.url ?? '', `http://localhost:${port}`);
-      const token = url.searchParams.get('token');
+      // Task 4 (0.2.2): token 优先级 URL ?token= > cookie > sessionStorage（服务端不可读）
+      const urlToken = url.searchParams.get('token');
+      const cookieToken = parseCookies(req.headers.cookie)[AUTH_COOKIE_NAME] ?? null;
+      const token = urlToken ?? cookieToken;
       // Task 5: 解析 ?session=，未提供时使用 fallbackSessionKey
       const sessionKey = url.searchParams.get('session') ?? fallbackSessionKey ?? randomUUID();
 
@@ -377,10 +525,30 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
           // Task 8: 历史回放 — 合并入站+出站消息，限制数量
           const parsed = parseInt(historyLimitStr, 10);
           const limit = Number.isNaN(parsed) || parsed <= 0 ? 20 : parsed;
-          replayHistory(ws, getInboundBuffer(sessionKey), getRingBuffer(sessionKey), limit);
+          // Task 1 (0.2.2): 读取访问更新 LRU（最近读取时间）
+          touchSession(sessionKey);
+          const inboundBuffer = getInboundBuffer(sessionKey);
+          const outboundBuffer = getRingBuffer(sessionKey);
+          // Task 3 (0.2.2): ring buffer 未命中时（服务重启后清空）从 JSONL 兜底回放
+          // 仅当 inbound + outbound buffer 均为空且提供 readHistoryForReplay 回调时调用
+          // 性能优先：ring buffer 有数据时不读 JSONL
+          if (inboundBuffer.length === 0 && outboundBuffer.length === 0 && readHistoryForReplay) {
+            try {
+              const messages = await readHistoryForReplay(sessionKey, limit);
+              if (messages.length > 0) {
+                safeSend(ws, { type: 'replay', replay: true, source: 'jsonl', messages });
+              }
+            } catch (err) {
+              log.warn('readHistoryForReplay failed', { error: String(err), sessionKey });
+            }
+          } else {
+            replayHistory(ws, inboundBuffer, outboundBuffer, limit);
+          }
         } else if (lastEventSeqStr !== null) {
           const lastEventSeq = parseInt(lastEventSeqStr, 10);
           if (!Number.isNaN(lastEventSeq)) {
+            // Task 1 (0.2.2): 读取访问更新 LRU
+            touchSession(sessionKey);
             replayBufferedEvents(ws, getRingBuffer(sessionKey), lastEventSeq);
           }
         }
@@ -391,12 +559,19 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
         });
 
         ws.on('message', (data) => {
-          handleMessage(ws, state, data as Buffer, bus, inboundBuffers);
+          handleMessage(ws, state, data as Buffer, bus, inboundBuffers, (sk) => {
+            // Task 1 (0.2.2): 入站写入后更新 LRU + 强制全局上限淘汰
+            touchSession(sk);
+            enforceGlobalLimit(sk);
+          });
         });
 
         // 重放缓冲的早期消息
         for (const msg of earlyMessages) {
-          handleMessage(ws, state, msg, bus, inboundBuffers);
+          handleMessage(ws, state, msg, bus, inboundBuffers, (sk) => {
+            touchSession(sk);
+            enforceGlobalLimit(sk);
+          });
         }
 
         ws.on('close', () => {
@@ -464,6 +639,7 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
           ringBuffers.clear();
           inboundBuffers.clear();
           sessionRefCount.clear();
+          lastAccess.clear();
           wss.close();
           await new Promise<void>((r) => httpServer.close(() => r()));
         },
@@ -478,6 +654,9 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
           if (ringBuffer.length > WS_OUTBOUND_BUFFER_MAX) {
             ringBuffer.shift();
           }
+          // Task 1 (0.2.2): 写入后更新 LRU，并强制全局上限淘汰（exclude 当前 sessionKey 防止淘汰自身）
+          touchSession(envelope.sessionKey);
+          enforceGlobalLimit(envelope.sessionKey);
           // 广播 {type:'event', seq, event} wrapper 给 sessionKey 匹配的客户端
           const payload = JSON.stringify({ type: 'event', seq: envelope.seq, event: envelope.event });
           for (const [ws, state] of connections) {
@@ -593,6 +772,8 @@ function handleMessage(
   data: Buffer,
   bus: MessageBus,
   inboundBuffers: Map<string, BufferedInbound[]>,
+  /** Task 1 (0.2.2): 入站写入后回调，用于更新 LRU + 强制全局上限淘汰 */
+  onInboundBuffered?: (sessionKey: string) => void,
 ): void {
   let parsed: { type?: string; content?: string };
   try {
@@ -638,6 +819,8 @@ function handleMessage(
       if (inboundBuffer.length > WS_OUTBOUND_BUFFER_MAX) {
         inboundBuffer.shift();
       }
+      // Task 1 (0.2.2): 入站写入后更新 LRU + 强制全局上限淘汰
+      onInboundBuffered?.(state.sessionKey);
     }
     const inbound: InboundMessage = {
       channel: 'websocket',
@@ -679,6 +862,15 @@ async function handleAuthApi(
     res.end(JSON.stringify(body));
   };
 
+  /** Task 4 (0.2.2): 发送 JSON 并附加 Set-Cookie 头 */
+  const sendJsonWithCookie = (status: number, body: unknown, cookieValue: string) => {
+    res.writeHead(status, {
+      'content-type': 'application/json; charset=utf-8',
+      'set-cookie': cookieValue,
+    });
+    res.end(JSON.stringify(body));
+  };
+
   try {
     if (pathname === '/api/register' && req.method === 'POST') {
       let body;
@@ -696,7 +888,9 @@ async function handleAuthApi(
       }
       try {
         const user = await userStorage.register(validation.username, validation.password);
-        sendJson(200, { userId: user.userId, username: user.username, token: user.token });
+        // Task 4 (0.2.2): 设置 HttpOnly cookie（双写：cookie + body.token 供前端 sessionStorage fallback）
+        sendJsonWithCookie(200, { userId: user.userId, username: user.username, token: user.token },
+          buildAuthCookieValue(user.token, isHttpsRequest(req)));
       } catch (err) {
         // Task 3 I2: 区分 409 与 500
         if (err instanceof UsernameExistsError) {
@@ -727,17 +921,25 @@ async function handleAuthApi(
         sendJson(401, { error: 'invalid credentials' });
         return;
       }
-      sendJson(200, { userId: user.userId, username: user.username, token: user.token });
+      // Task 4 (0.2.2): 设置 HttpOnly cookie（双写：cookie + body.token 供前端 sessionStorage fallback）
+      sendJsonWithCookie(200, { userId: user.userId, username: user.username, token: user.token },
+        buildAuthCookieValue(user.token, isHttpsRequest(req)));
+      return;
+    }
+
+    // Task 4 (0.2.2): POST /api/logout — 清除 cookie（HttpOnly 无法被 JS 清除，必须服务端设置 Max-Age=0）
+    if (pathname === '/api/logout' && req.method === 'POST') {
+      sendJsonWithCookie(200, { ok: true }, buildClearCookieValue(isHttpsRequest(req)));
       return;
     }
 
     if (pathname === '/api/me' && req.method === 'GET') {
-      const authHeader = req.headers.authorization;
-      if (!authHeader?.startsWith('Bearer ')) {
+      // Task 4 (0.2.2): 优先读 cookie，其次 Authorization: Bearer，再次 URL ?token=
+      const token = extractAuthToken(req);
+      if (!token) {
         sendJson(401, { error: 'missing token' });
         return;
       }
-      const token = authHeader.slice('Bearer '.length);
       const user = await userStorage.findByToken(token);
       if (!user) {
         sendJson(401, { error: 'invalid token' });
@@ -751,11 +953,8 @@ async function handleAuthApi(
     const messagesMatch = pathname.match(/^\/api\/sessions\/([a-f0-9-]{36})\/messages$/);
     if (messagesMatch && req.method === 'GET') {
       const sessionId = messagesMatch[1];
-      const url = new URL(req.url ?? '', `http://localhost`);
-      const queryToken = url.searchParams.get('token');
-      const authHeader = req.headers.authorization;
-      const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : null;
-      const token = queryToken ?? bearerToken;
+      // Task 4 (0.2.2): cookie > Bearer > URL ?token=
+      const token = extractAuthToken(req);
       if (!token) {
         sendJson(401, { error: 'missing token' });
         return;
@@ -792,11 +991,8 @@ async function handleAuthApi(
         sendJson(405, { error: 'method not allowed' });
         return;
       }
-      const url = new URL(req.url ?? '', 'http://localhost');
-      const queryToken = url.searchParams.get('token');
-      const authHeader = req.headers.authorization;
-      const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : null;
-      const token = queryToken ?? bearerToken;
+      // Task 4 (0.2.2): cookie > Bearer > URL ?token=
+      const token = extractAuthToken(req);
       if (!token) {
         sendJson(401, { error: 'missing token' });
         return;
@@ -849,11 +1045,8 @@ async function handleAuthApi(
 
     // Task 10: GET /api/sessions — 返回当前用户的 session 列表（按 userId 过滤）
     if (pathname === '/api/sessions' && req.method === 'GET') {
-      const url = new URL(req.url ?? '', `http://localhost`);
-      const queryToken = url.searchParams.get('token');
-      const authHeader = req.headers.authorization;
-      const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : null;
-      const token = queryToken ?? bearerToken;
+      // Task 4 (0.2.2): cookie > Bearer > URL ?token=
+      const token = extractAuthToken(req);
       if (!token) {
         sendJson(401, { error: 'missing token' });
         return;

@@ -1,5 +1,12 @@
 import type { StorageAdapter } from '../../infrastructure/storage/file-storage.js';
 import { inheritWorkingMemory } from '../../core/memory/working-memory.js';
+import {
+  handleSessionAttr,
+  formatAllAttrs,
+  formatSingleAttr,
+  listValidAttrNames,
+  type SessionAttrHandler,
+} from './session-attrs.js';
 
 export interface Command {
   readonly name: string;
@@ -21,6 +28,10 @@ export interface CommandContext {
   storage: StorageAdapter;
   /** Task 6: 当前用户 ID，用于 session 归属过滤；匿名用户为临时 UUID */
   userId?: string;
+  /** Task 11: /session 动态属性操作句柄（通常为 AgentSession） */
+  sessionAttrs?: SessionAttrHandler;
+  /** Task 11: 数据目录，/session 文件逃生口写入 `<dataDir>/session-attrs/<sessionId>/` */
+  dataDir?: string;
 }
 
 export interface CommandRegistry {
@@ -54,6 +65,7 @@ export function createCommandRegistry(): CommandRegistry {
   register(helpCommand);
   register(modelCommand);
   register(sessionCommand);
+  register(sessionResetCommand);
   register(continueCommand);
   register(exitCommand);
   register(sessionsCommand);
@@ -113,7 +125,8 @@ const helpCommand: Command = {
       '  /clear        - Clear the current conversation',
       '  /help         - Show this help message',
       '  /model [name] - Show or set the current model',
-      '  /session      - Show session information',
+      '  /session      - Show or set session dynamic attributes',
+      '  /session.reset - Reset all session dynamic attributes',
       '  /sessions     - List all sessions',
       '  /resume <id>  - Resume a specific session',
       '  /continue <id> - Continue from a previous session',
@@ -136,11 +149,68 @@ const modelCommand: Command = {
   },
 };
 
+/**
+ * §4.11 / design-notes §12.4 /session 动态属性命令。
+ *
+ * 用法：
+ *   /session                          — 列出所有白名单属性当前值
+ *   /session <attr>                   — 读取单个属性当前值
+ *   /session <attr> <value>           — 设置白名单属性（JSON 自动解析 + 类型/范围校验）
+ *   /session <non-whitelist> <value>  — 文件逃生口：写入 `<dataDir>/session-attrs/<sessionId>/<key>`
+ *   /session.reset                    — 重置所有动态属性（清除内存态）
+ *
+ * 白名单 5 项：temperature / maxTokens / reasoningEffort / thinkingType / thinkingBudgetTokens
+ * 属性内存态存储（重启还原），MixinProvider 自动广播到所有子 provider。
+ */
 const sessionCommand: Command = {
   name: 'session',
-  description: 'Show session information',
+  description: 'Show or set session dynamic attributes',
+  async execute(args, ctx) {
+    if (!ctx.sessionAttrs) {
+      return { output: `Session: ${ctx.sessionId} (no attr handler)` };
+    }
+    const handler = ctx.sessionAttrs;
+
+    // /session（无参数）— 列出所有属性
+    if (args.length === 0) {
+      return { output: formatAllAttrs(handler) };
+    }
+
+    const key = args[0];
+
+    // /session <attr>（无值）— 读取单个属性
+    if (args.length === 1) {
+      const formatted = formatSingleAttr(handler, key);
+      if (formatted !== undefined) {
+        return { output: formatted };
+      }
+      // 非白名单属性 — 仅提示可用属性
+      return {
+        output: `❌ unsupported attribute: ${key}\navailable: ${listValidAttrNames().join(', ')}`,
+      };
+    }
+
+    // /session <attr> <value...> — 设置属性（白名单校验 / 非白名单走文件逃生口）
+    const rawValue = args.slice(1).join(' ');
+    const dataDir = ctx.dataDir ?? '.';
+    const output = await handleSessionAttr(handler, key, rawValue, ctx.sessionId, dataDir);
+    return { output };
+  },
+};
+
+/**
+ * §4.11 /session.reset — 清除所有动态属性（内存态），回退到 provider 默认。
+ * 注意：仅影响当前 session，不影响其他 session。
+ */
+const sessionResetCommand: Command = {
+  name: 'session.reset',
+  description: 'Reset all session dynamic attributes',
   async execute(_args, ctx) {
-    return { output: `Session: ${ctx.sessionId}` };
+    if (!ctx.sessionAttrs) {
+      return { output: 'No attr handler available.' };
+    }
+    ctx.sessionAttrs.resetProviderAttrs();
+    return { output: '✅ all session attributes reset to defaults.' };
   },
 };
 
@@ -259,7 +329,8 @@ const labelCommand: Command = {
       return { output: 'Usage: /label <name>' };
     }
     const label = args.join(' ').slice(0, LABEL_MAX_LENGTH);
-    await ctx.storage.updateSessionLabel(ctx.sessionId, label);
+    // §4.10 Task 10: 手动 /label 设置 labelSource='custom'，永久跳过后续自动摘要
+    await ctx.storage.updateSessionLabel(ctx.sessionId, label, 'custom');
     return { output: `Session label set: ${label}` };
   },
 };

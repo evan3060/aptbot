@@ -1,12 +1,15 @@
-import { loadConfig, resolveApiKey } from './infrastructure/config-loader.js';
+import { loadConfig, resolveApiKey, ConfigLoader, parseAptbotConfig, DEFAULT_CONFIG_PATH } from './infrastructure/config-loader.js';
 import { FileStorage, type StorageAdapter } from './infrastructure/storage/file-storage.js';
 import { createUserStorage, type UserStorage } from './infrastructure/user-storage.js';
-import type { ProviderConfig } from './infrastructure/config-types.js';
+import type { AptbotConfig, ProviderConfig } from './infrastructure/config-types.js';
 import { createToolRegistry } from './core/tool/types.js';
 import { bashTool } from './core/tool/tools/bash.js';
-import { readTool } from './core/tool/tools/read.js';
+import { createReadTool } from './core/tool/tools/read.js';
 import { editTool } from './core/tool/tools/edit.js';
 import { createUpdateWorkingMemoryTool } from './core/tool/tools/update-working-memory.js';
+import { createSkillState, type SkillState } from './core/skills/loader.js';
+import { formatSkillsForSystemPrompt } from './core/skills/system-prompt.js';
+import { createNodeExecutionEnv } from './core/skills/env.js';
 import { createProvider } from './core/provider/models.js';
 import type { ProviderDeclaration } from './core/provider/models.js';
 import type { Provider, Model } from './core/provider/types.js';
@@ -21,6 +24,7 @@ import type { Channel, ChannelCapability, AgentEventEnvelope } from './bus/types
 import { startWebSocketServer, type WebSocketServer } from './access/websocket-server.js';
 import { createChatPageHtml } from './access/chat-page.js';
 import { createLandingPageHtml } from './access/landing-page.js';
+import { readHistoryForReplay } from './core/memory/session-repo.js';
 import {
   installProcessHandlers,
   startMemoryMonitor,
@@ -29,6 +33,8 @@ import {
 import { createLogger } from './infrastructure/logger.js';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 const FULL_CAP: ChannelCapability = {
   streaming: true,
@@ -116,18 +122,68 @@ export async function resolveSessionId(storage: StorageAdapter): Promise<string>
   return randomUUID();
 }
 
+/**
+ * §4.9 L1 索引：拼装 system prompt = base + skills 索引段。
+ * - skillState 为 undefined（创建失败降级）时仅返回 base
+ * - formatSkillsForSystemPrompt 失败时降级到 base（不阻塞 server 启动 / rebuild）
+ * - 热重载后调用方传入 reloaded skillState 以拿到最新索引
+ */
+function buildSystemPrompt(skillState: SkillState | undefined): string {
+  const base = `You are aptbot, a personal learning and work assistant.
+
+Important constraints:
+- You are running inside a server process. NEVER execute commands that would kill, stop, or restart the server process (e.g., kill, pkill, killall, pnpm kill, shutdown, reboot). If asked to restart/stop the server, explain that you cannot do this and the user should do it manually.
+- NEVER modify the server's own source code or configuration files (under /Users/evan/projects/aptbot/src/, config/, package.json) while the server is running.
+- NEVER read or access files under the data/sessions/ directory. These are internal session storage files. Session history is managed automatically by the system (via /resume, /continue commands). Do not attempt to read, cat, or parse them.
+- When bash command output is long, summarize the key information instead of pasting everything.`;
+  if (!skillState) return base;
+  try {
+    const skillsSection = formatSkillsForSystemPrompt([...skillState.skills]);
+    if (!skillsSection) return base;
+    return `${base}\n\n${skillsSection}`;
+  } catch (e) {
+    log.warn('format skills for system prompt failed', { error: String(e) });
+    return base;
+  }
+}
+
 export async function startServer(config: ServerConfig): Promise<ServerHandle> {
   log.info('starting server', { port: config.port, deploy: config.deploy });
 
   const aptbotConfig = await loadConfig();
+  // §4.6 Config 热重载：ConfigLoader 在 beforeTurn 检查 mtimeNs 变化（懒加载）
+  const configLoader = new ConfigLoader<AptbotConfig>(
+    process.env.APTBOT_CONFIG ?? DEFAULT_CONFIG_PATH,
+    parseAptbotConfig,
+  );
   const sessionsDir = `${aptbotConfig.dataDir}/sessions`;
   const storage = new FileStorage(sessionsDir);
   // Task 5: 用户存储 — 始终创建，供 /api/register /api/login /api/me 与 WS 认证使用
   const userStorage: UserStorage = createUserStorage(aptbotConfig.dataDir);
 
+  // §4.8 Skills 系统：workspace (~/.aptbot/skills/) + builtin (src/skills/) 双层加载
+  // workspace 优先级高（覆盖 builtin 同名），builtin 兜底
+  // 降级：SkillState 创建失败时 skillState=undefined，server 仍可启动（无 skills 索引）
+  const skillEnv = createNodeExecutionEnv(process.cwd());
+  const workspaceSkillsDir = path.join(os.homedir(), '.aptbot', 'skills');
+  const builtinSkillsDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'skills');
+  let skillState: SkillState | undefined;
+  try {
+    skillState = await createSkillState(skillEnv, [workspaceSkillsDir, builtinSkillsDir]);
+    log.info('skills loaded', {
+      count: skillState.skills.length,
+      workspace: workspaceSkillsDir,
+      builtin: builtinSkillsDir,
+    });
+  } catch (e) {
+    log.warn('skill state creation failed, continuing without skills', { error: String(e) });
+    skillState = undefined;
+  }
+
   const registry = createToolRegistry();
   registry.register(bashTool);
-  registry.register(readTool);
+  // §12.5 read_file 特判：传入 skillState 后，读取 skill 文件时更新 lastUsed（联动 L1 索引重排序）
+  registry.register(createReadTool({ skillState }));
   registry.register(editTool);
 
   const { provider: providerDecl, providerConfig, model } = findModelFromConfig(aptbotConfig);
@@ -144,13 +200,8 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
   const sessionId = await resolveSessionId(storage);
   registry.register(createUpdateWorkingMemoryTool(storage, sessionId));
 
-  const systemPrompt = `You are aptbot, a personal learning and work assistant.
-
-Important constraints:
-- You are running inside a server process. NEVER execute commands that would kill, stop, or restart the server process (e.g., kill, pkill, killall, pnpm kill, shutdown, reboot). If asked to restart/stop the server, explain that you cannot do this and the user should do it manually.
-- NEVER modify the server's own source code or configuration files (under /Users/evan/projects/aptbot/src/, config/, package.json) while the server is running.
-- NEVER read or access files under the data/sessions/ directory. These are internal session storage files. Session history is managed automatically by the system (via /resume, /continue commands). Do not attempt to read, cat, or parse them.
-- When bash command output is long, summarize the key information instead of pasting everything.`;
+  // §4.9 L1 索引注入 system prompt（skillState 降级时仅 base）
+  const systemPrompt = buildSystemPrompt(skillState);
 
   const session = createAgentSession({
     storage,
@@ -200,6 +251,9 @@ Important constraints:
     onSessionRenamed: (sid, label) => {
       wsServer.sendToSessionKey(sid, { type: 'session_renamed', sessionId: sid, label });
     },
+    // Task 3 (0.2.2): ring buffer 未命中时从 JSONL 兜底回放历史
+    // 仅限 wsServer 调用，agent 仍受 data/sessions/ 访问禁令
+    readHistoryForReplay: (id, limit) => readHistoryForReplay(storage, id, limit),
   });
 
   // C8 修复：注册 WebSocket Channel 并绑定 sessionKey，使出站事件能路由到 WS 客户端
@@ -213,6 +267,7 @@ Important constraints:
     if (shuttingDown) return;
     shuttingDown = true;
     log.info('shutting down server');
+    configLoader.stop();
     await wsServer.stop();
     await channelManager.stopAll();
   };
@@ -230,16 +285,62 @@ Important constraints:
   const commandRegistry = createCommandRegistry();
   const slashHandler: SlashCommandHandler = {
     registry: commandRegistry,
-    ctx: { sessionId, model: model.id, storage },
+    ctx: {
+      sessionId,
+      model: model.id,
+      storage,
+      // Task 11: /session 动态属性句柄 + 文件逃生口数据目录
+      sessionAttrs: session,
+      dataDir: aptbotConfig.dataDir,
+    },
   };
 
+  // §4.6 Config 热重载 rebuild：用新配置重建 provider/model/session（下个 turn 生效）
+  // 当前 turn 不受影响（sessionRef.current 在 afterTurn 才被替换）
+  // §4.9 Skills 热重载联动：rebuild 前 await skillState.reload()，新 session 拿到最新 skills
+  const rebuildSession: (newConfig: AptbotConfig) => Promise<void> = async (newConfig) => {
+    try {
+      // Skills 热重载优先于 session 重建（失败降级到旧 skills，不阻塞 provider/model rebuild）
+      if (skillState) {
+        try {
+          await skillState.reload();
+        } catch (e) {
+          log.warn('skills reload failed, keeping old skills', { error: String(e) });
+        }
+      }
+      const { provider: newDecl, providerConfig: newPc, model: newModel } = findModelFromConfig(newConfig);
+      const newApiKey = resolveApiKey(newPc);
+      if (!newApiKey) {
+        log.error('hot-reload: API key not resolved, keeping old config', { provider: newDecl.id });
+        return;
+      }
+      const newProvider = createProvider(newDecl, newApiKey);
+      const newSystemPrompt = buildSystemPrompt(skillState);
+      sessionRef.current = createAgentSession({
+        storage,
+        sessionId: sessionRef.currentKey,
+        agentLoop,
+        provider: newProvider,
+        model: newModel,
+        tools: registry,
+        systemPrompt: newSystemPrompt,
+      });
+      if (slashHandler) slashHandler.ctx.model = newModel.id;
+      log.info('config hot-reloaded', { model: newModel.id, provider: newDecl.id });
+    } catch (e) {
+      log.error('hot-reload rebuild failed, keeping old config', { error: String(e) });
+    }
+  };
+
+  const configReload: ConfigReload = { loader: configLoader, rebuild: rebuildSession };
+
   void runInboundLoop(bus, sessionRef, watchdog, slashHandler, sessionFactory, (oldKey, newId) => {
-    // Task 6: /new 或 /resume 后，向旧 sessionKey 的 connection 推送 session_changed
+    // /new 或 /resume 后，向旧 sessionKey 的 connection 推送 session_changed
     // 客户端收到后更新 localStorage 并用 ?session=newId 重连
     log.info('onNewSession: sending session_changed', { oldKey: oldKey.slice(0, 8), newId: newId.slice(0, 8) });
     channelManager.bindSession(newId, wsChannel);
     wsServer.sendToSessionKey(oldKey, { type: 'session_changed', sessionId: newId });
-  });
+  }, configReload);
   void channelManager.runDispatchLoop();
 
   log.info('server started', { port: config.port });
@@ -275,6 +376,18 @@ export interface SessionRef {
  * SessionFactory：创建新 session 的工厂函数。
  */
 export type SessionFactory = (sessionId: string) => ReturnType<typeof createAgentSession>;
+
+/**
+ * §4.6/§12.2 Config 热重载句柄：runInboundLoop 在 beforeTurn 检查 mtimeNs 变化，
+ * 变化时重建 session（当前 turn 用旧快照，下个 turn 用新配置）。
+ * 校验失败降级到旧配置 + 发 error 事件到 channel。
+ */
+export interface ConfigReload {
+  readonly loader: ConfigLoader<AptbotConfig>;
+  /** 用新配置重建 provider/model/session（下个 turn 生效）。
+   *  返回 void | Promise<void>：允许同步或异步 rebuild（§4.9 Skills 热重载联动需要 async reload） */
+  rebuild: (config: AptbotConfig) => void | Promise<void>;
+}
 
 /**
  * 将 CommandResult 转换为展示给用户的消息文本。
@@ -317,8 +430,10 @@ export async function runInboundLoop(
   watchdog: { markTurnStart: () => void; markTurnEnd: () => void },
   slashHandler?: SlashCommandHandler,
   sessionFactory?: SessionFactory,
-  /** Task 6: /new 或 /resume 后触发，参数为 (oldKey, newId)，用于推送 session_changed 事件 */
+  /** /new 或 /resume 后触发，参数为 (oldKey, newId)，用于推送 session_changed 事件 */
   onNewSession?: (oldKey: string, newId: string) => void,
+  /** §4.6 Config 热重载：beforeTurn 检查 mtimeNs，变化时准备 pending，afterTurn 应用 */
+  configReload?: ConfigReload,
 ): Promise<void> {
   const loopLog = createLogger('inbound-loop');
   let seq = 0;
@@ -330,6 +445,13 @@ export async function runInboundLoop(
    * turn 完成后从 map 中清理，防止内存泄漏。
    */
   const runningTurns = new Map<string, Promise<void>>();
+
+  /**
+   * Task 2: per-sessionKey 链长跟踪，用于计算 turn_busy 的 position。
+   * chainLength = 当前 sessionKey 上正在执行 + 排队中的 turn 总数。
+   * 新消息到达时若有 running turn，position = chainLength + 1（包含自身）。
+   */
+  const chainLength = new Map<string, number>();
 
   /**
    * 发送单个 AgentEvent envelope 到出站队列。
@@ -358,9 +480,50 @@ export async function runInboundLoop(
       // Task 7: 按 sessionKey 串行化 — await 前一个 turn 完成后再处理当前消息
       // C1 fix: 吞掉前一个 turn 的 rejection，防止级联跳过后续 turn 与 unhandled rejection
       const prev = (runningTurns.get(senderSessionKey) ?? Promise.resolve()).catch(() => undefined);
+
+      // Task 2: 同 sessionKey 已有 turn 执行时，新消息入队前发 turn_busy
+      // position = chainLength + 1（前方队列 + 自身），失败时静默忽略不阻塞主流程
+      if (runningTurns.has(senderSessionKey)) {
+        const position = (chainLength.get(senderSessionKey) ?? 0) + 1;
+        try {
+          await emit(senderSessionKey, chatId, channelName, { type: 'turn_busy', position });
+        } catch (e) {
+          loopLog.warn('turn_busy emit failed', { sessionKey: senderSessionKey, error: String(e) });
+        }
+        chainLength.set(senderSessionKey, position);
+      } else {
+        chainLength.set(senderSessionKey, 1);
+      }
+
       const next = prev.then(async () => {
         // I5 fix: ctx.userId 在链内设置，避免并行 sessionKey 间的竞态
         if (senderUserId && slashHandler) slashHandler.ctx.userId = senderUserId;
+        // Task 11: 每个 turn 刷新 sessionAttrs 句柄，使 /new /resume /热重载后的新 session 生效
+        if (slashHandler) slashHandler.ctx.sessionAttrs = sessionRef.current;
+        // §4.6 beforeTurn：检查 config mtimeNs 变化（当前 turn 用旧快照，pending 等 afterTurn 应用）
+        // rebuild 可同步或异步（§4.9 Skills 热重载联动需 await skillState.reload()）
+        let pendingConfigApply: (() => void | Promise<void>) | null = null;
+        if (configReload) {
+          try {
+            const reloadResult = await configReload.loader.load();
+            if (reloadResult.error) {
+              // 校验失败降级到旧配置 + channel 错误通知（不中断服务）
+              // 操作侧日志：记录降级原因（emit 给 channel 的是脱敏的通用消息）
+              loopLog.warn('config reload degraded', { error: reloadResult.error });
+              try {
+                await emit(senderSessionKey, chatId, channelName, { type: 'error', message: 'config reload failed, using old config', retryable: false });
+              } catch (e) {
+                loopLog.warn('config error emit failed', { error: String(e) });
+              }
+            }
+            if (reloadResult.changed && !reloadResult.error) {
+              const newConfig = reloadResult.data;
+              pendingConfigApply = () => configReload.rebuild(newConfig);
+            }
+          } catch (e) {
+            loopLog.warn('config reload check failed', { error: String(e) });
+          }
+        }
         try {
           watchdog.markTurnStart();
         } catch (e) {
@@ -378,7 +541,11 @@ export async function runInboundLoop(
                 const newId = result.continueSessionId ?? randomUUID();
                 sessionRef.current = sessionFactory(newId);
                 sessionRef.currentKey = newId;
-                if (slashHandler) slashHandler.ctx.sessionId = newId;
+                if (slashHandler) {
+                  slashHandler.ctx.sessionId = newId;
+                  // Task 11: 同步刷新 sessionAttrs 句柄到新 session
+                  slashHandler.ctx.sessionAttrs = sessionRef.current;
+                }
                 // Task 6: 通知 server 推送 session_changed 到发起方 sessionKey 的 connection
                 onNewSession?.(oldKey, newId);
                 loopLog.info('session switched', { senderSessionKey: oldKey, newSessionKey: newId, resumed: !!result.continueSessionId });
@@ -420,6 +587,16 @@ export async function runInboundLoop(
           } catch (e) {
             loopLog.warn('markTurnEnd failed', { error: String(e) });
           }
+          // §4.6 afterTurn：应用 pending config（下个 turn 生效）
+          // §4.9 Skills 热重载联动：rebuild 内部 await skillState.reload()，需 await 以确保
+          // 下个 turn 看到新 skills（reload 失败降级到旧 skills，不阻塞 rebuild）
+          if (pendingConfigApply) {
+            try {
+              await pendingConfigApply();
+            } catch (e) {
+              loopLog.error('config apply failed', { error: String(e) });
+            }
+          }
         }
       });
       runningTurns.set(senderSessionKey, next);
@@ -427,6 +604,13 @@ export async function runInboundLoop(
       void next.finally(() => {
         if (runningTurns.get(senderSessionKey) === next) {
           runningTurns.delete(senderSessionKey);
+        }
+        // Task 2: turn 完成后递减 chainLength，归零时清理
+        const len = chainLength.get(senderSessionKey) ?? 0;
+        if (len <= 1) {
+          chainLength.delete(senderSessionKey);
+        } else {
+          chainLength.set(senderSessionKey, len - 1);
         }
       }).catch(() => undefined);
     } catch (err) {
