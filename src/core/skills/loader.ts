@@ -32,6 +32,29 @@ export function validateSkillDescription(description: string): boolean {
   return true;
 }
 
+/**
+ * §12.5 tags 解析：支持 `tags: [a, b, c]` 与 `tags: [a]` 语法。
+ * 不依赖外部 YAML 库——手写最小解析器。
+ * 返回 undefined 表示未声明或解析失败（不报错，tags 是可选字段）。
+ */
+export function parseTags(value: string): string[] | undefined {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) return undefined;
+  const inner = trimmed.slice(1, -1).trim();
+  if (inner.length === 0) return undefined;
+  // 按逗号分割，去引号与前后空格，过滤空串
+  const tags: string[] = [];
+  for (const part of inner.split(',')) {
+    let t = part.trim();
+    if (t.length === 0) continue;
+    // 去双/单引号包裹
+    if (t.startsWith('"') && t.endsWith('"') && t.length >= 2) t = t.slice(1, -1);
+    else if (t.startsWith("'") && t.endsWith("'") && t.length >= 2) t = t.slice(1, -1);
+    if (t.length > 0) tags.push(t);
+  }
+  return tags.length > 0 ? tags : undefined;
+}
+
 /** frontmatter 解析失败错误 */
 export interface FrontmatterParseError {
   readonly code: 'parse_failed';
@@ -83,6 +106,7 @@ export function parseFrontmatter(
   let name: string | undefined;
   let description: string | undefined;
   let disableModelInvocation: boolean | undefined;
+  let tags: string[] | undefined;
 
   for (const line of frontmatterText.split(/\r?\n/)) {
     if (line.trim() === '') continue;
@@ -102,12 +126,16 @@ export function parseFrontmatter(
     } else if (key === 'disableModelInvocation') {
       if (value === 'true') disableModelInvocation = true;
       else if (value === 'false') disableModelInvocation = false;
+    } else if (key === 'tags') {
+      // §12.5 tags 数组解析（不覆盖已去引号的值，使用原始 value 行）
+      const parsedTags = parseTags(line.slice(colonIdx + 1));
+      if (parsedTags) tags = parsedTags;
     }
   }
 
   return {
     ok: true,
-    value: { name, description, disableModelInvocation, content },
+    value: { name, description, disableModelInvocation, tags, content },
   };
 }
 
@@ -180,6 +208,10 @@ async function loadSkillFile(
     content: fm.content,
     filePath,
     disableModelInvocation: fm.disableModelInvocation,
+    // §12.5 L1 索引元信息：加载时计算，联动热重载自动重新计算
+    contentLines: fm.content.split('\n').length,
+    contentBytes: Buffer.byteLength(fm.content, 'utf-8'),
+    tags: fm.tags,
   };
   return { skill };
 }
@@ -263,4 +295,66 @@ export async function loadSkills(
     a.name.localeCompare(b.name),
   );
   return { skills, diagnostics };
+}
+
+/**
+ * §12.5 SkillState：有状态 Skills 持有者，支持 lastUsed 跟踪与热重载。
+ *
+ * 设计要点：
+ * - 持有当前 skills 快照（loadSkills 结果）
+ * - markUsed(filePath)：read_file 读取 skill 文件时特判更新 lastUsed
+ * - reload()：热重载（Config 热重载联动），保留同 name skill 的 lastUsed
+ * - 不持久化 lastUsed 到文件（MVP 内存态，跨重启重置）
+ */
+export interface SkillState {
+  /** 当前 skills 快照（按 name 升序，与 loadSkills 一致） */
+  readonly skills: readonly Skill[];
+  /** 按 filePath 查找 skill（read_file 特判使用） */
+  findByFilePath(filePath: string): Skill | undefined;
+  /** 标记 skill 被使用（更新 lastUsed=Date.now() 或传入 ts），返回是否命中 */
+  markUsed(filePath: string, timestamp?: number): boolean;
+  /** 热重载：重新调用 loadSkills，保留同 name skill 的 lastUsed */
+  reload(): Promise<void>;
+}
+
+/**
+ * §12.5 createSkillState：创建有状态 Skills 持有者。
+ *
+ * 初始加载即调用 loadSkills；后续可通过 reload() 触发热重载。
+ * lastUsed 跨 reload 保留（按 name 合并），跨进程重启不保留（MVP）。
+ */
+export async function createSkillState(
+  env: ExecutionEnv,
+  dirs: string | string[],
+): Promise<SkillState> {
+  const dirList = Array.isArray(dirs) ? dirs : [dirs];
+  let result = await loadSkills(env, dirList);
+
+  return {
+    get skills(): readonly Skill[] {
+      return result.skills;
+    },
+    findByFilePath(filePath: string): Skill | undefined {
+      return result.skills.find((s) => s.filePath === filePath);
+    },
+    markUsed(filePath: string, timestamp: number = Date.now()): boolean {
+      const skill = result.skills.find((s) => s.filePath === filePath);
+      if (!skill) return false;
+      skill.lastUsed = timestamp;
+      return true;
+    },
+    async reload(): Promise<void> {
+      const prevByName = new Map<string, number>();
+      for (const s of result.skills) {
+        if (s.lastUsed !== undefined) prevByName.set(s.name, s.lastUsed);
+      }
+      const fresh = await loadSkills(env, dirList);
+      // 保留同 name skill 的 lastUsed（跨 reload 持续累积）
+      for (const s of fresh.skills) {
+        const prev = prevByName.get(s.name);
+        if (prev !== undefined) s.lastUsed = prev;
+      }
+      result = fresh;
+    },
+  };
 }

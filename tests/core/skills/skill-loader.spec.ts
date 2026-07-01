@@ -344,12 +344,16 @@ describe('skill-loader: system-prompt injection', () => {
         description: 'Description for skill A',
         content: '',
         filePath: '/path/to/skill-a/SKILL.md',
+        contentLines: 1,
+        contentBytes: 1,
       },
       {
         name: 'skill-b',
         description: 'Description for skill B',
         content: '',
         filePath: '/path/to/skill-b/SKILL.md',
+        contentLines: 1,
+        contentBytes: 1,
       },
     ];
     const out = formatSkillsForSystemPrompt(skills);
@@ -368,12 +372,16 @@ describe('skill-loader: system-prompt injection', () => {
         description: 'visible desc',
         content: '',
         filePath: '/p/visible/SKILL.md',
+        contentLines: 1,
+        contentBytes: 1,
       },
       {
         name: 'hidden',
         description: 'hidden desc',
         content: '',
         filePath: '/p/hidden/SKILL.md',
+        contentLines: 1,
+        contentBytes: 1,
         disableModelInvocation: true,
       },
     ];
@@ -390,6 +398,8 @@ describe('skill-loader: formatSkillInvocation', () => {
       description: 'desc',
       content: '# My Skill\n\nDo this then that.',
       filePath: '/p/my-skill/SKILL.md',
+      contentLines: 1,
+      contentBytes: 1,
     };
     const out = formatSkillInvocation(skill);
     expect(out).toContain('<skill name="my-skill" location="/p/my-skill/SKILL.md">');
@@ -403,6 +413,8 @@ describe('skill-loader: formatSkillInvocation', () => {
       description: 'desc',
       content: 'body',
       filePath: '/p/my-skill/SKILL.md',
+      contentLines: 1,
+      contentBytes: 1,
     };
     const out = formatSkillInvocation(skill, 'Extra context');
     expect(out).toContain('body');

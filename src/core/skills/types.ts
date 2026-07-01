@@ -37,6 +37,8 @@ export interface SkillFrontmatter {
   readonly name?: string;
   readonly description?: string;
   readonly disableModelInvocation?: boolean;
+  /** L1 索引：手写 tags（MVP），格式 `tags: [a, b, c]` */
+  readonly tags?: string[];
   /** markdown body（frontmatter 之后的内容） */
   readonly content: string;
 }
@@ -53,6 +55,18 @@ export interface Skill {
   readonly filePath: string;
   /** 排除出模型可见列表，但仍可显式调用 */
   readonly disableModelInvocation?: boolean;
+  /** L1 索引：content 按行分割后的行数（含末尾空串，对齐 body.split('\n').length） */
+  readonly contentLines: number;
+  /** L1 索引：content 的 UTF-8 字节数 */
+  readonly contentBytes: number;
+  /** L1 索引：手写 tags（来自 frontmatter，自动生成放 L3） */
+  readonly tags?: string[];
+  /**
+   * L1 索引：最近使用时间戳（ms），由 read_file 工具特判维护。
+   * 非 readonly：read_file 读取 skill 文件时 mutate 此字段，触发 L1 索引重排序。
+   * 跨 reload 保留（按 name 合并旧值）；MVP 不持久化到文件。
+   */
+  lastUsed?: number;
 }
 
 /** 加载诊断类型 */
