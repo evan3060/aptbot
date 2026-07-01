@@ -2,6 +2,116 @@
 
 本文件记录 aptbot 各版本变更。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.2.2] - 2026-07-01
+
+aptbot 从"可用"演进为"可靠 + 可扩展 + 体验流畅"。引入 10 项核心能力：多 provider 故障转移、配置热重载、Hook 系统、JSONL 历史持久化、HttpOnly cookie 安全增强、Skills 系统基础、L1 索引 Skill、/session 动态属性、Channel 接口抽象、Session 自动摘要命名。基于 [docs/superpowers/specs/2026-06-30-0.2.2-design.md](./docs/superpowers/specs/2026-06-30-0.2.2-design.md) 实施，为 0.3.0 多 agent 系统建立扩展性基础。
+
+### Added
+
+#### Task 1 — per-sessionKey ring buffer 分片 + LRU
+- 单 sessionKey 上限 1000 不变；新增全局 50000 上限触发 LRU 淘汰最旧 sessionKey 的全部 buffer
+- sessionKey refCount 归零时清理对应 buffer，防 0.2.x 单 sessionKey 内存膨胀与 OOM
+
+#### Task 2 — turn_busy 响应
+- 同 sessionKey 已有 turn 执行时，新消息入队前发 `{ type: 'turn_busy', position: N }`
+- 前端监听 turn_busy 显示"等待中... (前方 N 条消息)"，避免用户误以为系统卡死
+- turn 完成后不主动发 turn_ready，前端靠 turn_end 恢复
+
+#### Task 3 — JSONL 历史持久化
+- ring buffer 未命中时调用 `readHistoryForReplay(id, limit)` 读 JSONL 兜底回放历史
+- 仅返回 type === 'message'，不返回 tool_call（避免泄漏内部状态）
+- 标记 `replay: true`，前端不重复渲染；limit 默认 20
+- JSONL 文件损坏时增量流式解析 + `fs.truncateSync` 自动截断修复
+
+#### Task 4 — HttpOnly cookie 安全增强
+- POST /api/register /api/login 成功时设置 Set-Cookie
+- Cookie 属性 `HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000`（HTTP localhost 下 Secure 条件性省略）
+- GET /api/me 优先读 cookie，其次 Authorization: Bearer
+- WebSocket token 三级优先级：URL ?token= > cookie > sessionStorage
+- 前端 fetch 自动带 cookie（`credentials: 'include'`），cookie 被禁用时 fallback 到 sessionStorage
+
+#### Task 5 — MixinProvider 多 provider 故障转移
+- 多 provider 按 priority 串联；前一个失败（fatal 除外）自动 fallback
+- 流式已 yield 后出错不切 provider（避免重复输出）
+- 同协议约束；广播属性到子 provider
+- `springBackMs` 后弹回主 provider；所有 provider 失败抛 AggregateError
+- TTFB 5000ms + 块间 1500ms 流式控制器（沿用）
+
+#### Task 6 — Config 热重载
+- 监听 `config/aptbot.json` 的 mtimeNs 变化（懒加载，非 fs.watch）
+- AgentSession 在 beforeTurn 检查 mtimeNs；当前 turn 用旧配置快照，下个 turn 用新配置
+- 校验失败降级到旧配置 + channel 错误通知；stop() 清理资源
+
+#### Task 7 — Hook 系统（8 hook 点）
+- 8 hook 点：`agent_before/after` / `turn_before/after` / `llm_before/after` / `tool_before/after`
+- 同步执行；ctx 允许 mutate（链式传递）；priority 升序排序
+- 两层插件目录（`~/.aptbot/hooks/` + `.agents/hooks/`），workspace 覆盖 builtin
+- 无沙箱；hook 抛错吞掉 + stderr 打印 + 不影响主流程
+
+#### Task 8 — Skills 系统基础
+- 两层加载（workspace `~/.aptbot/skills/` + builtin `src/skills/`），workspace 覆盖 builtin 同名
+- 最小 frontmatter（name/description/disableModelInvocation）
+- 校验 name（a-z0-9-, ≤64 字符）+ description（≤1024 字符）
+- 解析失败返回 SkillDiagnostic warning + 跳过该 skill
+- 全量 name+description 注入 system prompt
+- ExecutionEnv 抽象（cwd/env vars/permissions）
+
+#### Task 9 — L1 索引 Skill
+- Skill 扩展 contentLines/contentBytes/tags/lastUsed 字段
+- `formatSkillsForSystemPrompt` 按 lastUsed 降序排序
+- 总 token 超 4K 预算时截断，仅注入 lastUsed 前 N 个 + 全部名字列表
+- `read_file` 读取 skill 文件时特判更新 lastUsed
+- 热重载联动（Config 热重载时 Skills 也重载，server.ts SkillState.reload()）
+
+#### Task 10 — Session 自动摘要命名
+- turn_end 后异步调用 LLM 生成 ≤20 字符摘要替代首 20 字符
+- 摘要 prompt 固定："Summarize this conversation in ≤20 chars. No punctuation. No quotes."
+- 用户手动 /label 后永久跳过自动摘要（labelSource='custom'）
+- LLM 失败不报错，保留默认 label
+- race condition 修复：LLM resolves 后 re-check hasCustomLabel，避免覆盖用户中途设置的 custom label
+
+#### Task 11 — /session 动态属性
+- 白名单 5 项：temperature / maxTokens / reasoningEffort / thinkingType / thinkingBudgetTokens
+- 文件值逃生口（非白名单项写入 `<dataDir>/session-attrs/<sessionId>/<key>`）
+- JSON 自动解析（number/boolean/null）；内存态存储
+- /session.reset 重置所有；MixinProvider 广播属性到子 provider
+- 非法属性值返回错误 + 列出合法值（validValues / validRange）
+- 路径穿越防护（isSafeAttrName 正则 + `..` 段拒绝）
+
+#### Task 12 — Channel 接口抽象
+- 方案 E 类型化 bus + AgentEventEnvelope
+- `TransportChannel` 接口（type/send/close/isAlive）作为最小传输接口
+- `wrapTransportChannel` 适配器桥接 TransportChannel 到 bus-facing Channel
+- `bindSession(sessionKey, channel)` 多对一共享；IM channel 管理 sessionKey 映射无需 ?session= 参数
+- WebSocket 仍作为 Channel 实现正常工作
+- channel 死亡时自动 unbind（isAlive? 可选方法 + dispatchEnvelope 失败后检查）
+
+### Fixed
+
+- 修复 SkillState 在 server.ts 中未接线（building blocks 存在但未 wire）：热重载不触发 Skills 重载、read_file 不更新 lastUsed、system prompt 缺 L1 索引
+- 修复 l1-index 测试同义反复（用实现自身公式验证实现 → 改为具体期望值 6 行 / 29 字节）
+- 修复 /label 与 in-flight 自动摘要 race condition（LLM resolves 后 re-check hasCustomLabel）
+- 修复 /session 错误消息未列出合法值（添加 validValues / validRange）
+- 修复 E2E 测试中无操作测试（zero expect）与伪装成 E2E 的纯函数测试
+
+### Test Coverage
+
+- 74 测试文件 / 938 用例（935 通过 + 3 个 auth-api ECONNRESET flaky，单跑 30/30 全绿）
+- E2E 回归测试 37/37 全绿，覆盖 10 项新功能 happy + error path
+- 类型检查 `tsc --noEmit` 0 错误（基线 15 在 Task 9 修复时顺手清掉）
+- UAT 核验 71/77 通过（6 项 VPS 待部署后核验），0 不通过项
+
+### Release Finalization（封仓收尾）
+
+- `package.json` 版本升至 `0.2.2`
+- 设计文档 [docs/superpowers/specs/2026-06-30-0.2.2-design.md](./docs/superpowers/specs/2026-06-30-0.2.2-design.md) 已就位
+- 实施计划 [PLAN-0.2.2.md](./PLAN-0.2.2.md) Task 1-14 全部完成，状态 ✅ COMPLETED
+- UAT 核验清单 [docs/superpowers/plans/0.2.2-uat-checklist.md](./docs/superpowers/plans/0.2.2-uat-checklist.md) 71/77 通过
+- 打 `v0.2.2` git tag
+- VPS 部署验证推迟到 0.2.3 一起部署
+
+---
+
 ## [0.2.1] - 2026-06-30
 
 aptbot.de 落地页 + Demo 页 adept.ai 风格克隆。新增 opt-in 落地页（5 sections + 中/英 i18n），将现有 agent demo 页迁移到同一视觉语言（13 CSS 变量 + Inter 字体 + pill 按钮）。基于 [docs/superpowers/specs/2026-06-30-aptbot-de-landing-page-design.md](./docs/superpowers/specs/2026-06-30-aptbot-de-landing-page-design.md) 实施。版本隔离：`landingPage === true` 严格 opt-in，clone 自部署用户零影响。

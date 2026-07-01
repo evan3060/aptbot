@@ -1,9 +1,9 @@
 <div align="center">
   <p>
-    <img src="https://img.shields.io/badge/tests-687%20passed-brightgreen" alt="Tests">
+    <img src="https://img.shields.io/badge/tests-938%20passed-brightgreen" alt="Tests">
     <img src="https://img.shields.io/badge/TypeScript-strict-blue" alt="TypeScript">
     <img src="https://img.shields.io/badge/node-%3E%3D20-green" alt="Node">
-    <img src="https://img.shields.io/badge/version-0.2.1-blue" alt="Version">
+    <img src="https://img.shields.io/badge/version-0.2.2-blue" alt="Version">
     <img src="https://img.shields.io/badge/license-MIT-yellow" alt="License">
   </p>
   <p>
@@ -22,7 +22,7 @@
 
 **长期目标：** 从一个简洁可读的 ReAct 循环出发，逐步扩展为高度个性化、全能的个人工作与生活助理——记住你的偏好、连接你的工具链、学习你的工作流、融入你的日常。最终，它不只是回答问题，而是主动为你工作。
 
-> **状态：** v0.2.1 — 66 个文件 / 687 个测试通过。落地页 + adept 风格 demo 页。
+> **状态：** v0.2.2 — 74 个文件 / 938 个测试通过。可靠性 + 扩展性 + 体验（MixinProvider 故障转移、配置热重载、Hook 系统、Skills L1 索引、/session 动态属性、Channel 抽象）。
 
 ## 从这里开始
 
@@ -201,6 +201,14 @@ aptbot 自底向上分层：core → bus → infrastructure → access，加 `sh
 | 多客户端同步（v0.2.0） | per-sessionKey 消息串行化 · ring buffer 历史回放 · presence 广播 · `session_changed` 控制消息 |
 | 会话侧边栏（v0.2.0） | Codex 风格左面板 · 相对时间 · 3-dot 菜单 · inline 重命名（Enter/Esc） · 跨客户端 `session_renamed` 广播 |
 | 落地页（v0.2.1） | adept.ai 风格 5-section 落地页位于 `/`（opt-in via `landingPage: true`） · 中/英 i18n · `/demo` 路由返回 agent 页 |
+| 可靠性（v0.2.2） | per-sessionKey ring buffer 分片 + LRU（1000/50000 上限）· JSONL 历史回放兜底 · `turn_busy` 排队反馈 |
+| 多 provider 故障转移（v0.2.2） | `MixinProvider` priority 链式故障转移 · `springBackMs` 弹回主 provider · 全部失败抛 AggregateError · 流式已 yield 不切 provider |
+| 配置热重载（v0.2.2） | mtimeNs 懒加载监听 · turn 隔离（当前 turn 用旧快照，下个 turn 用新配置）· 非法配置降级到旧值 |
+| Hook 系统（v0.2.2） | 8 个 hook 点（`agent_before/after` · `turn_before/after` · `llm_before/after` · `tool_before/after`）· priority 升序 · 异常吞掉 · 两层插件目录 |
+| Skills 系统（v0.2.2） | 两层加载（`~/.aptbot/skills/` + `src/skills/`）· frontmatter 校验 · L1 索引按 lastUsed 排序 · 4K token 预算截断 |
+| 安全增强（v0.2.2） | HttpOnly + Secure + SameSite=Strict cookie · WS token 三级优先级（URL ?token= > cookie > sessionStorage）· `Cache-Control: no-store` |
+| 会话体验（v0.2.2） | LLM 自动生成 ≤20 字符摘要 · `/label` 永久覆盖 · `/session` 动态属性（temperature/maxTokens/reasoningEffort/thinkingType/thinkingBudgetTokens）· `/session.reset` |
+| Channel 抽象（v0.2.2） | `TransportChannel` 最小接口（type/send/close/isAlive）· `wrapTransportChannel` 适配器 · `bindSession` 多对一 · 死 channel 自动解绑 |
 | Provider | `openai-completions` · `openai-responses` · `anthropic-messages` · 双时钟 TTFB 5s + chunk 1.5s · 401/403/400 fatal，429/5xx 重试 |
 | WebSocket | 入站限制 64KB / 10 msg/s · 心跳 60s · resync 协议 · 死信队列 |
 | 安全 | systemPrompt 禁止 kill / source-mod / `data/sessions/` 访问 · API key 仅通过 `.env` · session ownership 防跨用户访问 |
@@ -213,11 +221,12 @@ aptbot 自底向上分层：core → bus → infrastructure → access，加 `sh
 | `/clear` | 清除当前对话上下文 |
 | `/help` | 显示可用命令 |
 | `/model [name]` | 显示或设置当前模型 |
-| `/session` | 显示当前会话 ID |
+| `/session` | 显示或设置会话动态属性（v0.2.2+：temperature/maxTokens/reasoningEffort/thinkingType/thinkingBudgetTokens） |
+| `/session.reset` | 重置所有会话动态属性到默认值（v0.2.2+） |
 | `/sessions` | 列出所有会话（当前会话标记 `(current)`） |
 | `/resume <id>` | 切换会话（短 ID 前缀匹配） |
 | `/continue <id>` | 继承旧会话的 working memory |
-| `/label <text>` | 重命名当前会话（v0.2.0+） |
+| `/label <text>` | 重命名当前会话（v0.2.0+）· v0.2.2+ 永久覆盖自动摘要 |
 | `/exit` | 退出应用 |
 
 ## 📚 文档
@@ -226,6 +235,7 @@ aptbot 自底向上分层：core → bus → infrastructure → access，加 `sh
 - [部署指南](./docs/deployment.md) — VPS 部署含 systemd + nginx/Caddy
 - [更新日志](./CHANGELOG.md) — 版本发布说明
 - [PLAN-L1.md](./PLAN-L1.md) — L1 任务计划（用户系统 + 多客户端同步，已完成）
+- [PLAN-0.2.2.md](./PLAN-0.2.2.md) — 0.2.2 任务计划（可靠性 + 扩展性 + 体验，已完成）
 - [PLAN-L2.md](./PLAN-L2.md) — L2 路线图（可靠性 + IM 集成，已规划）
 - [架构对比](./docs/comparison-pi-nanobot-ga.md) — 与 pi-agent / nanobot / GenericAgent 的架构对比
 
@@ -274,6 +284,7 @@ E2E 覆盖完整 agent 循环：基础对话、工具调用、多轮上下文、
 
 - **L1 ✅（v0.2.0）** — 用户系统（注册/登录）、浏览器级会话隔离、多客户端同步、Codex 风格侧边栏、会话重命名
 - **v0.2.1 ✅** — aptbot.de 落地页（adept.ai 风格）+ demo 页视觉迁移 + 移动端适配
+- **v0.2.2 ✅** — 可靠性 + 扩展性 + 体验：MixinProvider 故障转移、配置热重载、Hook 系统（8 点）、Skills 系统 + L1 索引、JSONL 历史回放、HttpOnly cookie、turn_busy、/session 动态属性、Channel 抽象、session 自动摘要
 - **L2** — 可靠性（ring buffer 分片、JSONL 历史持久化、HttpOnly cookie）、扩展性（MixinProvider 故障转移、配置热重载、hook 系统）、体验（CLI overlay/diff、WebUI 拆分到 Cloudflare Pages）、IM 集成（Telegram 作为首个渠道）
 - **L3** — FallbackProvider + 熔断器、OAuth、session 分支、跨会话长期记忆、飞书/钉钉集成、AgentHarness + 子代理管理
 - **多模态** — 图像输入/输出

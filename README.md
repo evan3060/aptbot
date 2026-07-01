@@ -1,9 +1,9 @@
 <div align="center">
   <p>
-    <img src="https://img.shields.io/badge/tests-687%20passed-brightgreen" alt="Tests">
+    <img src="https://img.shields.io/badge/tests-938%20passed-brightgreen" alt="Tests">
     <img src="https://img.shields.io/badge/TypeScript-strict-blue" alt="TypeScript">
     <img src="https://img.shields.io/badge/node-%3E%3D20-green" alt="Node">
-    <img src="https://img.shields.io/badge/version-0.2.1-blue" alt="Version">
+    <img src="https://img.shields.io/badge/version-0.2.2-blue" alt="Version">
     <img src="https://img.shields.io/badge/license-MIT-yellow" alt="License">
   </p>
   <p>
@@ -22,7 +22,7 @@ It doesn't serve just you. Multi-user isolation lets family members and team mem
 
 **Long-term goal:** Starting from a concise, readable ReAct loop, gradually expand into a highly personalized, omnipotent personal work and life assistant — remembering your preferences, connecting your toolchain, learning your workflows, blending into your daily life. Ultimately, it doesn't just answer questions — it works for you proactively.
 
-> **Status:** v0.2.1 — 66 files / 687 tests passing. Landing page + adept-style demo.
+> **Status:** v0.2.2 — 74 files / 938 tests passing. Reliability + extensibility + UX (MixinProvider failover, config hot-reload, hook system, Skills L1 index, /session dynamic attrs, Channel abstraction).
 
 ## Start Here
 
@@ -201,6 +201,14 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full module map, event flow dia
 | Multi-client sync (v0.2.0) | per-sessionKey message serialization · ring buffer history replay · presence broadcast · `session_changed` control message |
 | Session sidebar (v0.2.0) | Codex-style left panel · relative time · 3-dot menu · inline rename (Enter/Esc) · cross-client `session_renamed` broadcast |
 | Landing page (v0.2.1) | adept.ai-style 5-section landing at `/` (opt-in via `landingPage: true`) · zh/en i18n · `/demo` route for agent page |
+| Reliability (v0.2.2) | per-sessionKey ring buffer sharding + LRU (1000/50000 caps) · JSONL history replay fallback · `turn_busy` queue feedback |
+| Multi-provider failover (v0.2.2) | `MixinProvider` priority-chain failover · `springBackMs` rebound · AggregateError on all-fail · stream-aware no-switch |
+| Config hot-reload (v0.2.2) | mtimeNs lazy-watch · turn isolation (current turn uses old snapshot, next turn uses new) · graceful degrade on invalid |
+| Hook system (v0.2.2) | 8 hook points (`agent_before/after` · `turn_before/after` · `llm_before/after` · `tool_before/after`) · priority sort · swallow exceptions · two-layer plugin dirs |
+| Skills system (v0.2.2) | two-layer loading (`~/.aptbot/skills/` + `src/skills/`) · frontmatter validation · L1 index with lastUsed ranking · 4K token budget truncation |
+| Security (v0.2.2) | HttpOnly + Secure + SameSite=Strict cookie · WS token 3-tier priority (URL ?token= > cookie > sessionStorage) · `Cache-Control: no-store` |
+| Session UX (v0.2.2) | auto-generated ≤20-char summary (LLM) · `/label` permanent override · `/session` dynamic attrs (temperature/maxTokens/reasoningEffort/thinkingType/thinkingBudgetTokens) · `/session.reset` |
+| Channel abstraction (v0.2.2) | `TransportChannel` minimal interface (type/send/close/isAlive) · `wrapTransportChannel` adapter · `bindSession` many-to-one · dead-channel auto-unbind |
 | Providers | `openai-completions` · `openai-responses` · `anthropic-messages` · dual-clock TTFB 5s + chunk 1.5s · 401/403/400 fatal, 429/5xx retry |
 | WebSocket | Inbound limits 64KB / 10 msg/s · heartbeat 60s · resync protocol · dead-letter queue |
 | Safety | systemPrompt forbids kill / source-mod / `data/sessions/` access · API key via `.env` only · session ownership prevents cross-user access |
@@ -213,11 +221,12 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full module map, event flow dia
 | `/clear` | Clear the current conversation context |
 | `/help` | Show available commands |
 | `/model [name]` | Show or set the current model |
-| `/session` | Show current session ID |
+| `/session` | Show or set session dynamic attributes (v0.2.2+: temperature/maxTokens/reasoningEffort/thinkingType/thinkingBudgetTokens) |
+| `/session.reset` | Reset all session dynamic attributes to defaults (v0.2.2+) |
 | `/sessions` | List all sessions (current marked with `(current)`) |
 | `/resume <id>` | Switch to a session (short ID prefix matching) |
 | `/continue <id>` | Inherit working memory from an old session |
-| `/label <text>` | Rename the current session (v0.2.0+) |
+| `/label <text>` | Rename the current session (v0.2.0+) · permanently overrides auto-summary (v0.2.2+) |
 | `/exit` | Exit the application |
 
 ## 📚 Docs
@@ -226,6 +235,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full module map, event flow dia
 - [Deployment](./docs/deployment.md) — VPS deployment with systemd + nginx/Caddy
 - [Changelog](./CHANGELOG.md) — versioned release notes
 - [PLAN-L1.md](./PLAN-L1.md) — L1 task plan (user system + multi-client sync, complete)
+- [PLAN-0.2.2.md](./PLAN-0.2.2.md) — 0.2.2 task plan (reliability + extensibility + UX, complete)
 - [PLAN-L2.md](./PLAN-L2.md) — L2 roadmap (reliability + IM integration, planned)
 - [Comparison](./docs/comparison-pi-nanobot-ga.md) — architecture comparison with pi-agent / nanobot / GenericAgent
 
@@ -273,6 +283,7 @@ PRs welcome. The codebase is intentionally small — 70+ source files, ~8000 LOC
 
 - **L1 ✅ (v0.2.0)** — User system (registration/login), per-browser session isolation, multi-client sync, Codex-style sidebar, session rename
 - **v0.2.1 ✅** — aptbot.de landing page (adept.ai style) + demo page visual migration + mobile adaptation
+- **v0.2.2 ✅** — Reliability + extensibility + UX: MixinProvider failover, config hot-reload, hook system (8 points), Skills system + L1 index, JSONL history replay, HttpOnly cookie, turn_busy, /session dynamic attrs, Channel abstraction, session auto-summary
 - **L2** — Reliability (ring buffer sharding, JSONL history persistence, HttpOnly cookie), extensibility (MixinProvider failover, config hot-reload, hook system), UX (CLI overlay/diff, WebUI split to Cloudflare Pages), IM integration (Telegram as first channel)
 - **L3** — FallbackProvider + circuit breaker, OAuth, session branching, cross-session long-term memory, Feishu/DingTalk integration, AgentHarness + subagent management
 - **Multi-modal** — image input/outputs

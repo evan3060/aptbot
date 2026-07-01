@@ -1,6 +1,8 @@
 # aptbot 0.2.2 Implementation Plan
 
-> **状态：🚧 0.2.2 PLANNED, NOT STARTED**
+> **状态：✅ 0.2.2 COMPLETED（2026-07-01 封仓）**
+>
+> **封仓摘要：** Task 1-14 全部完成；74 测试文件 / 938 用例（935 通过 + 3 flaky）；tsc 0 错误；UAT 71/77 通过（6 项 VPS 待部署）；v0.2.2 tag 已打。
 >
 > **研发流程规范：** [docs/superpowers/dev-workflow.md](./docs/superpowers/dev-workflow.md)（P0 准备 / A 每 task 14 步 / B 封仓 12 步 / UAT / 熔断）
 >
@@ -369,7 +371,20 @@
 
 ### Task 15: 封仓
 
-- [ ] 完成（B1-B12 全部通过 + v0.2.2 tag）
+- [x] 完成（B1-B12 全部通过 + v0.2.2 tag）
+
+**封仓执行：**
+- B1 npm test：935/938 通过（3 个 auth-api ECONNRESET flaky，单跑 30/30 全绿）
+- B2 tsc --noEmit：0 错误
+- B3 UAT：71/77 通过（6 项 VPS 待部署后核验），0 不通过项
+- B4 CHANGELOG.md 0.2.2 章节已添加
+- B5 README.md / README.zh-CN.md 已同步
+- B6 PLAN 状态 ✅ COMPLETED
+- B7/B8 设计文档已归档（spec/plan 均在 docs/superpowers/）
+- B9 package.json 升至 0.2.2
+- B10 v0.2.2 git tag 已打
+- B11 finishing-a-development-branch skill 已执行
+- B12 VPS 部署验证推迟到 0.2.3 一起部署
 
 **价值：** 文档归档 + 版本号升级 + tag + VPS 部署验证，完成 0.2.2 迭代。
 
