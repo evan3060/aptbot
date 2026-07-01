@@ -118,6 +118,17 @@ export async function triggerSessionSummary(
     const summary = outcome.trim().slice(0, SUMMARY_MAX_CHARS);
     if (!summary) return;
 
+    // LLM 返回后，复检 hasCustomLabel（防止 in-flight 期间用户手动 /label 被覆盖）
+    try {
+      if (await storage.hasCustomLabel(sessionId)) return;
+    } catch (e) {
+      log.warn('hasCustomLabel re-check failed, skipping summary write', {
+        sessionId,
+        error: String(e),
+      });
+      return;
+    }
+
     await storage.updateSessionLabel(sessionId, summary, 'auto');
   } catch (e) {
     // 任何意外错误都不向调用方/用户暴露

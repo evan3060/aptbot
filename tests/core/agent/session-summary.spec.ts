@@ -163,7 +163,8 @@ describe('triggerSessionSummary', () => {
     expect(storage.state.label).toBe('调试登录问题');
     expect(storage.state.labelSource).toBe('auto');
     expect(provider.callCount).toBe(1);
-    expect(storage.state.hasCustomLabelCalls).toBe(1);
+    // 2 次：触发时初始检查 + LLM 返回后复检（防 in-flight 期间 /label 竞态）
+    expect(storage.state.hasCustomLabelCalls).toBe(2);
   });
 
   it('2. 用户已有 custom label 时跳过 (不调用 LLM)', async () => {
@@ -332,6 +333,51 @@ describe('triggerSessionSummary', () => {
     });
     expect(provider2.callCount).toBe(0);
     expect(storage.state.label).toBe('我的名字');
+  });
+
+  it("concurrent: /label during in-flight auto-summary preserves user's custom label", async () => {
+    const sid = uuid();
+    const storage = makeStorage();
+    let resolveGate!: () => void;
+    const gate = new Promise<void>((r) => {
+      resolveGate = r;
+    });
+    let callCount = 0;
+    const provider: Provider = {
+      id: 'mock',
+      name: 'Mock',
+      auth: {},
+      getModels: () => [MODEL],
+      stream: async function* (): AsyncGenerator<AssistantMessageEvent> {
+        callCount++;
+        await gate;
+        yield { type: 'text', text: '自动摘要' };
+        yield { type: 'stop', stopReason: 'end_turn' };
+      },
+    };
+
+    // 触发自动摘要（LLM 被 gate 阻塞，处于 in-flight）
+    const p = triggerSessionSummary({
+      sessionId: sid,
+      provider,
+      model: MODEL,
+      messages: [{ role: 'user', content: 'hi' }],
+      storage,
+    });
+
+    // 在 LLM 仍 in-flight 期间，用户执行 /label 设置 custom label
+    await storage.updateSessionLabel(sid, '用户的名字', 'custom');
+    expect(storage.state.labelSource).toBe('custom');
+
+    // 释放 LLM gate，让 promise resolve
+    resolveGate();
+    await p;
+
+    // 用户的 custom label 应被保留，未被 auto summary 覆盖
+    expect(storage.state.label).toBe('用户的名字');
+    expect(storage.state.labelSource).toBe('custom');
+    // LLM 调用确实发生了，但结果被丢弃
+    expect(callCount).toBe(1);
   });
 
   it('security: 不发送 tool 角色消息与 toolCalls 内容给 LLM', async () => {
