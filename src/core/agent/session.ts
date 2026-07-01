@@ -9,6 +9,7 @@ import type { AgentLoopConfig } from './loop.js';
 import type { Provider, Model, ContextMessage } from '../provider/types.js';
 import type { ToolRegistry } from '../tool/types.js';
 import type { StorageAdapter } from '../../infrastructure/storage/file-storage.js';
+import type { HookRegistry } from './hooks.js';
 
 export interface AgentSessionConfig {
   storage: StorageAdapter;
@@ -19,6 +20,7 @@ export interface AgentSessionConfig {
   tools: ToolRegistry;
   systemPrompt: string;
   reserveTokens?: number;
+  hooks?: HookRegistry;
 }
 
 export interface AgentSession {
@@ -36,6 +38,7 @@ export interface AgentSession {
 export function createAgentSession(config: AgentSessionConfig): AgentSession {
   const log = createLogger('agent-session');
   const { storage, sessionId, agentLoop, provider, model, tools, systemPrompt } = config;
+  const hookRegistry = config.hooks;
   const contextMessages: ContextMessage[] = [];
   const steeringQueue: AgentMessage[] = [];
   // I5 修复：per-session turn 互斥锁，防止并发 run() 交错 mutating contextMessages
@@ -108,6 +111,8 @@ export function createAgentSession(config: AgentSessionConfig): AgentSession {
           tools: tools.getDefinitions(),
         },
         systemPrompt,
+        hooks: hookRegistry,
+        session: { sessionId },
       });
 
       while (true) {
