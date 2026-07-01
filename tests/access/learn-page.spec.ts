@@ -164,9 +164,9 @@ describe('Task 4: createLearnListHtml 列表页', () => {
     it('含 [全部] [Track 1] [Track 2] tab 切换', () => {
       const html = createLearnListHtml(STATE);
       expect(html).toContain('全部');
-      // Track 1 / Track 2 用真实 track title 作为 tab 标签
-      expect(html).toContain('Agent 体系实践');
-      expect(html).toContain('AI 辅助编码实践');
+      // tab 按钮可见标签为 Track 1 / Track 2（与 data-bar 一致，符合 brief）
+      expect(html).toContain('data-track="track1">Track 1');
+      expect(html).toContain('data-track="track2">Track 2');
       // track-tab 按钮结构存在
       expect(html).toContain('track-tab');
     });

@@ -563,8 +563,8 @@ export function createLearnListHtml(state: ArticleState): string {
   <div class="filter-bar">
     <div class="track-tabs">
       <button type="button" class="track-tab active" data-track="all">全部</button>
-      <button type="button" class="track-tab" data-track="track1">${escapeHtml(track1Title)}</button>
-      <button type="button" class="track-tab" data-track="track2">${escapeHtml(track2Title)}</button>
+      <button type="button" class="track-tab" data-track="track1">Track 1</button>
+      <button type="button" class="track-tab" data-track="track2">Track 2</button>
     </div>
     <div class="view-toggle">
       <button type="button" class="view-btn active" data-view="grid">网格</button>
