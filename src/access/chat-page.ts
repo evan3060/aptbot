@@ -605,8 +605,19 @@ export function createChatPageHtml(wsPath: string): string {
   }
 
   function setWorking(on) {
-    if (on) { workingEl.classList.add('show'); sendBtn.disabled = false; }
-    else { workingEl.classList.remove('show'); sendBtn.disabled = false; }
+    if (on) {
+      // Task 2: turn_start 恢复默认文案（清除 turn_busy 的等待提示）
+      workingEl.textContent = 'assistant working';
+      workingEl.classList.add('show');
+      sendBtn.disabled = false;
+    } else { workingEl.classList.remove('show'); sendBtn.disabled = false; }
+  }
+
+  // Task 2: 显示排队等待提示（前方 N 条消息），turn_start/turn_end 清除
+  function setWaiting(position) {
+    workingEl.textContent = '等待中... (前方 ' + position + ' 条消息)';
+    workingEl.classList.add('show');
+    sendBtn.disabled = false;
   }
 
   // 从 URL 或 sessionStorage 读取 token（Task 1: token 记忆与自动携带）
@@ -1057,6 +1068,10 @@ export function createChatPageHtml(wsPath: string): string {
           break;
         case 'turn_start':
           setWorking(true);
+          break;
+        case 'turn_busy':
+          // Task 2: 排队等待提示，turn_start/turn_end 自动清除
+          setWaiting(e.position);
           break;
         case 'user_message':
           // 验收修复：跨客户端同步用户消息

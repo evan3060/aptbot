@@ -332,6 +332,13 @@ export async function runInboundLoop(
   const runningTurns = new Map<string, Promise<void>>();
 
   /**
+   * Task 2: per-sessionKey 链长跟踪，用于计算 turn_busy 的 position。
+   * chainLength = 当前 sessionKey 上正在执行 + 排队中的 turn 总数。
+   * 新消息到达时若有 running turn，position = chainLength + 1（包含自身）。
+   */
+  const chainLength = new Map<string, number>();
+
+  /**
    * 发送单个 AgentEvent envelope 到出站队列。
    * Task 7 I15 fix: sessionKey 使用传入的 senderSessionKey 而非全局 sessionRef.currentKey，
    * 使多客户端场景下事件能正确路由到发起方连接。
@@ -358,6 +365,21 @@ export async function runInboundLoop(
       // Task 7: 按 sessionKey 串行化 — await 前一个 turn 完成后再处理当前消息
       // C1 fix: 吞掉前一个 turn 的 rejection，防止级联跳过后续 turn 与 unhandled rejection
       const prev = (runningTurns.get(senderSessionKey) ?? Promise.resolve()).catch(() => undefined);
+
+      // Task 2: 同 sessionKey 已有 turn 执行时，新消息入队前发 turn_busy
+      // position = chainLength + 1（前方队列 + 自身），失败时静默忽略不阻塞主流程
+      if (runningTurns.has(senderSessionKey)) {
+        const position = (chainLength.get(senderSessionKey) ?? 0) + 1;
+        try {
+          await emit(senderSessionKey, chatId, channelName, { type: 'turn_busy', position });
+        } catch (e) {
+          loopLog.warn('turn_busy emit failed', { sessionKey: senderSessionKey, error: String(e) });
+        }
+        chainLength.set(senderSessionKey, position);
+      } else {
+        chainLength.set(senderSessionKey, 1);
+      }
+
       const next = prev.then(async () => {
         // I5 fix: ctx.userId 在链内设置，避免并行 sessionKey 间的竞态
         if (senderUserId && slashHandler) slashHandler.ctx.userId = senderUserId;
@@ -427,6 +449,13 @@ export async function runInboundLoop(
       void next.finally(() => {
         if (runningTurns.get(senderSessionKey) === next) {
           runningTurns.delete(senderSessionKey);
+        }
+        // Task 2: turn 完成后递减 chainLength，归零时清理
+        const len = chainLength.get(senderSessionKey) ?? 0;
+        if (len <= 1) {
+          chainLength.delete(senderSessionKey);
+        } else {
+          chainLength.set(senderSessionKey, len - 1);
         }
       }).catch(() => undefined);
     } catch (err) {

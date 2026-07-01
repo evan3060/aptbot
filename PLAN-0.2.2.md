@@ -39,7 +39,7 @@
 
 ### Task 1: per-sessionKey ring buffer 分片 + LRU
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 防 0.2.x 单 sessionKey 内存膨胀，全局上限触发 LRU 淘汰，避免 OOM。
 
@@ -61,7 +61,7 @@
 
 ### Task 2: turn_busy 响应
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 同 sessionKey 排队时给前端"等待中"反馈，避免用户误以为系统卡死。
 
