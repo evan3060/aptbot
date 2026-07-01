@@ -1,7 +1,7 @@
-import { loadConfig, resolveApiKey } from './infrastructure/config-loader.js';
+import { loadConfig, resolveApiKey, ConfigLoader, parseAptbotConfig, DEFAULT_CONFIG_PATH } from './infrastructure/config-loader.js';
 import { FileStorage, type StorageAdapter } from './infrastructure/storage/file-storage.js';
 import { createUserStorage, type UserStorage } from './infrastructure/user-storage.js';
-import type { ProviderConfig } from './infrastructure/config-types.js';
+import type { AptbotConfig, ProviderConfig } from './infrastructure/config-types.js';
 import { createToolRegistry } from './core/tool/types.js';
 import { bashTool } from './core/tool/tools/bash.js';
 import { readTool } from './core/tool/tools/read.js';
@@ -121,6 +121,11 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
   log.info('starting server', { port: config.port, deploy: config.deploy });
 
   const aptbotConfig = await loadConfig();
+  // §4.6 Config 热重载：ConfigLoader 在 beforeTurn 检查 mtimeNs 变化（懒加载）
+  const configLoader = new ConfigLoader<AptbotConfig>(
+    process.env.APTBOT_CONFIG ?? DEFAULT_CONFIG_PATH,
+    parseAptbotConfig,
+  );
   const sessionsDir = `${aptbotConfig.dataDir}/sessions`;
   const storage = new FileStorage(sessionsDir);
   // Task 5: 用户存储 — 始终创建，供 /api/register /api/login /api/me 与 WS 认证使用
@@ -217,6 +222,7 @@ Important constraints:
     if (shuttingDown) return;
     shuttingDown = true;
     log.info('shutting down server');
+    configLoader.stop();
     await wsServer.stop();
     await channelManager.stopAll();
   };
@@ -237,13 +243,42 @@ Important constraints:
     ctx: { sessionId, model: model.id, storage },
   };
 
+  // §4.6 Config 热重载 rebuild：用新配置重建 provider/model/session（下个 turn 生效）
+  // 当前 turn 不受影响（sessionRef.current 在 afterTurn 才被替换）
+  const rebuildSession: (newConfig: AptbotConfig) => void = (newConfig) => {
+    try {
+      const { provider: newDecl, providerConfig: newPc, model: newModel } = findModelFromConfig(newConfig);
+      const newApiKey = resolveApiKey(newPc);
+      if (!newApiKey) {
+        log.error('hot-reload: API key not resolved, keeping old config', { provider: newDecl.id });
+        return;
+      }
+      const newProvider = createProvider(newDecl, newApiKey);
+      sessionRef.current = createAgentSession({
+        storage,
+        sessionId: sessionRef.currentKey,
+        agentLoop,
+        provider: newProvider,
+        model: newModel,
+        tools: registry,
+        systemPrompt,
+      });
+      if (slashHandler) slashHandler.ctx.model = newModel.id;
+      log.info('config hot-reloaded', { model: newModel.id, provider: newDecl.id });
+    } catch (e) {
+      log.error('hot-reload rebuild failed, keeping old config', { error: String(e) });
+    }
+  };
+
+  const configReload: ConfigReload = { loader: configLoader, rebuild: rebuildSession };
+
   void runInboundLoop(bus, sessionRef, watchdog, slashHandler, sessionFactory, (oldKey, newId) => {
-    // Task 6: /new 或 /resume 后，向旧 sessionKey 的 connection 推送 session_changed
+    // /new 或 /resume 后，向旧 sessionKey 的 connection 推送 session_changed
     // 客户端收到后更新 localStorage 并用 ?session=newId 重连
     log.info('onNewSession: sending session_changed', { oldKey: oldKey.slice(0, 8), newId: newId.slice(0, 8) });
     channelManager.bindSession(newId, wsChannel);
     wsServer.sendToSessionKey(oldKey, { type: 'session_changed', sessionId: newId });
-  });
+  }, configReload);
   void channelManager.runDispatchLoop();
 
   log.info('server started', { port: config.port });
@@ -279,6 +314,17 @@ export interface SessionRef {
  * SessionFactory：创建新 session 的工厂函数。
  */
 export type SessionFactory = (sessionId: string) => ReturnType<typeof createAgentSession>;
+
+/**
+ * §4.6/§12.2 Config 热重载句柄：runInboundLoop 在 beforeTurn 检查 mtimeNs 变化，
+ * 变化时重建 session（当前 turn 用旧快照，下个 turn 用新配置）。
+ * 校验失败降级到旧配置 + 发 error 事件到 channel。
+ */
+export interface ConfigReload {
+  readonly loader: ConfigLoader<AptbotConfig>;
+  /** 用新配置重建 provider/model/session（下个 turn 生效） */
+  rebuild: (config: AptbotConfig) => void;
+}
 
 /**
  * 将 CommandResult 转换为展示给用户的消息文本。
@@ -321,8 +367,10 @@ export async function runInboundLoop(
   watchdog: { markTurnStart: () => void; markTurnEnd: () => void },
   slashHandler?: SlashCommandHandler,
   sessionFactory?: SessionFactory,
-  /** Task 6: /new 或 /resume 后触发，参数为 (oldKey, newId)，用于推送 session_changed 事件 */
+  /** /new 或 /resume 后触发，参数为 (oldKey, newId)，用于推送 session_changed 事件 */
   onNewSession?: (oldKey: string, newId: string) => void,
+  /** §4.6 Config 热重载：beforeTurn 检查 mtimeNs，变化时准备 pending，afterTurn 应用 */
+  configReload?: ConfigReload,
 ): Promise<void> {
   const loopLog = createLogger('inbound-loop');
   let seq = 0;
@@ -387,6 +435,27 @@ export async function runInboundLoop(
       const next = prev.then(async () => {
         // I5 fix: ctx.userId 在链内设置，避免并行 sessionKey 间的竞态
         if (senderUserId && slashHandler) slashHandler.ctx.userId = senderUserId;
+        // §4.6 beforeTurn：检查 config mtimeNs 变化（当前 turn 用旧快照，pending 等 afterTurn 应用）
+        let pendingConfigApply: (() => void) | null = null;
+        if (configReload) {
+          try {
+            const reloadResult = await configReload.loader.load();
+            if (reloadResult.error) {
+              // 校验失败降级到旧配置 + channel 错误通知（不中断服务）
+              try {
+                await emit(senderSessionKey, chatId, channelName, { type: 'error', message: 'config reload failed, using old config', retryable: false });
+              } catch (e) {
+                loopLog.warn('config error emit failed', { error: String(e) });
+              }
+            }
+            if (reloadResult.changed && !reloadResult.error) {
+              const newConfig = reloadResult.data;
+              pendingConfigApply = () => configReload.rebuild(newConfig);
+            }
+          } catch (e) {
+            loopLog.warn('config reload check failed', { error: String(e) });
+          }
+        }
         try {
           watchdog.markTurnStart();
         } catch (e) {
@@ -445,6 +514,14 @@ export async function runInboundLoop(
             watchdog.markTurnEnd();
           } catch (e) {
             loopLog.warn('markTurnEnd failed', { error: String(e) });
+          }
+          // §4.6 afterTurn：应用 pending config（下个 turn 生效）
+          if (pendingConfigApply) {
+            try {
+              pendingConfigApply();
+            } catch (e) {
+              loopLog.error('config apply failed', { error: String(e) });
+            }
           }
         }
       });
