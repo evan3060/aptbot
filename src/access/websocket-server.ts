@@ -6,6 +6,10 @@ import type { MessageBus, InboundMessage, AgentEventEnvelope } from '../bus/type
 import { type UserStorage, UsernameExistsError } from '../infrastructure/user-storage.js';
 import type { StorageAdapter } from '../infrastructure/storage/file-storage.js';
 import type { ReplayMessage } from '../core/memory/session-repo.js';
+import type { ArticleLoader } from '../learn/article-loader.js';
+import type { FeedbackStorage } from '../infrastructure/feedback-storage.js';
+import { handleFeedbackApi } from './feedback-api.js';
+import { createLearnListHtml, createLearnArticleHtml, createFeedbackHtml } from './learn-page.js';
 
 const log = createLogger('websocket-server');
 
@@ -53,6 +57,14 @@ export interface WebSocketServerOptions {
    * 当 historyLimit 触发历史回放且 ring buffer（inbound + outbound）为空时调用。
    */
   readHistoryForReplay?: (sessionId: string, limit: number) => Promise<ReplayMessage[]>;
+  /** Task 9 (0.2.3): 文章加载器，learnEnabled 时为 /learn /learn/:slug 提供数据 */
+  articleLoader?: ArticleLoader;
+  /** Task 9 (0.2.3): 反馈存储，feedbackEnabled 时为 /api/feedback 提供持久化 */
+  feedbackStorage?: FeedbackStorage;
+  /** Task 9 (0.2.3): 是否启用 /learn /learn/:slug 路由（landingPage && learnPage） */
+  learnEnabled?: boolean;
+  /** Task 9 (0.2.3): 是否启用 /feedback + /api/feedback 路由（默认 true） */
+  feedbackEnabled?: boolean;
 }
 
 export interface WebSocketServer {
@@ -227,10 +239,48 @@ async function identifyUser(
  */
 export function startWebSocketServer(options: WebSocketServerOptions): Promise<WebSocketServer> {
   return new Promise((resolve, reject) => {
-    const { port, bus, authToken, serveHtml, serveDemoHtml, host, userStorage, fallbackSessionKey, getCurrentSessionId, onSessionBound, onSessionUnbound, sessionStorage, onSessionRenamed, globalBufferLimit, readHistoryForReplay } = options;
+    const { port, bus, authToken, serveHtml, serveDemoHtml, host, userStorage, fallbackSessionKey, getCurrentSessionId, onSessionBound, onSessionUnbound, sessionStorage, onSessionRenamed, globalBufferLimit, readHistoryForReplay, articleLoader, feedbackStorage, learnEnabled, feedbackEnabled } = options;
     const globalLimit = globalBufferLimit ?? WS_GLOBAL_BUFFER_MAX;
+    // Task 9 (0.2.3): learnEnabled 默认 false；feedbackEnabled 默认 true
+    const isLearnEnabled = learnEnabled === true;
+    const isFeedbackEnabled = feedbackEnabled !== false;
+    // Task 9 (0.2.3): HTML 响应头统一（所有 HTML 响应含 nosniff）
+    const htmlHeaders = {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-cache, no-store, must-revalidate',
+      'x-content-type-options': 'nosniff',
+    };
+    // Task 9 (0.2.3): /learn/:slug 文章不存在时的友好 404 HTML
+    const learnNotFoundHtml = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>文章不存在 - aptbot 知识体系</title>
+<style>
+  body { font-family: Inter, system-ui, "PingFang SC", sans-serif; padding: 80px 24px; text-align: center; color: rgb(39, 36, 34); }
+  h1 { font-size: 32px; font-weight: 400; margin-bottom: 16px; }
+  p { color: rgb(139, 133, 127); margin-bottom: 32px; }
+  a { color: rgb(13, 113, 73); }
+</style>
+</head>
+<body>
+  <h1>文章不存在</h1>
+  <p>你访问的文章不存在或已删除。</p>
+  <a href="/learn">← 返回知识体系</a>
+</body>
+</html>`;
     const httpServer = createServer((req, res) => {
       const pathname = new URL(req.url ?? '/', `http://localhost:${port}`).pathname;
+
+      // Task 9 (0.2.3): /api/feedback 必须在 /api/* 之前判断（路由优先级）
+      // /api/feedback 与 /api/feedback/:id/moderate 均由 handleFeedbackApi 处理
+      if (pathname === '/api/feedback' || pathname.startsWith('/api/feedback/')) {
+        const effectiveStorage = isFeedbackEnabled ? feedbackStorage : undefined;
+        handleFeedbackApi(req, res, pathname, effectiveStorage, articleLoader, authToken);
+        return;
+      }
 
       // Task 3: 认证 API 端点
       if (userStorage && pathname.startsWith('/api/')) {
@@ -241,11 +291,7 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
       // 服务最小化聊天页面（部署用）
       // 用 pathname 匹配，忽略 query string（如 ?token=xxx）
       if (serveHtml && req.method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
-        res.writeHead(200, {
-          'content-type': 'text/html; charset=utf-8',
-          // 验收修复：禁止缓存，确保用户每次访问拿到最新 HTML（避免旧版前端逻辑残留）
-          'cache-control': 'no-cache, no-store, must-revalidate',
-        });
+        res.writeHead(200, htmlHeaders);
         res.end(serveHtml);
         return;
       }
@@ -254,11 +300,42 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
       // 仅在 serveDemoHtml 提供时启用，未提供时落到下方 404（clone 用户零影响）
       if (serveDemoHtml && req.method === 'GET' &&
           (pathname === '/demo' || pathname === '/demo/' || pathname === '/demo/index.html')) {
-        res.writeHead(200, {
-          'content-type': 'text/html; charset=utf-8',
-          'cache-control': 'no-cache, no-store, must-revalidate',
-        });
+        res.writeHead(200, htmlHeaders);
         res.end(serveDemoHtml);
+        return;
+      }
+      // Task 9 (0.2.3): /learn 列表页（仅 learnEnabled 且 articleLoader 提供时）
+      if (isLearnEnabled && articleLoader && req.method === 'GET' && pathname === '/learn') {
+        const html = createLearnListHtml(articleLoader.getState());
+        res.writeHead(200, htmlHeaders);
+        res.end(html);
+        return;
+      }
+      // Task 9 (0.2.3): /learn/:slug 文章页（仅 learnEnabled 且 articleLoader 提供时）
+      // 正则 ^/learn/([a-z0-9-]+)$ 严格小写匹配，大写/下划线不匹配
+      if (isLearnEnabled && articleLoader && req.method === 'GET') {
+        const articleMatch = pathname.match(/^\/learn\/([a-z0-9-]+)$/);
+        if (articleMatch) {
+          const slug = articleMatch[1];
+          const article = articleLoader.getBySlug(slug);
+          if (article) {
+            const nav = articleLoader.getArticleNav(slug);
+            const html = createLearnArticleHtml(article, nav);
+            res.writeHead(200, htmlHeaders);
+            res.end(html);
+            return;
+          }
+          // 文章不存在 → 友好 404 HTML（含 nav + 返回 /learn 链接）
+          res.writeHead(404, htmlHeaders);
+          res.end(learnNotFoundHtml);
+          return;
+        }
+      }
+      // Task 9 (0.2.3): /feedback 通用反馈页（仅 feedbackEnabled 时）
+      if (isFeedbackEnabled && req.method === 'GET' && pathname === '/feedback') {
+        const html = createFeedbackHtml();
+        res.writeHead(200, htmlHeaders);
+        res.end(html);
         return;
       }
       res.writeHead(404, { 'content-type': 'text/plain' });
