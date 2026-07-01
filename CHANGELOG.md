@@ -2,6 +2,79 @@
 
 本文件记录 aptbot 各版本变更。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.2.3] - 2026-07-01
+
+aptbot 从"个人 agent 工具"扩展为"边用边学的 agent 学习教材"。新增知识体系（19 篇文章 + 2 Track）+ 用户反馈区（Web 表单 + JSONL 存储 + CLI 管理）。文章以 markdown + frontmatter 存储，运行时 marked 渲染；反馈 append-only JSONL 持久化，CLI `/feedback` 命令列表/详情/resolve/archive/stats。配置项 `learnPage`（默认 false，opt-in）+ `feedbackEnabled`（默认 true）控制启用范围，clone 用户零影响。基于 [docs/superpowers/specs/2026-07-01-0.2.3-learn-system-design.md](./docs/superpowers/specs/2026-07-01-0.2.3-learn-system-design.md) 实施。
+
+### Added
+
+#### 知识体系（learn system）
+- 19 篇结构化文章，两个 Track 独立编号：
+  - Track 1「Agent 体系实践」13 篇（入门 2 + 核心特性深入 8 + 可靠性/UX 1 + 实战 1 + 演进路线 1），围绕 aptbot 项目展开，从 agent 原理到实现到演进路线
+  - Track 2「AI 辅助编码实践」6 篇（开发流程 / 编码准确性 / spec 文档管理 / 长期迭代维护 / 边界与问题 / 方法与持续改进），与具体项目无关的通用方法论
+- 文章存储：`src/learn/articles/*.md` markdown 源 + YAML frontmatter（slug / title / description / track / chapter / order / difficulty / estimatedReadingTime / status / prerequisites / lastUpdated / tags）
+- `src/learn/article-types.ts`：`ArticleMetaSchema`（zod）+ `Article` / `ArticleState` / `ArticleNav` / `TrackMeta` + `TRACKS` 注册表（未来扩展 Track 3 只需追加一项）
+- `src/learn/article-loader.ts`：`ArticleLoader` 类（load / getState / getBySlug / getArticleNav）；gray-matter 解析 + zod 校验 + 唯一性校验；marked@15 渲染 published 文章并缓存 htmlString；planned 跳过渲染；mtimeNs 懒加载热重载（与 v0.2.2 Config 热重载模式对齐）+ per-loader mutex 串行化
+- 校验失败行为：stderr warning（含文件名 + zod 错误详情）+ 跳过该文件，不阻塞启动
+
+#### 用户反馈区
+- 访客可在文章页底部或 `/feedback` 通用反馈页提交想法 / bug / feature request
+- `src/infrastructure/feedback-storage.ts`：`FeedbackStorage` 类（append / list / moderate / findById）+ `FeedbackEntry` 接口；存储于 `${dataDir}/feedback.jsonl`（append-only JSONL，复用 jsonl.ts + jsonl-mutex.ts 模式）；moderate 重写整个 JSONL 文件（per-file 锁保护，反馈量低可接受）
+- `src/access/feedback-api.ts`：`handleFeedbackApi` 函数
+  - POST `/api/feedback` 提交反馈（zod 校验 message 1-2000 / category general|article|bug|feature / articleSlug 仅 category=article 时必填并校验存在 / contact 可选 ≤120 字符）
+  - GET `/api/feedback` 列出反馈（需 APTBOT_AUTH_TOKEN 鉴权 + limit/offset/category/status 分页过滤）
+  - POST `/api/feedback/:id/moderate` 审核状态变更（需 auth + status resolved|archived + 可选 note ≤500 字符）
+  - 限流：per IP 10 次/分钟 + 60 次/小时，内存 Map 滑动窗口，重启重置；429 含 Retry-After header
+- `src/access/learn-page.ts`：`createLearnListHtml` / `createLearnArticleHtml` / `createFeedbackHtml` 三个纯字符串 HTML 生成器，沿用 adept.ai tokens（白底 + 深绿 + Inter 字体 + pill 按钮）+ 移动端 `@media (max-width: 767px)` 字号缩放；文章页 max-width 720px 阅读优先布局；planned 文章显示 PLANNED 标签 + 大纲列表占位；不含 emoji（用 CSS 几何符号 / 文字标签替代）
+
+#### /feedback CLI 命令
+- `src/shared/commands/feedback.ts`：注册到 `CommandRegistry`，Ink 表格输出
+- 子命令：
+  - `/feedback` 或 `/feedback list` — 列出最近 10 条 open 状态反馈
+  - `/feedback all` — 列出全部状态（含 resolved / archived）
+  - `/feedback <id>` — 查看单条详情（含 note / moderatedAt）
+  - `/feedback resolve <id> [note]` — 标记为 resolved（可追加 note）
+  - `/feedback archive <id>` — 归档
+  - `/feedback stats` — 显示按状态 / 分类的计数统计
+- 鉴权：复用 AgentSession auth 上下文，无 token 时拒绝并提示设置 `APTBOT_AUTH_TOKEN`
+
+#### 配置与路由
+- `src/infrastructure/config-types.ts`：`AptbotConfig` 新增 `learnPage?: boolean`（默认 false，opt-in，与 `landingPage` 同模式）+ `feedbackEnabled?: boolean`（默认 true，自部署用户也可收集反馈）；Zod schema 扩展，`defaultConfig` 不加字段
+- `src/access/websocket-server.ts`：路由分发扩展
+  - `/learn` 列表页（仅 `landingPage:true && learnPage:true` 时启用，否则 404）
+  - `/learn/:slug` 文章页（slug 匹配 `^[a-z0-9-]+$`，planned 文章返回 200 显示 coming soon，不存在返回友好 404 含返回 /learn 链接）
+  - `/feedback` 通用反馈页（同 /learn 启用条件）
+  - `/api/feedback` 优先于 `/api/*` 分发；`feedbackEnabled:false` 时所有反馈 API 返回 404
+  - 所有 HTML 响应含 `Cache-Control: no-cache, no-store, must-revalidate` + `X-Content-Type-Options: nosniff`
+- `src/access/landing-page.ts`：新增第 6 section「知识」+ nav「知识」链接 + Hero 副标题更新（体现"学习项目"定位）+ 数据条追加 articles / tracks 数字（仅 `learnEnabled` 即 `landingPage:true && learnPage:true` 时生效；`landingPage:true` 但 `learnPage:false` 时落地页保持 v0.2.2 结构）
+- `src/server.ts`：根据 config 实例化 `ArticleLoader`（`learnEnabled` 或 `feedbackEnabled` 时）+ `FeedbackStorage`（`feedbackEnabled` 时），注入 `WebSocketServerOptions`
+
+### Dependencies
+
+- 新增 `marked@^15.0.12`：markdown 运行时渲染（gfm true / breaks false + 自定义 renderer 为 h2/h3 生成 id 锚点 + pre 加 data-language）
+- 新增 `gray-matter@^4.0.3`：markdown frontmatter 解析（CJS 模块，通过 ESM default import 互操作）
+
+### Security
+
+- 文章源文件由开发者维护（信任边界内），不引入 DOMPurify；marked 默认转义内联 HTML 中的 `<`，测试覆盖"恶意 HTML 输入应被 marked 转义"
+- 反馈区 per IP 限流（10/min + 60/hour）+ message 长度限制 2000 字符，缓解 spam
+- GET `/api/feedback` + POST `/api/feedback/:id/moderate` 需 `APTBOT_AUTH_TOKEN` 鉴权，访客仅可 POST 提交
+- 反馈存储复用既有 JSONL 增量流式解析 + 破损行容错（skip + warning，不 crash）；不引入 `fs.truncateSync` 自动修复（反馈数据丢失可接受）
+
+### Test Coverage
+
+- 新增 7 个测试文件：tests/learn/article-types.spec.ts / tests/learn/article-loader.spec.ts / tests/access/learn-page.spec.ts / tests/access/feedback-api.spec.ts / tests/infrastructure/feedback-storage.spec.ts / tests/shared/commands/feedback-command.spec.tsx + 现有 websocket-server.spec.ts / landing-page.spec.ts / landing-page-mobile.spec.ts 扩展
+- 类型检查 `tsc --noEmit` 0 错误
+
+### Release Finalization（封仓收尾）
+
+- 设计文档 [docs/superpowers/specs/2026-07-01-0.2.3-learn-system-design.md](./docs/superpowers/specs/2026-07-01-0.2.3-learn-system-design.md) 已就位
+- 实施计划 [docs/superpowers/plans/2026-07-01-0.2.3-learn-system.md](./docs/superpowers/plans/2026-07-01-0.2.3-learn-system.md) Task 1-16 全部完成
+- CHANGELOG / README / README.zh-CN / ARCHITECTURE 同步更新（本任务）
+- `package.json` 版本升至 `0.2.3`（Task 15）
+
+---
+
 ## [0.2.2] - 2026-07-01
 
 aptbot 从"可用"演进为"可靠 + 可扩展 + 体验流畅"。引入 10 项核心能力：多 provider 故障转移、配置热重载、Hook 系统、JSONL 历史持久化、HttpOnly cookie 安全增强、Skills 系统基础、L1 索引 Skill、/session 动态属性、Channel 接口抽象、Session 自动摘要命名。基于 [docs/superpowers/specs/2026-06-30-0.2.2-design.md](./docs/superpowers/specs/2026-06-30-0.2.2-design.md) 实施，为 0.3.0 多 agent 系统建立扩展性基础。

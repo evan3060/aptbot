@@ -3,7 +3,7 @@
     <img src="https://img.shields.io/badge/tests-938%20passed-brightgreen" alt="Tests">
     <img src="https://img.shields.io/badge/TypeScript-strict-blue" alt="TypeScript">
     <img src="https://img.shields.io/badge/node-%3E%3D20-green" alt="Node">
-    <img src="https://img.shields.io/badge/version-0.2.2-blue" alt="Version">
+    <img src="https://img.shields.io/badge/version-0.2.3-blue" alt="Version">
     <img src="https://img.shields.io/badge/license-MIT-yellow" alt="License">
   </p>
   <p>
@@ -22,7 +22,7 @@
 
 **长期目标：** 从一个简洁可读的 ReAct 循环出发，逐步扩展为高度个性化、全能的个人工作与生活助理——记住你的偏好、连接你的工具链、学习你的工作流、融入你的日常。最终，它不只是回答问题，而是主动为你工作。
 
-> **状态：** v0.2.2 — 74 个文件 / 938 个测试通过。可靠性 + 扩展性 + 体验（MixinProvider 故障转移、配置热重载、Hook 系统、Skills L1 索引、/session 动态属性、Channel 抽象）。
+> **状态：** v0.2.3 — 19 篇结构化文章（Track 1: Agent 体系实践 13 篇 + Track 2: AI 辅助编码实践 6 篇）+ 用户反馈系统（Web 表单 + JSONL 存储 + `/feedback` CLI）。知识栏目通过 `learnPage: true`（需 `landingPage: true`）opt-in 启用；反馈收集默认开启（`feedbackEnabled: true`）。
 
 ## 从这里开始
 
@@ -144,6 +144,49 @@ WebUI 由 WebSocket 服务器内联提供——无需单独构建步骤。启动
 - 6 个 Lit 组件：`assistant-message` · `user-message` · `tool-execution` · `working-indicator` · `footer-bar` · `input-box`
 - 自动重连，支持 `resync_required` 协议
 
+## 📖 知识栏目（v0.2.3）
+
+aptbot 同时也是一个学习项目——"边用边学，从 0 理解 agent"。知识栏目提供 19 篇结构化文章 + 访客反馈通道，均为 opt-in 配置，clone 自部署用户默认零影响。
+
+### 如何启用
+
+在 `config/aptbot.json` 中设置 `landingPage: true` + `learnPage: true`。知识栏目路由（`/learn`、`/learn/:slug`、`/feedback`）仅在两者均为 true 时启用。`feedbackEnabled` 默认 true，即使不启用落地页/知识栏目，`POST /api/feedback` 仍可接收（自部署用户也可通过自己的前端收集反馈）。
+
+```json
+{
+  "landingPage": true,
+  "learnPage": true,
+  "feedbackEnabled": true
+}
+```
+
+### 功能描述
+
+- **知识栏目** — 19 篇文章分两个 Track：
+  - Track 1「Agent 体系实践」（13 篇）：Agent 是什么、aptbot 全景架构、Provider/Tool/Memory/Skills/Hook/Channel/Session/Security 内部原理、错误处理与流式 UX、MVP → 0.2.2 全过程演进回顾、未来演进路线
+  - Track 2「AI 辅助编码实践」（6 篇）：superpower 工作流、TDD + 版本控制 + UAT、spec 文档管理、长期迭代维护、边界与问题、方法与持续改进
+- **路由** — `/` 落地页新增第 6 个"知识" section（文章卡片按 Track + chapter 分组）；`/learn` 列出全部 19 篇文章（Track 筛选 tab + chapter 可折叠）；`/learn/:slug` 阅读优先文章页（max-width 720px）含上下篇导航 + 文章底部反馈表单；planned 文章显示 PLANNED 标签 + 大纲占位
+- **反馈通道** — `/feedback` 通用反馈页；每篇文章页底部均有反馈表单。访客可提交想法 / bug / feature request，category 支持 `general | article | bug | feature`
+
+### 文章存储与渲染
+
+文章源文件位于 `src/learn/articles/*.md`，markdown + YAML frontmatter（`slug` / `title` / `description` / `track` / `chapter` / `order` / `difficulty` / `estimatedReadingTime` / `status` / `prerequisites` / `lastUpdated` / `tags`）。运行时 `ArticleLoader` 用 `gray-matter` 解析、`zod` 校验，对 published 文章用 `marked@15` 渲染（gfm + heading 自动 slug 化生成 id 锚点 + `<pre>` 加 `data-language`）。渲染后的 HTML 缓存在内存；基于 mtimeNs 的懒加载热重载无需重启服务即可看到文章更新。校验失败输出 stderr warning 并跳过该文件，不阻塞启动。
+
+### 反馈存储
+
+反馈追加写入 `${dataDir}/feedback.jsonl`（每行一个 JSON 对象，append-only，复用既有 JSONL + per-file mutex 基元）。读取采用增量流式解析（破损行跳过 + warning）。`moderate` 在 per-file 锁保护下重写整个文件（反馈量低，成本可接受）。提交按 IP 限流（10/min + 60/hour，内存滑动窗口，重启重置）。列表与审核接口需 `APTBOT_AUTH_TOKEN` 鉴权。
+
+### CLI 管理反馈
+
+```
+/feedback                  # 列出最近 10 条 open 反馈（默认）
+/feedback all              # 列出全部状态（含 resolved/archived）
+/feedback <id>             # 查看单条详情（含 note / moderatedAt）
+/feedback resolve <id> [n] # 标记为 resolved，可追加 note
+/feedback archive <id>     # 归档
+/feedback stats            # 按状态 / 分类计数统计
+```
+
 ## 🏗️ 架构
 
 aptbot 自底向上分层：core → bus → infrastructure → access，加 `shared/` 跨层共享。依赖方向严格向下，核心层完全不感知接入层存在。
@@ -201,6 +244,8 @@ aptbot 自底向上分层：core → bus → infrastructure → access，加 `sh
 | 多客户端同步（v0.2.0） | per-sessionKey 消息串行化 · ring buffer 历史回放 · presence 广播 · `session_changed` 控制消息 |
 | 会话侧边栏（v0.2.0） | Codex 风格左面板 · 相对时间 · 3-dot 菜单 · inline 重命名（Enter/Esc） · 跨客户端 `session_renamed` 广播 |
 | 落地页（v0.2.1） | adept.ai 风格 5-section 落地页位于 `/`（opt-in via `landingPage: true`） · 中/英 i18n · `/demo` 路由返回 agent 页 |
+| 知识栏目（v0.2.3） | 19 篇结构化文章（Track 1: Agent 体系实践 13 篇 + Track 2: AI 辅助编码实践 6 篇）位于 `/learn` + `/learn/:slug` · markdown + frontmatter 存储 · 运行时 `marked` 渲染 · 通过 `learnPage: true`（需 `landingPage: true`）opt-in 启用 |
+| 用户反馈（v0.2.3） | `/feedback` 反馈页 + `POST /api/feedback`（general/article/bug/feature）· JSONL append-only 存储 · per IP 限流（10/min + 60/hour）· `/feedback` CLI（list/all/详情/resolve/archive/stats）· 默认开启 via `feedbackEnabled: true` |
 | 可靠性（v0.2.2） | per-sessionKey ring buffer 分片 + LRU（1000/50000 上限）· JSONL 历史回放兜底 · `turn_busy` 排队反馈 |
 | 多 provider 故障转移（v0.2.2） | `MixinProvider` priority 链式故障转移 · `springBackMs` 弹回主 provider · 全部失败抛 AggregateError · 流式已 yield 不切 provider |
 | 配置热重载（v0.2.2） | mtimeNs 懒加载监听 · turn 隔离（当前 turn 用旧快照，下个 turn 用新配置）· 非法配置降级到旧值 |
@@ -227,6 +272,7 @@ aptbot 自底向上分层：core → bus → infrastructure → access，加 `sh
 | `/resume <id>` | 切换会话（短 ID 前缀匹配） |
 | `/continue <id>` | 继承旧会话的 working memory |
 | `/label <text>` | 重命名当前会话（v0.2.0+）· v0.2.2+ 永久覆盖自动摘要 |
+| `/feedback [子命令] [参数]` | 管理用户反馈（v0.2.3+）：空/`list` 最近 10 条 open · `all` 全部状态 · `<id>` 详情 · `resolve <id> [note]` · `archive <id>` · `stats` 统计 |
 | `/exit` | 退出应用 |
 
 ## 📚 文档
@@ -285,6 +331,7 @@ E2E 覆盖完整 agent 循环：基础对话、工具调用、多轮上下文、
 - **L1 ✅（v0.2.0）** — 用户系统（注册/登录）、浏览器级会话隔离、多客户端同步、Codex 风格侧边栏、会话重命名
 - **v0.2.1 ✅** — aptbot.de 落地页（adept.ai 风格）+ demo 页视觉迁移 + 移动端适配
 - **v0.2.2 ✅** — 可靠性 + 扩展性 + 体验：MixinProvider 故障转移、配置热重载、Hook 系统（8 点）、Skills 系统 + L1 索引、JSONL 历史回放、HttpOnly cookie、turn_busy、/session 动态属性、Channel 抽象、session 自动摘要
+- **v0.2.3 ✅** — 知识栏目：19 篇结构化文章（Track 1 Agent 体系实践 13 篇 + Track 2 AI 辅助编码实践 6 篇）位于 `/learn` + `/learn/:slug` · 用户反馈系统（`/feedback` 页 + `/api/feedback` + JSONL 存储 + `/feedback` CLI）· 配置 `learnPage`（opt-in）+ `feedbackEnabled`（默认开启）· 新依赖 `marked@15` + `gray-matter@4`
 - **L2** — 可靠性（ring buffer 分片、JSONL 历史持久化、HttpOnly cookie）、扩展性（MixinProvider 故障转移、配置热重载、hook 系统）、体验（CLI overlay/diff、WebUI 拆分到 Cloudflare Pages）、IM 集成（Telegram 作为首个渠道）
 - **L3** — FallbackProvider + 熔断器、OAuth、session 分支、跨会话长期记忆、飞书/钉钉集成、AgentHarness + 子代理管理
 - **多模态** — 图像输入/输出
