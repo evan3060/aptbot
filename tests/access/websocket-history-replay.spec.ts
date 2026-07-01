@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import WebSocket from 'ws';
+import { Window } from 'happy-dom';
 import { existsSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -724,6 +725,32 @@ describe('WebSocket history replay — JSONL fallback (Task 3, 0.2.2)', () => {
 });
 
 /**
+ * 从脚本中找到 startMarker，从其后第一个 `{` 开始按花括号配平提取整块代码。
+ * 跳过字符串字面量（'...' / "..." / `...`）内的花括号，避免误配平。
+ * 用于可靠提取内联 JS 中某个 if/函数 块，配合真实 DOM 做运行时行为验证。
+ */
+function extractBraceBlock(script: string, startMarker: string): string {
+  const startIdx = script.indexOf(startMarker);
+  if (startIdx === -1) return '';
+  let i = script.indexOf('{', startIdx);
+  if (i === -1) return '';
+  let depth = 0;
+  let inSingle = false, inDouble = false, inBack = false;
+  for (; i < script.length; i++) {
+    const c = script[i];
+    if (inSingle) { if (c === '\\') { i++; continue; } if (c === "'") inSingle = false; continue; }
+    if (inDouble) { if (c === '\\') { i++; continue; } if (c === '"') inDouble = false; continue; }
+    if (inBack) { if (c === '\\') { i++; continue; } if (c === '`') inBack = false; continue; }
+    if (c === "'") { inSingle = true; continue; }
+    if (c === '"') { inDouble = true; continue; }
+    if (c === '`') { inBack = true; continue; }
+    if (c === '{') depth++;
+    else if (c === '}') { depth--; if (depth === 0) return script.slice(startIdx, i + 1); }
+  }
+  return '';
+}
+
+/**
  * Task 3 (0.2.2): 前端 replay 消息去重 — chat-page.ts 内联 JS 处理 replay 消息
  *
  * 行为：replay: true 标记使前端不触发 appendUserMsg 等副作用，直接渲染 div
@@ -751,5 +778,86 @@ describe('chat-page replay dedup (Task 3, 0.2.2)', () => {
     // 应直接创建 div 渲染，不通过 appendUserMsg
     expect(replayBlock).toContain('document.createElement');
     expect(replayBlock).toContain('appendChild');
+  });
+
+  /**
+   * 运行时行为验证（Task 3 code-review fix）：
+   * 从内联 JS 提取 replay 处理块，在真实 DOM（happy-dom）中执行，
+   * 验证 onmessage 收到 replay 消息后 DOM 中 .msg div 的数量与角色正确。
+   * 这是逻辑验证而非字符串匹配 —— 若 replay 逻辑出错（漏判 replay 标记、
+   * 角色分支颠倒、historyLoading 去重失效等），本测试会失败。
+   */
+  it('replay 消息在真实 DOM 中渲染正确数量与角色的 .msg div（运行时验证）', () => {
+    const html = createChatPageHtml('/ws');
+    // 提取内联 <script> 内容（选取含 replay 处理逻辑的那个 script 块）
+    const scriptMatches = html.match(/<script[^>]*>([\s\S]*?)<\/script>/g);
+    expect(scriptMatches).not.toBeNull();
+    expect(scriptMatches!.length).toBeGreaterThan(0);
+    const marker = "if (msg.type === 'replay' && msg.source === 'jsonl' && msg.messages)";
+    const targetScript = scriptMatches!.find((s) => s.includes(marker)) ?? scriptMatches![scriptMatches!.length - 1];
+    const script = targetScript.replace(/^<script[^>]*>/, '').replace(/<\/script>$/, '');
+
+    // 提取 replay 处理块
+    const block = extractBraceBlock(script, marker);
+    expect(block).toBeTruthy();
+    expect(block).toMatch(/^if\s*\(/);
+
+    // 真实 DOM（happy-dom）
+    const win = new Window();
+    const document = win.document;
+    const messagesEl = document.createElement('div');
+    document.body.appendChild(messagesEl);
+
+    // 真实 escapeHtml（与内联 JS 行为一致），用于验证 innerHTML 转义
+    function escapeHtml(s: string): string {
+      return String(s).replace(/[&<>"']/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+    }
+    let scrollCalled = 0;
+    const scrollBottom = (): void => { scrollCalled++; };
+
+    // 把提取的 if 块包装为函数（块内 return 从该函数返回）
+    const handler = new Function(
+      'msg', 'historyLoading', 'document', 'escapeHtml', 'messagesEl', 'scrollBottom',
+      block,
+    ) as (msg: unknown, historyLoading: boolean, document: Document, escapeHtml: (s: string) => string, messagesEl: HTMLElement, scrollBottom: () => void) => void;
+
+    // replay 消息：3 条应渲染（1 user + 2 assistant），2 条应跳过
+    const replayMsg = {
+      type: 'replay',
+      replay: true,
+      source: 'jsonl',
+      messages: [
+        { replay: true, role: 'user', content: 'hello <b>' },
+        { replay: true, role: 'assistant', content: 'hi there' },
+        { replay: true, role: 'tool', content: 'should be skipped' },        // role 非 user/assistant → 跳过
+        { replay: false, role: 'user', content: 'should be skipped' },       // replay !== true → 跳过
+        { replay: true, role: 'assistant', content: { blocks: [] } as any }, // content 非字符串 → ''
+      ],
+    };
+
+    handler(replayMsg, false, document, escapeHtml, messagesEl, scrollBottom);
+
+    // 验证 DOM 状态：3 个 .msg div（1 user + 2 assistant）
+    expect(messagesEl.querySelectorAll('.msg').length).toBe(3);
+    expect(messagesEl.querySelectorAll('.msg.user').length).toBe(1);
+    expect(messagesEl.querySelectorAll('.msg.assistant').length).toBe(2);
+    // user div 应含转义后的内容与 You 标签（验证 escapeHtml 接入正确）
+    const userDiv = messagesEl.querySelector('.msg.user');
+    expect(userDiv).not.toBeNull();
+    expect(userDiv!.innerHTML).toContain('&lt;b&gt;');
+    expect(userDiv!.innerHTML).toContain('<div class="label">You</div>');
+    // scrollBottom 应被调用一次
+    expect(scrollCalled).toBe(1);
+
+    // historyLoading=true 时应跳过渲染（loadHistory 进行中时的去重保护）
+    const before = messagesEl.querySelectorAll('.msg').length;
+    handler(replayMsg, true, document, escapeHtml, messagesEl, scrollBottom);
+    expect(messagesEl.querySelectorAll('.msg').length).toBe(before);
+
+    // 条件门控运行时验证：source 非 'jsonl'（如 ring buffer replay）不应渲染
+    const ringReplay = { type: 'replay', source: 'ring', messages: [{ replay: true, role: 'user', content: 'x' }] };
+    handler(ringReplay, false, document, escapeHtml, messagesEl, scrollBottom);
+    expect(messagesEl.querySelectorAll('.msg').length).toBe(before);
   });
 });

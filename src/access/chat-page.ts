@@ -668,6 +668,8 @@ export function createChatPageHtml(wsPath: string): string {
     // Task 6 I1 fix: 总是带 lastEventSeq（包括 0），确保 session_changed 重连时
     // 服务端能 replay 新 sessionKey 的 ring buffer（/new 后的确认 turn 事件）
     params.set('lastEventSeq', String(lastEventSeq));
+    // Task 3: 携带 historyLimit 触发服务端历史回放（ring buffer 未命中时从 JSONL 兜底）
+    params.set('historyLimit', '20');
     var qs = params.toString();
     return qs ? base + '?' + qs : base;
   }
