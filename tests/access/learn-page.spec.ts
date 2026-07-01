@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { createLearnListHtml } from '../../src/access/learn-page.js';
-import { TRACKS, type Article, type ArticleState, type ArticleMeta } from '../../src/learn/article-types.js';
+import { createLearnListHtml, createLearnArticleHtml } from '../../src/access/learn-page.js';
+import { TRACKS, type Article, type ArticleState, type ArticleMeta, type ArticleNav } from '../../src/learn/article-types.js';
 
 /**
  * Task 4: learn-page.ts 列表页 — createLearnListHtml
@@ -343,6 +343,400 @@ describe('Task 4: createLearnListHtml 列表页', () => {
   describe('无 emoji 契约', () => {
     it('渲染产物不含彩色 emoji（允许 ▼ / → 等 BMP 几何符号）', () => {
       const html = createLearnListHtml(STATE);
+      expect(EMOJI_REGEX.test(html)).toBe(false);
+    });
+  });
+});
+
+/**
+ * Task 5: learn-page.ts 文章页 — createLearnArticleHtml
+ *
+ * 测试策略：纯字符串契约测试。构建 published + planned 两个 Article fixture，
+ * 配合 ArticleNav（prev + next），验证渲染产物：
+ * - published：标题 / meta 行 / marked 渲染正文 / 上下篇导航 / 反馈表单 / 返回 /learn / 720px max-width / 无 emoji
+ * - planned：PLANNED 标签 / 大纲列表 / 无反馈表单 / 返回知识体系链接
+ */
+
+// === Article page fixtures ===
+
+const PUBLISHED_ARTICLE: Article = {
+  meta: {
+    slug: 'react-loop',
+    title: 'ReAct Loop 剖析',
+    description: '深入剖析 aptbot 的 ReAct Loop 实现，包括工具调用、流式输出与错误恢复机制。',
+    track: 'agent-practice',
+    chapter: '核心特性深入篇',
+    order: 3,
+    difficulty: 'intermediate',
+    estimatedReadingTime: 12,
+    status: 'published',
+    prerequisites: ['agent-overview', 'agent-quickstart'],
+    lastUpdated: '2026-06-15',
+    tags: ['react', 'loop', 'architecture'],
+  },
+  renderedHtml:
+    '<h2>什么是 ReAct Loop</h2>\n<p>ReAct Loop 是 aptbot 的核心推理循环，负责协调工具调用与模型推理。</p>\n<pre><code>const loop = new ReActLoop();</code></pre>\n<blockquote>ReAct = Reasoning + Acting</blockquote>',
+  markdownBody: '## 什么是 ReAct Loop\n\nReAct Loop 是 aptbot 的核心推理循环...',
+};
+
+const PREV_ARTICLE: Article = buildArticle(
+  buildMeta({
+    slug: 'agent-quickstart',
+    title: '快速上手 aptbot',
+    track: 'agent-practice',
+    chapter: '入门篇',
+    order: 2,
+    difficulty: 'beginner',
+    estimatedReadingTime: 8,
+  }),
+);
+
+const NEXT_ARTICLE: Article = buildArticle(
+  buildMeta({
+    slug: 'tool-system',
+    title: '工具系统与声明式 registry',
+    track: 'agent-practice',
+    chapter: '核心特性深入篇',
+    order: 4,
+    difficulty: 'intermediate',
+    estimatedReadingTime: 10,
+  }),
+);
+
+const PUBLISHED_NAV: ArticleNav = {
+  prev: PREV_ARTICLE,
+  next: NEXT_ARTICLE,
+};
+
+const PLANNED_ARTICLE: Article = {
+  meta: {
+    slug: 'roadmap',
+    title: '演进路线规划',
+    description:
+      '短期：性能优化与文档完善；中期：插件系统与多模态支持；长期：自主任务编排与跨 agent 协作',
+    track: 'agent-practice',
+    chapter: '方法论',
+    order: 12,
+    difficulty: 'advanced',
+    estimatedReadingTime: 6,
+    status: 'planned',
+    prerequisites: [],
+    lastUpdated: '2026-07-01',
+    tags: ['roadmap'],
+  },
+  renderedHtml: null,
+  markdownBody: '',
+};
+
+describe('Task 5: createLearnArticleHtml 文章页', () => {
+  describe('published 文章 — 骨架与 head', () => {
+    it('返回 HTML 默认 lang="zh-CN" + title 为 "文章标题 - aptbot 知识体系"', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      expect(html).toContain('<html lang="zh-CN">');
+      expect(html).toContain('<title>ReAct Loop 剖析 - aptbot 知识体系</title>');
+    });
+
+    it('引入 Inter 字体 link（与列表页一致）', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      expect(html).toContain(
+        '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">',
+      );
+    });
+
+    it('复用列表页 design tokens（--bg-base / --text-primary / --text-secondary / --bg-muted）', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      expect(html).toContain('--bg-base:');
+      expect(html).toContain('--text-primary:');
+      expect(html).toContain('--text-secondary:');
+      expect(html).toContain('--bg-muted:');
+    });
+  });
+
+  describe('published 文章 — nav（同列表页）', () => {
+    it('含 aptbot wordmark + 首页 / 知识（active） / Demo', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      expect(html).toContain('href="/"');
+      expect(html).toContain('aptbot');
+      expect(html).toContain('首页');
+      expect(html).toContain('href="/learn"');
+      expect(html).toContain('知识');
+      expect(html).toContain('href="/demo"');
+      expect(html).toContain('Demo');
+      // 知识 tab 标记 active
+      expect(html).toMatch(/href="\/learn"[^>]*class="[^"]*active/);
+    });
+  });
+
+  describe('published 文章 — article header', () => {
+    it('含 ← 返回知识体系 链接到 /learn', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      expect(html).toContain('返回知识体系');
+      expect(html).toContain('href="/learn"');
+      expect(html).toContain('←');
+    });
+
+    it('含 H1 文章标题', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      expect(html).toContain('ReAct Loop 剖析');
+      expect(html).toMatch(/<h1[^>]*>\s*ReAct Loop 剖析\s*<\/h1>/);
+    });
+
+    it('含 meta 行（TRACK · chapter · difficulty · reading time）', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      // track label TRACK 1（agent-practice → order 1）
+      expect(html).toContain('TRACK 1');
+      // chapter
+      expect(html).toContain('核心特性深入篇');
+      // difficulty（原始值）
+      expect(html).toContain('intermediate');
+      // 阅读时间 + min
+      expect(html).toContain('12 min');
+      // 用 · 分隔
+      expect(html).toContain('·');
+    });
+
+    it('含摘要 description（italic secondary）', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      expect(html).toContain(PUBLISHED_ARTICLE.meta.description);
+      expect(html).toMatch(/font-style:\s*italic/);
+    });
+
+    it('含最后更新日期 + 前置文章', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      expect(html).toContain('2026-06-15');
+      // prerequisites slugs
+      expect(html).toContain('agent-overview');
+      expect(html).toContain('agent-quickstart');
+    });
+  });
+
+  describe('published 文章 — article body', () => {
+    it('含 marked 渲染的 renderedHtml 内容', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      expect(html).toContain('什么是 ReAct Loop');
+      expect(html).toContain('ReAct Loop 是 aptbot 的核心推理循环');
+      expect(html).toContain('const loop = new ReActLoop();');
+      expect(html).toContain('ReAct = Reasoning + Acting');
+    });
+
+    it('含 720px max-width CSS（header / body / footer 居中）', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      expect(html).toContain('max-width: 720px');
+    });
+
+    it('含文章正文排版 CSS（h2 / h3 / p / code / pre / blockquote）', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      // h2 28px margin-top 48px border-bottom
+      expect(html).toMatch(/h2\s*\{[^}]*font-size:\s*28px/);
+      expect(html).toMatch(/h2\s*\{[^}]*margin-top:\s*48px/);
+      expect(html).toMatch(/h2\s*\{[^}]*border-bottom:\s*1px/);
+      // h3 22px margin-top 32px
+      expect(html).toMatch(/h3\s*\{[^}]*font-size:\s*22px/);
+      expect(html).toMatch(/h3\s*\{[^}]*margin-top:\s*32px/);
+      // p 18px line-height 1.7
+      expect(html).toMatch(/p\s*\{[^}]*font-size:\s*18px/);
+      expect(html).toMatch(/p\s*\{[^}]*line-height:\s*1\.7/);
+      // code inline bg-muted
+      expect(html).toMatch(/code\s*\{[^}]*background:\s*var\(--bg-muted\)/);
+      // pre bg-darker + border-radius 8px + overflow-x auto
+      expect(html).toMatch(/pre\s*\{[^}]*border-radius:\s*8px/);
+      expect(html).toMatch(/pre\s*\{[^}]*overflow-x:\s*auto/);
+      // blockquote border-left accent（3px solid var(--accent)）
+      expect(html).toMatch(/blockquote\s*\{[^}]*border-left:\s*3px\s+solid\s+var\(--accent\)/);
+      // a color accent
+      expect(html).toMatch(/a\s*\{[^}]*color:\s*var\(--accent\)/);
+      // img max-width 100%
+      expect(html).toMatch(/img\s*\{[^}]*max-width:\s*100%/);
+    });
+  });
+
+  describe('published 文章 — 上下篇导航', () => {
+    it('nav 不为 null 时显示上一篇 + 下一篇', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      // 上一篇 + 下一篇 文案
+      expect(html).toContain('上一篇');
+      expect(html).toContain('下一篇');
+      // 链接到 prev / next slug
+      expect(html).toContain('href="/learn/agent-quickstart"');
+      expect(html).toContain('href="/learn/tool-system"');
+      // prev / next 标题
+      expect(html).toContain('快速上手 aptbot');
+      expect(html).toContain('工具系统与声明式 registry');
+    });
+
+    it('nav.prev 为 null 时不显示上一篇', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, { prev: null, next: NEXT_ARTICLE });
+      expect(html).not.toContain('上一篇');
+      expect(html).toContain('下一篇');
+    });
+
+    it('nav.next 为 null 时不显示下一篇', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, { prev: PREV_ARTICLE, next: null });
+      expect(html).toContain('上一篇');
+      expect(html).not.toContain('下一篇');
+    });
+
+    it('nav 全为 null 时上下篇导航均不显示', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, { prev: null, next: null });
+      expect(html).not.toContain('上一篇');
+      expect(html).not.toContain('下一篇');
+    });
+  });
+
+  describe('published 文章 — 反馈表单', () => {
+    it('含反馈区引导文案', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      expect(html).toContain('这篇文章对你有帮助吗');
+    });
+
+    it('含 form method POST action /api/feedback', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      expect(html).toMatch(/<form[^>]*method="post"[^>]*action="\/api\/feedback"/);
+      expect(html).toContain('/api/feedback');
+    });
+
+    it('含 category=article 隐藏域', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      expect(html).toMatch(/<input[^>]*type="hidden"[^>]*name="category"[^>]*value="article"/);
+    });
+
+    it('含 articleSlug 隐藏域（值为当前文章 slug）', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      expect(html).toMatch(/<input[^>]*type="hidden"[^>]*name="articleSlug"[^>]*value="react-loop"/);
+    });
+
+    it('含 textarea maxlength 2000 required', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      expect(html).toMatch(/<textarea[^>]*name="message"[^>]*maxlength="2000"[^>]*required/);
+    });
+
+    it('含 contact 输入框 maxlength 120（可选）', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      expect(html).toMatch(/<input[^>]*name="contact"[^>]*maxlength="120"/);
+    });
+
+    it('含提交按钮（pill 样式）', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      expect(html).toContain('提交');
+      expect(html).toMatch(/border-radius:\s*9999px/);
+    });
+
+    it('含状态提示区 div', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      expect(html).toContain('feedback-status');
+    });
+  });
+
+  describe('published 文章 — 内联 script 反馈交互', () => {
+    it('含内联 <script>', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      expect(html).toContain('<script>');
+      expect(html).toContain('</script>');
+    });
+
+    it('script 含 fetch POST /api/feedback 调用', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      expect(html).toContain('fetch(');
+      expect(html).toContain('/api/feedback');
+      expect(html).toMatch(/method:\s*['"]POST['"]/);
+    });
+
+    it('script 含 preventDefault + 提交中状态切换', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      expect(html).toContain('preventDefault');
+      expect(html).toContain('提交中');
+    });
+
+    it('script 含成功 / 400 / 429 / 网络错误 文案', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      expect(html).toContain('感谢反馈，已记录到待办');
+      expect(html).toContain('提交过于频繁，请稍后再试');
+      expect(html).toContain('网络错误，请检查连接');
+    });
+  });
+
+  describe('published 文章 — footer（同列表页）', () => {
+    it('含 aptbot wordmark + GitHub + MIT + © 2026 aptbot', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      expect(html).toContain('https://github.com/evan3060/aptbot');
+      expect(html).toContain('MIT');
+      expect(html).toContain('© 2026 aptbot');
+    });
+  });
+
+  describe('published 文章 — 无 emoji 契约', () => {
+    it('渲染产物不含彩色 emoji', () => {
+      const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
+      expect(EMOJI_REGEX.test(html)).toBe(false);
+    });
+  });
+
+  describe('planned 文章 — 计划中状态', () => {
+    it('返回 HTML lang="zh-CN" + title 为 "文章标题 - aptbot 知识体系"', () => {
+      const html = createLearnArticleHtml(PLANNED_ARTICLE, { prev: null, next: null });
+      expect(html).toContain('<html lang="zh-CN">');
+      expect(html).toContain('<title>演进路线规划 - aptbot 知识体系</title>');
+    });
+
+    it('含 PLANNED 文字标签（非 emoji）', () => {
+      const html = createLearnArticleHtml(PLANNED_ARTICLE, { prev: null, next: null });
+      expect(html).toContain('PLANNED');
+    });
+
+    it('PLANNED 标签使用 CSS 边框（非 emoji）', () => {
+      const html = createLearnArticleHtml(PLANNED_ARTICLE, { prev: null, next: null });
+      // PLANNED 标签样式含 border（CSS 边框渲染）
+      expect(html).toMatch(/planned-label[\s\S]{0,200}border/);
+    });
+
+    it('含 "本章正在撰写中" 提示', () => {
+      const html = createLearnArticleHtml(PLANNED_ARTICLE, { prev: null, next: null });
+      expect(html).toContain('本章正在撰写中');
+    });
+
+    it('含 "计划内容：" 大纲列表（从 description 渲染）', () => {
+      const html = createLearnArticleHtml(PLANNED_ARTICLE, { prev: null, next: null });
+      expect(html).toContain('计划内容');
+      // description 拆分后的大纲项
+      expect(html).toContain('短期：性能优化与文档完善');
+      expect(html).toContain('中期：插件系统与多模态支持');
+      expect(html).toContain('长期：自主任务编排与跨 agent 协作');
+      // 列表结构
+      expect(html).toContain('<ul');
+      expect(html).toContain('<li>');
+    });
+
+    it('含 "返回知识体系" 链接到 /learn', () => {
+      const html = createLearnArticleHtml(PLANNED_ARTICLE, { prev: null, next: null });
+      expect(html).toContain('返回知识体系');
+      expect(html).toContain('href="/learn"');
+    });
+
+    it('不含反馈表单', () => {
+      const html = createLearnArticleHtml(PLANNED_ARTICLE, { prev: null, next: null });
+      expect(html).not.toContain('/api/feedback');
+      expect(html).not.toContain('feedback-status');
+    });
+
+    it('不含上下篇导航', () => {
+      const html = createLearnArticleHtml(PLANNED_ARTICLE, { prev: null, next: null });
+      expect(html).not.toContain('上一篇');
+      expect(html).not.toContain('下一篇');
+    });
+
+    it('含 H1 文章标题', () => {
+      const html = createLearnArticleHtml(PLANNED_ARTICLE, { prev: null, next: null });
+      expect(html).toContain('演进路线规划');
+      expect(html).toMatch(/<h1[^>]*>\s*演进路线规划\s*<\/h1>/);
+    });
+
+    it('含 720px max-width CSS（与 published 一致）', () => {
+      const html = createLearnArticleHtml(PLANNED_ARTICLE, { prev: null, next: null });
+      expect(html).toContain('max-width: 720px');
+    });
+
+    it('渲染产物不含彩色 emoji', () => {
+      const html = createLearnArticleHtml(PLANNED_ARTICLE, { prev: null, next: null });
       expect(EMOJI_REGEX.test(html)).toBe(false);
     });
   });
