@@ -25,6 +25,7 @@ function buildArticle(meta: ArticleMeta): Article {
     meta,
     renderedHtml: meta.status === 'published' ? `<p>${meta.title} rendered html</p>` : null,
     markdownBody: meta.status === 'published' ? `# ${meta.title}\n\n正文内容...` : '',
+    lang: 'zh',
   };
 }
 

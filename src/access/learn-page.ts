@@ -9,10 +9,10 @@ import { TRACKS, type Article, type ArticleNav, type ArticleState, type TrackMet
  * Task 6 将追加 createFeedbackHtml。
  */
 
-const DIFFICULTY_LABELS: Readonly<Record<string, string>> = {
-  beginner: '入门',
-  intermediate: '进阶',
-  advanced: '深入',
+const DIFFICULTY_LABELS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  beginner: { zh: '入门', en: 'Beginner' },
+  intermediate: { zh: '进阶', en: 'Intermediate' },
+  advanced: { zh: '深入', en: 'Advanced' },
 };
 
 /** 转义 HTML 特殊字符，防止文章元数据注入 */
@@ -69,8 +69,8 @@ function renderArticleCard(article: Article, state: ArticleState, lang: string):
   const langSpecific = state.bySlug.get(`${meta.slug}:${currentLang}`);
   const display = langSpecific ?? article;
   const dMeta = display.meta;
-  const difficultyLabel = DIFFICULTY_LABELS[meta.difficulty] ?? meta.difficulty;
-  const metaRow = `${escapeHtml(difficultyLabel)} · ${meta.estimatedReadingTime} 分钟`;
+  const difficultyLabel = DIFFICULTY_LABELS[meta.difficulty]?.[currentLang] ?? meta.difficulty;
+  const metaRow = `${escapeHtml(difficultyLabel)} · ${meta.estimatedReadingTime} ${t('article.minutes', currentLang)}`;
   const tagsHtml = meta.tags.length > 0
     ? `<div class="article-tags">${meta.tags
         .map((t) => `<span class="article-tag">${escapeHtml(t)}</span>`)
@@ -132,16 +132,129 @@ ${chaptersHtml}
     </section>`;
 }
 
+const LEARN_I18N: Record<string, Record<string, string>> = {
+  zh: {
+    'nav.home': '首页',
+    'nav.learn': '知识',
+    'list.h1': '知识体系',
+    'list.articles': '篇文章',
+    'list.tracks': '个 Track',
+    'list.articlesLabel': ' 篇文章',
+    'list.tracksLabel': ' 个 Track',
+    'list.track1Label': ' 篇 ',
+    'list.track2Label': ' 篇 ',
+    'list.all': '全部',
+    'list.grid': '网格',
+    'list.list': '列表',
+    'list.track1': 'Track 1',
+    'list.track2': 'Track 2',
+    'list.subtitleSep': '，',
+    'article.back': '← 返回知识体系',
+    'article.lastUpdated': '最后更新',
+    'article.minutes': '分钟',
+    'article.prerequisites': '前置文章：',
+    'article.prerequisitesSep': '、',
+    'article.prerequisitesNone': '无',
+    'article.plannedTitle': '本章正在撰写中',
+    'article.plannedOutline': '计划内容：',
+    'article.backToLearn': '返回知识体系 →',
+    'article.prev': '← 上一篇',
+    'article.next': '下一篇 →',
+    'article.titleSuffix': '知识体系',
+    'article.feedbackTitle': '这篇文章对你有帮助吗？有想法或问题？',
+    'article.feedbackPlaceholder': '写下你的反馈...',
+    'article.feedbackContactPlaceholder': '联系方式（可选）',
+    'article.submitFeedback': '提交反馈',
+    'article.feedbackSubmitted': '感谢反馈，已记录到待办',
+    'article.feedbackError': '提交失败',
+    'article.feedbackRateLimit': '提交过于频繁，请稍后再试',
+    'article.feedbackNetworkError': '网络错误，请检查连接',
+    'article.submitting': '提交中...',
+    'feedback.title': '留言反馈',
+    'feedback.subtitle': '有想法、问题或需求？提交给我们，会记录到待办。',
+    'feedback.placeholder': '写下你的反馈...',
+    'feedback.contactPlaceholder': '联系方式（可选）',
+    'feedback.submit': '提交反馈',
+    'feedback.submitting': '提交中...',
+    'feedback.submitted': '感谢反馈，已记录到待办',
+    'feedback.error': '提交失败',
+    'feedback.rateLimit': '提交过于频繁，请稍后再试',
+    'feedback.networkError': '网络错误，请检查连接',
+    'footer.tagline': '你的个人 AI 助手',
+    'footer.docs': '文档',
+    'footer.changelog': '更新日志',
+    'footer.license': '开源协议',
+    'footer.bottom': '用心打造 · 开源 · 可自托管',
+  },
+  en: {
+    'nav.home': 'Home',
+    'nav.learn': 'Learn',
+    'list.h1': 'Knowledge Base',
+    'list.articles': 'articles',
+    'list.tracks': 'tracks',
+    'list.articlesLabel': ' articles',
+    'list.tracksLabel': ' tracks',
+    'list.track1Label': ' ',
+    'list.track2Label': ' ',
+    'list.all': 'All',
+    'list.grid': 'Grid',
+    'list.list': 'List',
+    'list.track1': 'Track 1',
+    'list.track2': 'Track 2',
+    'list.subtitleSep': ', ',
+    'article.back': '← Back to Knowledge Base',
+    'article.lastUpdated': 'Last updated',
+    'article.minutes': 'min',
+    'article.prerequisites': 'Prerequisites: ',
+    'article.prerequisitesSep': ', ',
+    'article.prerequisitesNone': 'None',
+    'article.plannedTitle': 'This chapter is being written',
+    'article.plannedOutline': 'Planned content:',
+    'article.backToLearn': 'Back to Knowledge Base →',
+    'article.prev': '← Previous',
+    'article.next': 'Next →',
+    'article.titleSuffix': 'Knowledge Base',
+    'article.feedbackTitle': 'Was this article helpful? Have thoughts or questions?',
+    'article.feedbackPlaceholder': 'Write your feedback...',
+    'article.feedbackContactPlaceholder': 'Contact (optional)',
+    'article.submitFeedback': 'Submit Feedback',
+    'article.feedbackSubmitted': 'Feedback recorded. Thank you!',
+    'article.feedbackError': 'Submission failed',
+    'article.feedbackRateLimit': 'Too frequent. Please try later.',
+    'article.feedbackNetworkError': 'Network error. Please check connection.',
+    'article.submitting': 'Submitting...',
+    'feedback.title': 'Feedback',
+    'feedback.subtitle': 'Have thoughts, questions, or requests? Send them to us.',
+    'feedback.placeholder': 'Write your feedback...',
+    'feedback.contactPlaceholder': 'Contact (optional)',
+    'feedback.submit': 'Submit Feedback',
+    'feedback.submitting': 'Submitting...',
+    'feedback.submitted': 'Feedback recorded. Thank you!',
+    'feedback.error': 'Submission failed',
+    'feedback.rateLimit': 'Too frequent. Please try later.',
+    'feedback.networkError': 'Network error. Please check connection.',
+    'footer.tagline': 'Your Personal AI Assistant',
+    'footer.docs': 'Documentation',
+    'footer.changelog': 'Changelog',
+    'footer.license': 'License',
+    'footer.bottom': 'Made with care · Open source · Self-hostable',
+  },
+};
+
+function t(key: string, lang: string): string {
+  return LEARN_I18N[lang]?.[key] ?? LEARN_I18N['zh']?.[key] ?? key;
+}
+
 export function createLearnListHtml(state: ArticleState, lang?: string): string {
   const currentLang = lang === 'en' ? 'en' : 'zh';
-  const totalArticles = state.articles.length;
+  const totalArticles = state.articles.filter((a) => a.lang === currentLang).length;
   const totalTracks = state.tracks.length;
   const sortedTracks = [...state.tracks].sort((a, b) => a.order - b.order);
 
-  // 计算每个 track 的文章数；track.id → count
+  // 计算每个 track 的文章数；track.id → count（按语言过滤，避免中英双倍计数）
   const trackCount = new Map<string, number>();
   for (const t of sortedTracks) {
-    trackCount.set(t.id, (state.byTrack.get(t.id) ?? []).length);
+    trackCount.set(t.id, (state.byTrack.get(t.id) ?? []).filter((a) => a.lang === currentLang).length);
   }
   const track1Count = trackCount.get('agent-practice') ?? 0;
   const track2Count = trackCount.get('ai-coding-practice') ?? 0;
@@ -149,11 +262,11 @@ export function createLearnListHtml(state: ArticleState, lang?: string): string 
   // track title（用于 subtitle 与 caption）— 通过 id 查表，避免重复遍历
   const track1Meta = sortedTracks.find((t) => t.id === 'agent-practice');
   const track2Meta = sortedTracks.find((t) => t.id === 'ai-coding-practice');
-  const track1Title = track1Meta?.title ?? 'Agent 体系实践';
-  const track2Title = track2Meta?.title ?? 'AI 辅助编码实践';
+  const track1Title = currentLang === 'en' ? (track1Meta?.titleEn ?? 'Agent Practice') : (track1Meta?.title ?? 'Agent 体系实践');
+  const track2Title = currentLang === 'en' ? (track2Meta?.titleEn ?? 'AI Coding Practice') : (track2Meta?.title ?? 'AI 辅助编码实践');
 
   const tracksHtml = sortedTracks
-    .map((t, i) => renderTrack(t, state.byTrack.get(t.id) ?? [], i + 1, state, currentLang))
+    .map((t, i) => renderTrack(t, (state.byTrack.get(t.id) ?? []).filter((a) => a.lang === currentLang), i + 1, state, currentLang))
     .join('\n');
 
   return `<!DOCTYPE html>
@@ -162,7 +275,7 @@ export function createLearnListHtml(state: ArticleState, lang?: string): string 
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="data:,">
-<title>知识体系 - aptbot</title>
+<title>${t('list.h1', currentLang)} - aptbot</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -532,8 +645,8 @@ export function createLearnListHtml(state: ArticleState, lang?: string): string 
 <header id="nav">
   <a href="/" class="nav-wordmark">aptbot</a>
   <nav class="nav-links">
-    <a href="/" data-i18n="nav.home">首页</a>
-    <a href="/learn" class="active" data-i18n="nav.learn">知识</a>
+    <a href="/" data-i18n="nav.home">${t('nav.home', currentLang)}</a>
+    <a href="/learn" class="active" data-i18n="nav.learn">${t('nav.learn', currentLang)}</a>
     <a href="/demo">Demo</a>
   </nav>
   <div class="nav-actions">
@@ -543,18 +656,18 @@ export function createLearnListHtml(state: ArticleState, lang?: string): string 
 
 <main>
   <div class="page-header">
-    <h1 data-i18n="list.h1">知识体系</h1>
-    <p class="page-subtitle"><span class="count">${totalArticles}</span><span data-i18n="list.articlesLabel"> 篇文章</span>，<span class="count">${totalTracks}</span><span data-i18n="list.tracksLabel"> 个 Track</span> · <span class="count">${track1Count}</span><span data-i18n="list.track1Label"> 篇 </span><span>${escapeHtml(track1Title)}</span> · <span class="count">${track2Count}</span><span data-i18n="list.track2Label"> 篇 </span><span>${escapeHtml(track2Title)}</span></p>
+    <h1 data-i18n="list.h1">${t('list.h1', currentLang)}</h1>
+    <p class="page-subtitle"><span class="count">${totalArticles}</span><span data-i18n="list.articlesLabel">${t('list.articlesLabel', currentLang)}</span>${t('list.subtitleSep', currentLang)}<span class="count">${totalTracks}</span><span data-i18n="list.tracksLabel">${t('list.tracksLabel', currentLang)}</span> · <span class="count">${track1Count}</span><span data-i18n="list.track1Label">${t('list.track1Label', currentLang)}</span><span>${escapeHtml(track1Title)}</span> · <span class="count">${track2Count}</span><span data-i18n="list.track2Label">${t('list.track2Label', currentLang)}</span><span>${escapeHtml(track2Title)}</span></p>
     <div class="data-bar">
       <div>
         <div class="data-label">Articles</div>
         <div class="data-value">${totalArticles}</div>
-        <div class="data-caption" data-i18n="list.articles">篇文章</div>
+        <div class="data-caption" data-i18n="list.articles">${t('list.articles', currentLang)}</div>
       </div>
       <div>
         <div class="data-label">Tracks</div>
         <div class="data-value">${totalTracks}</div>
-        <div class="data-caption" data-i18n="list.tracks">个 Track</div>
+        <div class="data-caption" data-i18n="list.tracks">${t('list.tracks', currentLang)}</div>
       </div>
       <div>
         <div class="data-label">Track 1</div>
@@ -571,13 +684,13 @@ export function createLearnListHtml(state: ArticleState, lang?: string): string 
 
   <div class="filter-bar">
     <div class="track-tabs">
-      <button type="button" class="track-tab active" data-track="all" data-i18n="list.all">全部</button>
-      <button type="button" class="track-tab" data-track="track1" data-i18n="list.track1">Track 1</button>
-      <button type="button" class="track-tab" data-track="track2" data-i18n="list.track2">Track 2</button>
+      <button type="button" class="track-tab active" data-track="all" data-i18n="list.all">${t('list.all', currentLang)}</button>
+      <button type="button" class="track-tab" data-track="track1" data-i18n="list.track1">${t('list.track1', currentLang)}</button>
+      <button type="button" class="track-tab" data-track="track2" data-i18n="list.track2">${t('list.track2', currentLang)}</button>
     </div>
     <div class="view-toggle">
-      <button type="button" class="view-btn active" data-view="grid" data-i18n="list.grid">网格</button>
-      <button type="button" class="view-btn" data-view="list" data-i18n="list.list">列表</button>
+      <button type="button" class="view-btn active" data-view="grid" data-i18n="list.grid">${t('list.grid', currentLang)}</button>
+      <button type="button" class="view-btn" data-view="list" data-i18n="list.list">${t('list.list', currentLang)}</button>
     </div>
   </div>
 
@@ -588,13 +701,13 @@ ${tracksHtml}
   <div class="footer-grid">
     <div>
       <div class="footer-wordmark">aptbot</div>
-      <div class="footer-tagline" data-i18n="footer.tagline">你的个人 AI 助手</div>
+      <div class="footer-tagline" data-i18n="footer.tagline">${t('footer.tagline', currentLang)}</div>
     </div>
     <div class="footer-links">
       <a href="https://github.com/evan3060/aptbot">GitHub</a>
-      <a href="https://github.com/evan3060/aptbot#readme" data-i18n="footer.docs">文档</a>
-      <a href="https://github.com/evan3060/aptbot/releases" data-i18n="footer.changelog">更新日志</a>
-      <a href="https://github.com/evan3060/aptbot/blob/main/LICENSE" data-i18n="footer.license">开源协议</a>
+      <a href="https://github.com/evan3060/aptbot#readme" data-i18n="footer.docs">${t('footer.docs', currentLang)}</a>
+      <a href="https://github.com/evan3060/aptbot/releases" data-i18n="footer.changelog">${t('footer.changelog', currentLang)}</a>
+      <a href="https://github.com/evan3060/aptbot/blob/main/LICENSE" data-i18n="footer.license">${t('footer.license', currentLang)}</a>
     </div>
     <div class="footer-meta">
       <div>v0.2.3</div>
@@ -602,55 +715,12 @@ ${tracksHtml}
       <div>© 2026 aptbot</div>
     </div>
   </div>
-  <div class="footer-bottom" data-i18n="footer.bottom">用心打造 · 开源 · 可自托管</div>
+  <div class="footer-bottom" data-i18n="footer.bottom">${t('footer.bottom', currentLang)}</div>
 </footer>
 
 <script>
 var SERVER_LANG = '${currentLang}';
-var LEARN_I18N = {
-    zh: {
-      'nav.home': '首页',
-    'nav.learn': '知识',
-    'list.h1': '知识体系',
-    'list.articles': '篇文章',
-    'list.tracks': '个 Track',
-    'list.articlesLabel': ' 篇文章',
-    'list.tracksLabel': ' 个 Track',
-    'list.track1Label': ' 篇 ',
-    'list.track2Label': ' 篇 ',
-    'list.all': '全部',
-    'list.grid': '网格',
-    'list.list': '列表',
-    'list.track1': 'Track 1',
-    'list.track2': 'Track 2',
-    'footer.tagline': '你的个人 AI 助手',
-    'footer.docs': '文档',
-    'footer.changelog': '更新日志',
-    'footer.license': '开源协议',
-    'footer.bottom': '用心打造 · 开源 · 可自托管'
-  },
-  en: {
-    'nav.home': 'Home',
-    'nav.learn': 'Learn',
-    'list.h1': 'Knowledge Base',
-    'list.articles': 'articles',
-    'list.tracks': 'tracks',
-    'list.articlesLabel': ' articles',
-    'list.tracksLabel': ' tracks',
-    'list.track1Label': ' ',
-    'list.track2Label': ' ',
-    'list.all': 'All',
-    'list.grid': 'Grid',
-    'list.list': 'List',
-    'list.track1': 'Track 1',
-    'list.track2': 'Track 2',
-    'footer.tagline': 'Your Personal AI Assistant',
-    'footer.docs': 'Documentation',
-    'footer.changelog': 'Changelog',
-    'footer.license': 'License',
-    'footer.bottom': 'Made with care · Open source · Self-hostable'
-  }
-};
+var LEARN_I18N = ${JSON.stringify(LEARN_I18N, null, 2)};
 
 function learnApplyLang(lang) {
   try { localStorage.setItem('aptbot.lang', lang); } catch(e) {}
@@ -828,13 +898,13 @@ export function createLearnArticleHtml(article: Article, nav: ArticleNav, lang?:
     meta.prerequisites.length > 0
       ? meta.prerequisites
           .map((slug) => `<a href="/learn/${escapeHtml(slug)}">${escapeHtml(slug)}</a>`)
-          .join('、')
-      : '<span data-i18n="article.prerequisitesNone">无</span>';
-  const metaInfo = `<span data-i18n="article.lastUpdated">最后更新</span> ${escapeHtml(meta.lastUpdated)} · <span data-i18n="article.prerequisites">前置文章：</span>${prerequisitesHtml}`;
+          .join(t('article.prerequisitesSep', currentLang))
+      : `<span data-i18n="article.prerequisitesNone">${t('article.prerequisitesNone', currentLang)}</span>`;
+  const metaInfo = `<span data-i18n="article.lastUpdated">${t('article.lastUpdated', currentLang)}</span> ${escapeHtml(meta.lastUpdated)} · <span data-i18n="article.prerequisites">${t('article.prerequisites', currentLang)}</span>${prerequisitesHtml}`;
   const metaRow = `TRACK ${trackNumber} · ${escapeHtml(meta.chapter)} · ${escapeHtml(meta.difficulty)} · ${meta.estimatedReadingTime} min`;
 
   const headerHtml = `    <header class="article-header">
-      <a class="back-link" href="/learn"><span data-i18n="article.back">← 返回知识体系</span></a>
+      <a class="back-link" href="/learn"><span data-i18n="article.back">${t('article.back', currentLang)}</span></a>
       <div class="article-meta-row">${metaRow}</div>
       <h1 class="article-title">${escapeHtml(meta.title)}</h1>
       <p class="article-summary">${escapeHtml(meta.description)}</p>
@@ -847,10 +917,10 @@ export function createLearnArticleHtml(article: Article, nav: ArticleNav, lang?:
     const outlineHtml = renderPlannedOutline(meta.description);
     bodyHtml = `      <div class="article-body planned-body">
         <div class="planned-label">PLANNED</div>
-        <h2 class="planned-title" data-i18n="article.plannedTitle">本章正在撰写中</h2>
-        <p class="planned-outline-label" data-i18n="article.plannedOutline">计划内容：</p>
+        <h2 class="planned-title" data-i18n="article.plannedTitle">${t('article.plannedTitle', currentLang)}</h2>
+        <p class="planned-outline-label" data-i18n="article.plannedOutline">${t('article.plannedOutline', currentLang)}</p>
 ${outlineHtml}
-        <a class="planned-back-link" href="/learn"><span data-i18n="article.backToLearn">返回知识体系 →</span></a>
+        <a class="planned-back-link" href="/learn"><span data-i18n="article.backToLearn">${t('article.backToLearn', currentLang)}</span></a>
       </div>`;
   } else {
     bodyHtml = `      <div class="article-body">
@@ -862,10 +932,10 @@ ${article.renderedHtml}
   let footerHtml = '';
   if (!isPlanned) {
     const prevNavHtml = nav.prev
-      ? `<a class="prev-link" href="/learn/${escapeHtml(nav.prev.meta.slug)}"><span data-i18n="article.prev">← 上一篇</span> · ${escapeHtml(nav.prev.meta.title)}</a>`
+      ? `<a class="prev-link" href="/learn/${escapeHtml(nav.prev.meta.slug)}"><span data-i18n="article.prev">${t('article.prev', currentLang)}</span> · ${escapeHtml(nav.prev.meta.title)}</a>`
       : '';
     const nextNavHtml = nav.next
-      ? `<a class="next-link" href="/learn/${escapeHtml(nav.next.meta.slug)}">${escapeHtml(nav.next.meta.title)} · <span data-i18n="article.next">下一篇 →</span></a>`
+      ? `<a class="next-link" href="/learn/${escapeHtml(nav.next.meta.slug)}">${escapeHtml(nav.next.meta.title)} · <span data-i18n="article.next">${t('article.next', currentLang)}</span></a>`
       : '';
     const navSection =
       prevNavHtml || nextNavHtml
@@ -875,13 +945,13 @@ ${article.renderedHtml}
     footerHtml = `      <footer class="article-footer">
 ${navSection}
         <div class="feedback-area">
-          <p class="feedback-prompt" data-i18n="article.feedbackTitle">这篇文章对你有帮助吗？有想法或问题？</p>
+          <p class="feedback-prompt" data-i18n="article.feedbackTitle">${t('article.feedbackTitle', currentLang)}</p>
           <form class="feedback-form" method="post" action="/api/feedback">
             <input type="hidden" name="category" value="article">
             <input type="hidden" name="articleSlug" value="${escapeHtml(meta.slug)}">
-            <textarea class="feedback-textarea" name="message" maxlength="2000" required placeholder="写下你的反馈..." data-i18n-placeholder="article.feedbackPlaceholder"></textarea>
-            <input class="feedback-contact" name="contact" maxlength="120" placeholder="联系方式（可选）" data-i18n-placeholder="article.feedbackContactPlaceholder">
-            <button class="feedback-submit" type="submit" data-i18n="article.submitFeedback">提交反馈</button>
+            <textarea class="feedback-textarea" name="message" maxlength="2000" required placeholder="${t('article.feedbackPlaceholder', currentLang)}" data-i18n-placeholder="article.feedbackPlaceholder"></textarea>
+            <input class="feedback-contact" name="contact" maxlength="120" placeholder="${t('article.feedbackContactPlaceholder', currentLang)}" data-i18n-placeholder="article.feedbackContactPlaceholder">
+            <button class="feedback-submit" type="submit" data-i18n="article.submitFeedback">${t('article.submitFeedback', currentLang)}</button>
           </form>
           <div class="feedback-status"></div>
         </div>
@@ -1303,64 +1373,7 @@ ${navSection}
     ? ''
     : `<script>
 var SERVER_LANG = '${currentLang}';
-var LEARN_I18N = {
-  zh: {
-    'nav.home': '首页',
-    'nav.learn': '知识',
-    'article.back': '← 返回知识体系',
-    'article.lastUpdated': '最后更新',
-    'article.prerequisites': '前置文章：',
-    'article.prerequisitesNone': '无',
-    'article.plannedTitle': '本章正在撰写中',
-    'article.plannedOutline': '计划内容：',
-    'article.backToLearn': '返回知识体系 →',
-    'article.prev': '← 上一篇',
-    'article.next': '下一篇 →',
-    'article.titleSuffix': '知识体系',
-    'article.feedbackTitle': '这篇文章对你有帮助吗？有想法或问题？',
-    'article.feedbackPlaceholder': '写下你的反馈...',
-    'article.feedbackContactPlaceholder': '联系方式（可选）',
-    'article.submitFeedback': '提交反馈',
-    'article.feedbackSubmitted': '感谢反馈，已记录到待办',
-    'article.feedbackError': '提交失败',
-    'article.feedbackRateLimit': '提交过于频繁，请稍后再试',
-    'article.feedbackNetworkError': '网络错误，请检查连接',
-    'article.submitting': '提交中...',
-    'footer.tagline': '你的个人 AI 助手',
-    'footer.docs': '文档',
-    'footer.changelog': '更新日志',
-    'footer.license': '开源协议',
-    'footer.bottom': '用心打造 · 开源 · 可自托管'
-  },
-  en: {
-    'nav.home': 'Home',
-    'nav.learn': 'Learn',
-    'article.back': '← Back to Knowledge Base',
-    'article.lastUpdated': 'Last updated',
-    'article.prerequisites': 'Prerequisites: ',
-    'article.prerequisitesNone': 'None',
-    'article.plannedTitle': 'This chapter is being written',
-    'article.plannedOutline': 'Planned content:',
-    'article.backToLearn': 'Back to Knowledge Base →',
-    'article.prev': '← Previous',
-    'article.next': 'Next →',
-    'article.titleSuffix': 'Knowledge Base',
-    'article.feedbackTitle': 'Was this article helpful? Have thoughts or questions?',
-    'article.feedbackPlaceholder': 'Write your feedback...',
-    'article.feedbackContactPlaceholder': 'Contact (optional)',
-    'article.submitFeedback': 'Submit Feedback',
-    'article.feedbackSubmitted': 'Feedback recorded. Thank you!',
-    'article.feedbackError': 'Submission failed',
-    'article.feedbackRateLimit': 'Too frequent. Please try later.',
-    'article.feedbackNetworkError': 'Network error. Please check connection.',
-    'article.submitting': 'Submitting...',
-    'footer.tagline': 'Your Personal AI Assistant',
-    'footer.docs': 'Documentation',
-    'footer.changelog': 'Changelog',
-    'footer.license': 'License',
-    'footer.bottom': 'Made with care · Open source · Self-hostable'
-  }
-};
+var LEARN_I18N = ${JSON.stringify(LEARN_I18N, null, 2)};
 
 function learnApplyLang(lang) {
   try { localStorage.setItem('aptbot.lang', lang); } catch(e) {}
@@ -1505,7 +1518,7 @@ function learnApplyLang(lang) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="data:,">
-<title data-i18n-title-suffix="article.titleSuffix">${escapeHtml(meta.title)} - aptbot 知识体系</title>
+<title data-i18n-title-suffix="article.titleSuffix">${escapeHtml(meta.title)} - aptbot ${t('article.titleSuffix', currentLang)}</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 ${css}
@@ -1515,8 +1528,8 @@ ${css}
 <header id="nav">
   <a href="/" class="nav-wordmark">aptbot</a>
   <nav class="nav-links">
-    <a href="/" data-i18n="nav.home">首页</a>
-    <a href="/learn" class="active" data-i18n="nav.learn">知识</a>
+    <a href="/" data-i18n="nav.home">${t('nav.home', currentLang)}</a>
+    <a href="/learn" class="active" data-i18n="nav.learn">${t('nav.learn', currentLang)}</a>
     <a href="/demo">Demo</a>
   </nav>
   <div class="nav-actions">
@@ -1537,13 +1550,13 @@ ${footerHtml ? '\n' + footerHtml : ''}
   <div class="footer-grid">
     <div>
       <div class="footer-wordmark">aptbot</div>
-      <div class="footer-tagline" data-i18n="footer.tagline">你的个人 AI 助手</div>
+      <div class="footer-tagline" data-i18n="footer.tagline">${t('footer.tagline', currentLang)}</div>
     </div>
     <div class="footer-links">
       <a href="https://github.com/evan3060/aptbot">GitHub</a>
-      <a href="https://github.com/evan3060/aptbot#readme" data-i18n="footer.docs">文档</a>
-      <a href="https://github.com/evan3060/aptbot/releases" data-i18n="footer.changelog">更新日志</a>
-      <a href="https://github.com/evan3060/aptbot/blob/main/LICENSE" data-i18n="footer.license">开源协议</a>
+      <a href="https://github.com/evan3060/aptbot#readme" data-i18n="footer.docs">${t('footer.docs', currentLang)}</a>
+      <a href="https://github.com/evan3060/aptbot/releases" data-i18n="footer.changelog">${t('footer.changelog', currentLang)}</a>
+      <a href="https://github.com/evan3060/aptbot/blob/main/LICENSE" data-i18n="footer.license">${t('footer.license', currentLang)}</a>
     </div>
     <div class="footer-meta">
       <div>v0.2.3</div>
@@ -1551,7 +1564,7 @@ ${footerHtml ? '\n' + footerHtml : ''}
       <div>© 2026 aptbot</div>
     </div>
   </div>
-  <div class="footer-bottom" data-i18n="footer.bottom">用心打造 · 开源 · 可自托管</div>
+  <div class="footer-bottom" data-i18n="footer.bottom">${t('footer.bottom', currentLang)}</div>
 </footer>
 
 ${scriptHtml}
@@ -1579,7 +1592,7 @@ export function createFeedbackHtml(lang?: string): string {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="data:,">
-<title data-i18n-title-prefix="feedback.title">留言反馈 - aptbot</title>
+<title data-i18n-title-prefix="feedback.title">${t('feedback.title', currentLang)} - aptbot</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -1779,8 +1792,8 @@ export function createFeedbackHtml(lang?: string): string {
 <header id="nav">
   <a href="/" class="nav-wordmark">aptbot</a>
   <nav class="nav-links">
-    <a href="/" data-i18n="nav.home">首页</a>
-    <a href="/learn" class="active" data-i18n="nav.learn">知识</a>
+    <a href="/" data-i18n="nav.home">${t('nav.home', currentLang)}</a>
+    <a href="/learn" class="active" data-i18n="nav.learn">${t('nav.learn', currentLang)}</a>
     <a href="/demo">Demo</a>
   </nav>
   <div class="nav-actions">
@@ -1790,16 +1803,16 @@ export function createFeedbackHtml(lang?: string): string {
 
 <main>
   <div class="page-header">
-    <h1 data-i18n="feedback.title">留言反馈</h1>
-    <p class="page-subtitle" data-i18n="feedback.subtitle">有想法、问题或需求？提交给我们，会记录到待办。</p>
+    <h1 data-i18n="feedback.title">${t('feedback.title', currentLang)}</h1>
+    <p class="page-subtitle" data-i18n="feedback.subtitle">${t('feedback.subtitle', currentLang)}</p>
   </div>
   <div class="feedback-container">
     <div class="feedback-area">
       <form class="feedback-form" method="post" action="/api/feedback">
         <input type="hidden" name="category" value="general">
-        <textarea class="feedback-textarea" name="message" maxlength="2000" required placeholder="写下你的反馈..." data-i18n-placeholder="feedback.placeholder"></textarea>
-        <input class="feedback-contact" name="contact" maxlength="120" placeholder="联系方式（可选）" data-i18n-placeholder="feedback.contactPlaceholder">
-        <button class="feedback-submit" type="submit" data-i18n="feedback.submit">提交反馈</button>
+        <textarea class="feedback-textarea" name="message" maxlength="2000" required placeholder="${t('feedback.placeholder', currentLang)}" data-i18n-placeholder="feedback.placeholder"></textarea>
+        <input class="feedback-contact" name="contact" maxlength="120" placeholder="${t('feedback.contactPlaceholder', currentLang)}" data-i18n-placeholder="feedback.contactPlaceholder">
+        <button class="feedback-submit" type="submit" data-i18n="feedback.submit">${t('feedback.submit', currentLang)}</button>
       </form>
       <div class="feedback-status"></div>
     </div>
@@ -1810,13 +1823,13 @@ export function createFeedbackHtml(lang?: string): string {
   <div class="footer-grid">
     <div>
       <div class="footer-wordmark">aptbot</div>
-      <div class="footer-tagline" data-i18n="footer.tagline">你的个人 AI 助手</div>
+      <div class="footer-tagline" data-i18n="footer.tagline">${t('footer.tagline', currentLang)}</div>
     </div>
     <div class="footer-links">
       <a href="https://github.com/evan3060/aptbot">GitHub</a>
-      <a href="https://github.com/evan3060/aptbot#readme" data-i18n="footer.docs">文档</a>
-      <a href="https://github.com/evan3060/aptbot/releases" data-i18n="footer.changelog">更新日志</a>
-      <a href="https://github.com/evan3060/aptbot/blob/main/LICENSE" data-i18n="footer.license">开源协议</a>
+      <a href="https://github.com/evan3060/aptbot#readme" data-i18n="footer.docs">${t('footer.docs', currentLang)}</a>
+      <a href="https://github.com/evan3060/aptbot/releases" data-i18n="footer.changelog">${t('footer.changelog', currentLang)}</a>
+      <a href="https://github.com/evan3060/aptbot/blob/main/LICENSE" data-i18n="footer.license">${t('footer.license', currentLang)}</a>
     </div>
     <div class="footer-meta">
       <div>v0.2.3</div>
@@ -1824,51 +1837,12 @@ export function createFeedbackHtml(lang?: string): string {
       <div>© 2026 aptbot</div>
     </div>
   </div>
-  <div class="footer-bottom" data-i18n="footer.bottom">用心打造 · 开源 · 可自托管</div>
+  <div class="footer-bottom" data-i18n="footer.bottom">${t('footer.bottom', currentLang)}</div>
 </footer>
 
 <script>
 var SERVER_LANG = '${currentLang}';
-var LEARN_I18N = {
-  zh: {
-    'nav.home': '首页',
-    'nav.learn': '知识',
-    'feedback.title': '留言反馈',
-    'feedback.subtitle': '有想法、问题或需求？提交给我们，会记录到待办。',
-    'feedback.placeholder': '写下你的反馈...',
-    'feedback.contactPlaceholder': '联系方式（可选）',
-    'feedback.submit': '提交反馈',
-    'feedback.submitting': '提交中...',
-    'feedback.submitted': '感谢反馈，已记录到待办',
-    'feedback.error': '提交失败',
-    'feedback.rateLimit': '提交过于频繁，请稍后再试',
-    'feedback.networkError': '网络错误，请检查连接',
-    'footer.tagline': '你的个人 AI 助手',
-    'footer.docs': '文档',
-    'footer.changelog': '更新日志',
-    'footer.license': '开源协议',
-    'footer.bottom': '用心打造 · 开源 · 可自托管'
-  },
-  en: {
-    'nav.home': 'Home',
-    'nav.learn': 'Learn',
-    'feedback.title': 'Feedback',
-    'feedback.subtitle': 'Have thoughts, questions, or requests? Send them to us.',
-    'feedback.placeholder': 'Write your feedback...',
-    'feedback.contactPlaceholder': 'Contact (optional)',
-    'feedback.submit': 'Submit Feedback',
-    'feedback.submitting': 'Submitting...',
-    'feedback.submitted': 'Feedback recorded. Thank you!',
-    'feedback.error': 'Submission failed',
-    'feedback.rateLimit': 'Too frequent. Please try later.',
-    'feedback.networkError': 'Network error. Please check connection.',
-    'footer.tagline': 'Your Personal AI Assistant',
-    'footer.docs': 'Documentation',
-    'footer.changelog': 'Changelog',
-    'footer.license': 'License',
-    'footer.bottom': 'Made with care · Open source · Self-hostable'
-  }
-};
+var LEARN_I18N = ${JSON.stringify(LEARN_I18N, null, 2)};
 
 function learnApplyLang(lang) {
   try { localStorage.setItem('aptbot.lang', lang); } catch(e) {}
