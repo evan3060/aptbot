@@ -3,7 +3,7 @@ slug: "01-dev-workflow"
 title: "AI-Assisted Development Workflow: Taming Uncertainty with Process Constraints"
 description: "Four-stage workflow, document layering, dual review, circuit breaker mechanism, kanban management and TDD red-green cycle — how to make AI output from unpredictable to controllable and traceable"
 track: ai-coding-practice
-chapter: 方法论
+chapter: Methodology
 order: 14
 difficulty: beginner
 estimatedReadingTime: 18
@@ -209,7 +209,7 @@ AI-assisted development workflows continue to evolve rapidly. Several directions
 
 **Smarter circuit breaking**: The current 3-failure circuit break is a static rule. In the future, a "prediction model" could be trained based on historical circuit break data — issuing warnings before the AI starts down the wrong path, rather than stopping losses after 3 failures.
 
-**Cross-session process memory**: Currently, each task's workflow is independent. In the future, decisions, failure patterns, and success patterns generated during the process could be沉淀ed into long-term memory, letting the AI automatically reuse them in subsequent tasks.
+**Cross-session process memory**: Currently, each task's workflow is independent. In the future, decisions, failure patterns, and success patterns generated during the process could beconsolidateed into long-term memory, letting the AI automatically reuse them in subsequent tasks.
 
 **Workflow visualization**: Currently, the subtask kanban is a markdown checklist — fairly primitive. In the future, visual progress charts and dependency graphs could be generated, giving humans a more intuitive view of the AI's development progress.
 

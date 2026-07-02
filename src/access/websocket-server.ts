@@ -411,7 +411,8 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
       }
       // Task 9 (0.2.3): /feedback 通用反馈页（仅 feedbackEnabled 时）
       if (isFeedbackEnabled && req.method === 'GET' && pathname === '/feedback') {
-        const html = createFeedbackHtml();
+        const lang = resolveLang(req);
+        const html = createFeedbackHtml(lang);
         res.writeHead(200, htmlHeaders);
         res.end(html);
         return;

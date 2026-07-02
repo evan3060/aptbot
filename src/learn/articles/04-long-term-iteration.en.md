@@ -1,9 +1,9 @@
 ---
 slug: "04-long-term-iteration"
 title: "Long-Term Iteration Maintenance Practice: Architecture Evolution and Sustainability"
-description: "Why AI-assisted projects tend to collapse by the third version, L1/L2/L3 version planning and iteration cadence, test baseline management, additive而非subtractive architecture evolution, design-notes..."
+description: "Why AI-assisted projects collapse by the third version, L1/L2/L3 version planning, test baseline management, additive architecture evolution, design-notes maintenance"
 track: ai-coding-practice
-chapter: 方法论
+chapter: Methodology
 order: 17
 difficulty: advanced
 estimatedReadingTime: 18
@@ -19,13 +19,13 @@ tags:
 
 If you've tried using AI to develop a real project, you've likely experienced a trajectory like this: The first version, you had the AI quickly build a prototype, the code ran, and you thought "AI is amazing, development efficiency has at least quintupled." The second version, you had the AI add new features — although you started encountering "change A breaks B" situations, overall progress continued. By the third version, you found the code was completely unmaintainable — changing one line required modifying five files, adding one field introduced three bugs, and every new AI session suggested "maybe we should just rewrite it."
 
-This isn't just your problem. It's the most common困境 in AI-assisted development, which we call "death by the third version." Why do AI-assisted projects particularly tend to die by the third version? How can you keep a project健康迭代 through dozens of versions? This article systematically answers that question, from concept to practice.
+This isn't just your problem. It's the most common dilemma in AI-assisted development, which we call "death by the third version." Why do AI-assisted projects particularly tend to die by the third version? How can you keep a project iterating healthily through dozens of versions? This article systematically answers that question, from concept to practice.
 
 ## Concept: "Death by the Third Version" in AI-Assisted Projects
 
 To understand why AI-assisted projects tend to collapse by the third version, let's first look at the fundamental nature of how AI works.
 
-AI performs extremely well within a single session: it has enough context window to understand the current task and can write structurally sound, functionally complete code. But it has a致命弱点 — **no cross-version long-term memory**. Every new session, the AI doesn't know what decisions were made in the previous version, why they were made, or what constraints and trade-offs existed. It faces only the "current code state," without seeing the code's evolutionary history.
+AI performs extremely well within a single session: it has enough context window to understand the current task and can write structurally sound, functionally complete code. But it has afatal weakness — **no cross-version long-term memory**. Every new session, the AI doesn't know what decisions were made in the previous version, why they were made, or what constraints and trade-offs existed. It faces only the "current code state," without seeing the code's evolutionary history.
 
 This leads to a typical cycle:
 
@@ -35,7 +35,7 @@ This leads to a typical cycle:
 
 The problem isn't AI's capability — it's the **lack of a cross-version knowledge transfer mechanism**. The context from each version is discarded; the AI infers design intent from the "current code" each time — but the code itself doesn't record "why it was done this way."
 
-This is the core矛盾 that long-term iteration maintenance must solve: AI has extremely strong single-session capability but zero cross-version memory. Without a systematic approach, the project will inevitably enter a "can't change anything" state between the third and fifth versions.
+This is the core contradiction that long-term iteration maintenance must solve: AI has extremely strong single-session capability but zero cross-version memory. Without a systematic approach, the project will inevitably enter a "can't change anything" state between the third and fifth versions.
 
 ## General Design: Structured Iteration Methodology
 
@@ -63,12 +63,12 @@ Iteration isn't endless feature stacking — it's rhythmically paced progress. E
 
 1. **Planning period**: First do brainstorming to sort out requirements, then write a spec for detailed design, finally write a plan to decompose tasks. No code is written during this phase — only thinking and designing.
 2. **Implementation period**: Execute subtasks one by one according to the plan. Each subtask goes through the TDD red → green → refactor cycle.
-3. **Closure period**: "Close" the version after feature development is complete — no new features, only bug fixes, documentation补全, and full test runs. The closure is marked by submitting a version tag.
+3. **Closure period**: "Close" the version after feature development is complete — no new features, only bug fixes, documentationcompletion, and full test runs. The closure is marked by submitting a version tag.
 4. **UAT period**: User acceptance testing. Go through the spec item by item, verifying four checklists — functional completeness, boundary cases, error handling, documentation consistency.
 5. **Release period**: Merge into the main branch, push the version tag, update deployment.
-6. **Cool-down period**: Don't start the next version immediately after release. Spend a day or two organizing design-notes,回顾 the pitfalls of this version, adjusting project_memory, updating the roadmap.
+6. **Cool-down period**: Don't start the next version immediately after release. Spend a day or two organizing design-notes,review the pitfalls of this version, adjusting project_memory, updating the roadmap.
 
-Why is a cool-down period necessary? Because continuous滚动 development容易陷入 "add features → introduce bugs → fix bugs → add features" 的恶性循环, leaving no time for reflection. The cool-down period is "time to lift your head and look at the road" —回顾 which spec decisions turned out to be wrong in hindsight, which AI behavior patterns revealed new problems, and which technical debt should be scheduled for the next version.
+Why is a cool-down period necessary? Because continuousrolling developmenteasily falls into "add features → introduce bugs → fix bugs → add features"  viciouscycle, leaving no time for reflection. The cool-down period is "time to lift your head and look at the road" —review which spec decisions turned out to be wrong in hindsight, which AI behavior patterns revealed new problems, and which technical debt should be scheduled for the next version.
 
 The core of iteration cadence is **clear version boundaries**. Each version has a clear start and end, with independent design documents and changelogs — don't mix designs across versions.
 
@@ -80,19 +80,19 @@ Three iron rules of test baseline management:
 
 - **Total count only increases**: New features come with new tests, so the total should steadily rise. A decrease means either tests were deleted (must have a reason) or skipped (must have a reason). An unexplained decrease is a red alert.
 - **Pass rate does not regress**: If the previous version was 936/938 (2 flaky), the current version shouldn't become 920/950. A declining pass rate means either new bugs were introduced or new flaky tests appeared.
-- **Flaky tests must be addressed**: In long-term projects, flaky tests are慢性 poison. At first, one or two intermittent failures, and you tell yourself "it'll turn green in a moment." After a few months, "red is normal" becomes a habit, and the red light completely loses its warning significance. Each version must reduce flaky tests to zero, or at least to a traceable, explainable minimum.
+- **Flaky tests must be addressed**: In long-term projects, flaky tests arechronic poison. At first, one or two intermittent failures, and you tell yourself "it'll turn green in a moment." After a few months, "red is normal" becomes a habit, and the red light completely loses its warning significance. Each version must reduce flaky tests to zero, or at least to a traceable, explainable minimum.
 
-At each closure, record a snapshot of the test baseline in the version release notes: total tests, passed count, failed count, flaky count, and coverage delta. Before starting the next version,对照 this snapshot to ensure the baseline hasn't regressed.
+At each closure, record a snapshot of the test baseline in the version release notes: total tests, passed count, failed count, flaky count, and coverage delta. Before starting the next version,comparing against this snapshot to ensure the baseline hasn't regressed.
 
 Historical flaky tests cannot be left unmanaged. Fix what can be fixed (usually timing, concurrency, or external dependency issues), isolate what can't be fixed into a separate test suite that doesn't count toward the main baseline. Never leave flaky tests in the main test suite where they contaminate the signal.
 
-### Architecture Evolution: Additive而非Subtractive
+### Architecture Evolution: Additive Rather Than Subtractive
 
-The architecture evolution of long-term projects follows a seemingly counterintuitive principle: **additive而非subtractive**.
+The architecture evolution of long-term projects follows a seemingly counterintuitive principle: **additive rather than subtractive**.
 
 New versions layer on new abstractions without deleting old ones — unless there's a dedicated refactoring version. Why? Because deleting abstractions breaks backward compatibility, and in AI-assisted projects, "who's referencing this abstraction" is often unclear. The AI might have written code referencing an internal API, but nobody remembers all the reference points. Deleting it rashly could silently break something downstream.
 
-The concrete approach of加法: New abstractions coexist with old ones; new features use the new abstraction, old features maintain the old abstraction, with gradual migration. For example, v0.1 uses plain HTTP communication, v0.2 introduces WebSocket, both coexist; v0.3 introduces a unified Channel abstraction, new integration points use Channel, while the old HTTP and WebSocket paths remain unchanged. Only when a dedicated "unified abstraction" refactoring version comes along are the old paths removed.
+The concrete approach ofaddition: New abstractions coexist with old ones; new features use the new abstraction, old features maintain the old abstraction, with gradual migration. For example, v0.1 uses plain HTTP communication, v0.2 introduces WebSocket, both coexist; v0.3 introduces a unified Channel abstraction, new integration points use Channel, while the old HTTP and WebSocket paths remain unchanged. Only when a dedicated "unified abstraction" refactoring version comes along are the old paths removed.
 
 The cost of the additive principle is that code volume grows and abstraction layers stack. But this is a controllable cost — far less than the cost of "overthrowing everything every time you refactor." When the stack gets deep enough (e.g., three layers of wrapper nesting), schedule a dedicated refactoring version to consolidate, but don't "refactor on the side" in a feature version.
 
@@ -102,7 +102,7 @@ The deeper meaning of the additive principle is **respecting historical code**. 
 
 This is the key mechanism for solving "AI has no cross-version memory," consisting of two parts:
 
-**Design-notes (cross-version design notes)** are long-term memory written for humans. They record the "why" — why a particular decision was made, why a particular constraint was set, why a particular approach was abandoned. Design-notes don't contain specific code (that's in the repository) or single-version design details (that's in the spec). They capture things only visible across versions: constraint evolution ("v0.1 had no layering constraints, v0.2 discovered the core-depends-on-access problem and added a unidirectional dependency rule"), principle establishment ("v0.3 introduced the additive而非subtractive principle because v0.2's refactoring caused two days of regression testing"), lessons learned ("v0.2 had a production hotfix because the AI skipped testing and went straight to implementation").
+**Design-notes (cross-version design notes)** are long-term memory written for humans. They record the "why" — why a particular decision was made, why a particular constraint was set, why a particular approach was abandoned. Design-notes don't contain specific code (that's in the repository) or single-version design details (that's in the spec). They capture things only visible across versions: constraint evolution ("v0.1 had no layering constraints, v0.2 discovered the core-depends-on-access problem and added a unidirectional dependency rule"), principle establishment ("v0.3 introduced the additive rather than subtractive principle because v0.2's refactoring caused two days of regression testing"), lessons learned ("v0.2 had a production hotfix because the AI skipped testing and went straight to implementation").
 
 The cumulative effect of design-notes only becomes apparent in the later stages of a project. In the first three to five versions, you might feel "there's nothing worth recording," but looking back at the tenth version, the design-notes have compressed the entire project's design wisdom. Newcomers (whether human developers or new AI sessions) reading design-notes is more efficient than reading all the specs — it directly tells you "what not to do" and "why it's done this way."
 
@@ -119,11 +119,11 @@ Project_memory should be concise. It's injected every session, so being too long
 
 Long-term projects can't avoid refactoring and dependency upgrades, but timing is everything.
 
-**Signals that it's time to refactor:** Abstraction layers have stacked to obvious混乱 (three-plus layers of wrapper nesting), the cost of modifying a module far exceeds its functional value (changing one line requires touching five files), the test baseline has been flaky for a long time暗示ing architectural problems, and the cost for a new session to understand the code has陡增.
+**Signals that it's time to refactor:** Abstraction layers have stacked to obviouschaos (three-plus layers of wrapper nesting), the cost of modifying a module far exceeds its functional value (changing one line requires touching five files), the test baseline has been flaky for a long timehintinging architectural problems, and the cost for a new session to understand the code hassurged.
 
-**Signals that it's NOT time to refactor:** Refactoring "on the side" within a feature version (refactoring should be a standalone version), refactoring modules without written tests (behavior can't be verified after refactoring), the AI suggests refactoring (AI has no concept of sunk cost and often建议s overthrowing everything — you need to suppress this impulse), refactoring "to make the code look better" (refactoring should be for maintainability, not aesthetics).
+**Signals that it's NOT time to refactor:** Refactoring "on the side" within a feature version (refactoring should be a standalone version), refactoring modules without written tests (behavior can't be verified after refactoring), the AI suggests refactoring (AI has no concept of sunk cost and oftensuggestss overthrowing everything — you need to suppress this impulse), refactoring "to make the code look better" (refactoring should be for maintainability, not aesthetics).
 
-Characteristics of a refactoring version: No new features, only structural adjustments; the test baseline total remains unchanged (behavior is preserved), pass rate must be 100%; the spec clearly marks "refactoring scope" and "out of scope," preventing refactoring from蔓延 to modules that shouldn't be changed.
+Characteristics of a refactoring version: No new features, only structural adjustments; the test baseline total remains unchanged (behavior is preserved), pass rate must be 100%; the spec clearly marks "refactoring scope" and "out of scope," preventing refactoring fromspreading to modules that shouldn't be changed.
 
 **Dependency upgrade strategy** requires equal caution. When introducing a new dependency, ask yourself five questions:
 
@@ -171,7 +171,7 @@ This approach relies on the developer's personal experience to manage iteration.
 
 **Cost:** Highly dependent on personal experience, cannot be transferred across projects. If the developer takes a vacation or moves to another project, the knowledge is lost. For AI-assisted development, this problem is more severe — a new AI session cannot inherit the "experience" in the developer's mind at all. Each new session, the AI faces the codebase without any historical context; Approach B's "experience in the mind" effectively doesn't exist for the AI.
 
-Moreover, without test baselines, design-notes, and closure cadence, once the project grows beyond about 5 modules, "change A breaks B" situations start appearing. Approach B is especially unsustainable in AI-assisted development — AI writes code fast, but without systematic constraints, it also creates混乱 fast.
+Moreover, without test baselines, design-notes, and closure cadence, once the project grows beyond about 5 modules, "change A breaks B" situations start appearing. Approach B is especially unsustainable in AI-assisted development — AI writes code fast, but without systematic constraints, it also createschaos fast.
 
 ### Approach C: Closure Cadence + Test Baseline + Design Notes
 
@@ -180,23 +180,23 @@ This is the structured iteration approach, the methodology systematically descri
 - **Closure cadence**: Each version has clear boundaries, advancing rhythmically through planning → implementation → closure → UAT → cool-down.
 - **Test baseline**: Total test count doesn't decrease, pass rate doesn't decrease, flaky tests are regularly cleared. The baseline serves as an objective signal of project health.
 - **Design notes**: Design-notes accumulate design decisions across versions; project_memory serves as the AI's project constitution.
-- **Additive而非subtractive**: Respect old code, don't rewrite casually; use "layering on" instead of "replacing."
+- **Additive rather than subtractive**: Respect old code, don't rewrite casually; use "layering on" instead of "replacing."
 
 **Applicable scenarios:** Production-grade projects, multi-person collaboration projects, projects expected to iterate beyond 5 versions.
 
-**Advantages:** Project sustainability is predictable, the test baseline provides an objective health指标, design-notes let new AI sessions quickly understand project history, rhythmic progress leaves room for reflection.
+**Advantages:** Project sustainability is predictable, the test baseline provides an objective healthindicators, design-notes let new AI sessions quickly understand project history, rhythmic progress leaves room for reflection.
 
-**Cost:** Requires additional effort to maintain documentation and baselines; the process constraints feel "too heavy" early on — the first three to five versions may not need such a complex system, but after the fifth version, the前期 investment starts paying off.
+**Cost:** Requires additional effort to maintain documentation and baselines; the process constraints feel "too heavy" early on — the first three to five versions may not need such a complex system, but after the fifth version, theearly stage investment starts paying off.
 
 ### Design Philosophy Comparison
 
 | Dimension | Approach A (One-Shot) | Approach B (Manual Retro) | Approach C (Structured Iteration) |
 |---|---|---|---|
 | Core philosophy | Use and discard | Experience-driven | Systematic baseline + knowledge accumulation |
-| Version boundaries | None (one-shot) | Fuzzy (gut feeling) | Clear (closure定版) |
+| Version boundaries | None (one-shot) | Fuzzy (gut feeling) | Clear (closurefinalized) |
 | Test baseline | None | None or loose | Strict management (non-regression) |
 | Cross-version knowledge | Discarded | In the mind | Design-notes + project_memory |
-| Architecture strategy | Rewrite each time | Refactor on demand | Additive而非subtractive |
+| Architecture strategy | Rewrite each time | Refactor on demand | Additive rather than subtractive |
 | Suitable projects | Prototypes, experiments | Small solo projects | Production-grade, long-term |
 | AI-friendliness | Low (no history transfer) | Low (experience not transferable) | High (knowledge explicit) |
 
@@ -204,19 +204,19 @@ Each of the three approaches has its applicable scenarios. The key is **matching
 
 ## aptbot's Design Features
 
-aptbot, as a learning-oriented personal assistant project, chose Approach C from the start. Not because it's "most advanced," but because the project's positioning dictates that it must survive many versions: as an open-source learning project, aptbot must not only iterate健康 itself but also serve as an example of how to iterate健康.
+aptbot, as a learning-oriented personal assistant project, chose Approach C from the start. Not because it's "most advanced," but because the project's positioning dictates that it must survive many versions: as an open-source learning project, aptbot must not only iteratehealthy itself but also serve as an example of how to iteratehealthy.
 
 In concrete practice, aptbot made the following key design choices:
 
-**Layered roadmap driving iteration.** aptbot's roadmap is clearly分层: L1 focuses on the core agent loop and basic tool system, L2 on the memory system and multi-session management, L3 on skill self-evolution and multi-channel. Each new version checks方向 against the roadmap, ensuring that design decisions in every version don't block the next version's path. For example, when designing the tool system in L1, tool registration and discovery mechanisms were预留, preparing for L2's skill system — even though L2's skill system wasn't implemented yet, L1's abstraction already left extension points.
+**Layered roadmap driving iteration.** aptbot's roadmap is clearlylayered: L1 focuses on the core agent loop and basic tool system, L2 on the memory system and multi-session management, L3 on skill self-evolution and multi-channel. Each new version checksdirection against the roadmap, ensuring that design decisions in every version don't block the next version's path. For example, when designing the tool system in L1, tool registration and discovery mechanisms werereserved, preparing for L2's skill system — even though L2's skill system wasn't implemented yet, L1's abstraction already left extension points.
 
 **Strict closure cadence.** Each version goes through the complete flow of brainstorming → spec → plan → subtask execution → finishing wrap-up → UAT verification. The cool-down period after closure is used to organize design-notes and project_memory. No rushing versions, no skipping steps.
 
 **Automated test baseline recording.** Each closure records a test baseline snapshot, compared when starting the next version. Maintain a steady increase in total tests (don't delete existing tests, only add tests for new features), and keep the pass rate stable. Flaky tests are addressed within the version they're discovered — not deferred to the next version.
 
-**Additive而非subtractive architecture practice.** aptbot's architecture evolution strictly follows this principle. New abstractions layer on top of old ones; old code is not destructively modified unless in a dedicated refactoring version. This means aptbot's codebase retains some "less elegant" implementations in early versions — but these implementations are tested, handle real boundary cases, and their value outweighs the impulse to rewrite for "cleaner looks."
+**Additive rather than subtractive architecture practice.** aptbot's architecture evolution strictly follows this principle. New abstractions layer on top of old ones; old code is not destructively modified unless in a dedicated refactoring version. This means aptbot's codebase retains some "less elegant" implementations in early versions — but these implementations are tested, handle real boundary cases, and their value outweighs the impulse to rewrite for "cleaner looks."
 
-**Design-notes and project_memory as project infrastructure.** These two files aren't "write when you have time" supplementary documents — they're formal outputs of each version iteration. Design-notes and project_memory must be updated before closure, as part of the standard cool-down流程. Project_memory remains concise (a few hundred words), and is automatically injected into every new AI session, ensuring the new session knows "what can be done, what can't be done, and what this version is working on."
+**Design-notes and project_memory as project infrastructure.** These two files aren't "write when you have time" supplementary documents — they're formal outputs of each version iteration. Design-notes and project_memory must be updated before closure, as part of the standard cool-downprocess. Project_memory remains concise (a few hundred words), and is automatically injected into every new AI session, ensuring the new session knows "what can be done, what can't be done, and what this version is working on."
 
 ## Future Directions
 
@@ -228,18 +228,18 @@ Long-term iteration maintenance practices continue to evolve. Several trends wor
 
 **Finer-grained memory layering.** Currently, project_memory uses a "full injection" mode — all constraints are injected in every session. In the future, constraints could be intelligently selected based on the current subtask's context. For example, if the current subtask involves security, inject security-related constraints; if it involves testing, inject TDD constraints. This reduces token waste and increases signal density.
 
-**Adaptive iteration cadence.** Projects at different stages may need different iteration cadences — early stages may need faster version cycles, mature stages may need longer cool-down and reflection time. In the future, adaptive cadence could be introduced, automatically suggesting iteration节奏 based on test baseline trends, code change volume, defect rates, and other metrics.
+**Adaptive iteration cadence.** Projects at different stages may need different iteration cadences — early stages may need faster version cycles, mature stages may need longer cool-down and reflection time. In the future, adaptive cadence could be introduced, automatically suggesting iterationcadence based on test baseline trends, code change volume, defect rates, and other metrics.
 
 aptbot will gradually explore these directions in subsequent versions. The core principle remains unchanged: the key to long-term iteration isn't technology — it's **habits** — the habits of recording, reflecting, baseline management, and rhythmic progress. Tools can assist, but habits must be built by yourself.
 
 ## Summary
 
-Starting from the core矛盾 of "death by the third version," this article systematically lays out the methodology for long-term iteration maintenance:
+Starting from the core contradiction of "death by the third version," this article systematically lays out the methodology for long-term iteration maintenance:
 
 1. **Version planning** should be layered — L1/L2/L3 roadmap provides direction, single-version spec handles execution. The two serve as mutual coordinate systems.
 2. **Iteration cadence** should be fixed — planning → implementation → closure → UAT → cool-down, each version completes the full cycle. The cool-down period is time for reflection.
-3. **Test baseline** should be strict — total count doesn't decrease, pass rate doesn't decrease, flaky tests are清零. The baseline is an objective signal of project health.
-4. **Architecture evolution** should be restrained — additive而非subtractive, respect old code, don't rewrite casually. Refactoring should be a standalone version.
+3. **Test baseline** should be strict — total count doesn't decrease, pass rate doesn't decrease, flaky tests arecleared. The baseline is an objective signal of project health.
+4. **Architecture evolution** should be restrained — additive rather than subtractive, respect old code, don't rewrite casually. Refactoring should be a standalone version.
 5. **Knowledge memory** should be explicit — design-notes record cross-version design decisions, project_memory constrains AI behavior.
 6. **Documentation** should be synchronized — CHANGELOG / README / ARCHITECTURE aligned with code at closure.
 

@@ -9,10 +9,10 @@ import type { Article, ArticleState, TrackMeta } from '../learn/article-types.js
  * Task 7 扩展：learnEnabled 时新增第 6 section "知识" + nav 链接 + Hero 副标题更新 + 数据条扩展。
  */
 
-const DIFFICULTY_LABELS: Readonly<Record<string, string>> = {
-  beginner: '入门',
-  intermediate: '进阶',
-  advanced: '深入',
+const DIFFICULTY_LABELS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  beginner: { zh: '入门', en: 'Beginner' },
+  intermediate: { zh: '进阶', en: 'Intermediate' },
+  advanced: { zh: '深入', en: 'Advanced' },
 };
 
 /** 转义 HTML 特殊字符，防止文章元数据注入 */
@@ -58,24 +58,28 @@ function groupByChapter(articles: readonly Article[]): ChapterGroup[] {
   return groups;
 }
 
-function renderKnowledgeArticleCard(article: Article): string {
+function renderKnowledgeArticleCard(article: Article, state: ArticleState): string {
   const meta = article.meta;
-  const difficultyLabel = DIFFICULTY_LABELS[meta.difficulty] ?? meta.difficulty;
-  const metaRow = `${escapeHtml(difficultyLabel)} · ${meta.estimatedReadingTime} <span data-i18n="learn.minutes">分钟</span>`;
+  const enArticle = state.bySlug.get(`${meta.slug}:en`);
+  const enMeta = enArticle?.meta;
+  const zhDifficulty = DIFFICULTY_LABELS[meta.difficulty]?.zh ?? meta.difficulty;
+  const enDifficulty = enMeta ? (DIFFICULTY_LABELS[enMeta.difficulty]?.en ?? enMeta.difficulty) : (DIFFICULTY_LABELS[meta.difficulty]?.en ?? meta.difficulty);
+  const enTitle = enMeta?.title ?? meta.title;
+  const enDesc = enMeta?.description ?? meta.description;
   if (meta.status === 'planned') {
     return `        <div class="article-card article-card-planned" data-track="${escapeHtml(meta.track)}">
-          <div class="article-meta">${metaRow}</div>
-          <h3 class="article-title">${escapeHtml(meta.title)}</h3>
-          <p class="article-desc">${escapeHtml(meta.description)}</p>
+          <div class="article-meta" data-zh="${escapeHtml(zhDifficulty)} · ${meta.estimatedReadingTime} 分钟" data-en="${escapeHtml(enDifficulty)} · ${meta.estimatedReadingTime} min">${escapeHtml(zhDifficulty)} · ${meta.estimatedReadingTime} <span data-i18n="learn.minutes">分钟</span></div>
+          <h3 class="article-title" data-zh="${escapeHtml(meta.title)}" data-en="${escapeHtml(enTitle)}">${escapeHtml(meta.title)}</h3>
+          <p class="article-desc" data-zh="${escapeHtml(meta.description)}" data-en="${escapeHtml(enDesc)}">${escapeHtml(meta.description)}</p>
           <div class="article-footer">
-            <span class="coming-soon-badge">coming soon</span>
+            <span class="coming-soon-badge" data-i18n="learn.comingSoon">coming soon</span>
           </div>
         </div>`;
   }
-  return `        <a class="article-card" href="/learn/${escapeHtml(meta.slug)}" data-track="${escapeHtml(meta.track)}">
-          <div class="article-meta">${metaRow}</div>
-          <h3 class="article-title">${escapeHtml(meta.title)}</h3>
-          <p class="article-desc">${escapeHtml(meta.description)}</p>
+  return `        <a class="article-card" href="/learn/${escapeHtml(meta.slug)}?lang=zh" data-track="${escapeHtml(meta.track)}" data-slug="${escapeHtml(meta.slug)}">
+          <div class="article-meta" data-zh="${escapeHtml(zhDifficulty)} · ${meta.estimatedReadingTime} 分钟" data-en="${escapeHtml(enDifficulty)} · ${meta.estimatedReadingTime} min">${escapeHtml(zhDifficulty)} · ${meta.estimatedReadingTime} <span data-i18n="learn.minutes">分钟</span></div>
+          <h3 class="article-title" data-zh="${escapeHtml(meta.title)}" data-en="${escapeHtml(enTitle)}">${escapeHtml(meta.title)}</h3>
+          <p class="article-desc" data-zh="${escapeHtml(meta.description)}" data-en="${escapeHtml(enDesc)}">${escapeHtml(meta.description)}</p>
           <div class="article-footer">
             <span class="article-arrow" aria-hidden="true">→</span>
           </div>
@@ -83,24 +87,26 @@ function renderKnowledgeArticleCard(article: Article): string {
 }
 
 /** 渲染单个 chapter：限显 4 张卡片，超出含 "+N 更多" 链接跳 /learn */
-function renderKnowledgeChapter(chapter: ChapterGroup): string {
+function renderKnowledgeChapter(chapter: ChapterGroup, state: ArticleState): string {
   const visible = chapter.articles.slice(0, 4);
   const hiddenCount = chapter.articles.length - visible.length;
-  const cardsHtml = visible.map(renderKnowledgeArticleCard).join('\n');
+  const cardsHtml = visible.map((a) => renderKnowledgeArticleCard(a, state)).join('\n');
   const moreLink = hiddenCount > 0
     ? `\n        <a class="chapter-more-link" href="/learn">+${hiddenCount}<span data-i18n="learn.more"> 更多</span></a>`
     : '';
+  const firstEn = state.bySlug.get(`${chapter.articles[0]?.meta.slug}:en`);
+  const enChapterName = firstEn?.meta.chapter ?? chapter.name;
   return `      <div class="chapter">
-        <div class="chapter-name">${escapeHtml(chapter.name)}</div>
+        <div class="chapter-name" data-zh="${escapeHtml(chapter.name)}" data-en="${escapeHtml(enChapterName)}">${escapeHtml(chapter.name)}</div>
         <div class="card-grid">
 ${cardsHtml}
         </div>${moreLink}
       </div>`;
 }
 
-function renderKnowledgeTrack(track: TrackMeta, articles: readonly Article[], trackNumber: number): string {
+function renderKnowledgeTrack(track: TrackMeta, articles: readonly Article[], trackNumber: number, state: ArticleState): string {
   const chapters = groupByChapter(articles);
-  const chaptersHtml = chapters.map(renderKnowledgeChapter).join('\n');
+  const chaptersHtml = chapters.map((ch) => renderKnowledgeChapter(ch, state)).join('\n');
   return `    <div class="track-container" data-track="${escapeHtml(track.id)}">
       <div class="track-label">TRACK ${trackNumber}</div>
       <h3 class="track-title" data-i18n="learn.${track.id}.title">${escapeHtml(track.title)}</h3>
@@ -111,15 +117,16 @@ ${chaptersHtml}
 
 /** 渲染知识 section（learnEnabled 时调用）。articleState 可选——缺失时用占位 0。 */
 function renderKnowledgeSection(articleState: ArticleState | undefined): string {
-  const totalArticles = articleState?.articles.length ?? 0;
+  const zhArticles = articleState?.articles.filter((a) => a.lang === 'zh') ?? [];
+  const totalArticles = zhArticles.length;
   const totalTracks = articleState?.tracks.length ?? 0;
   const sortedTracks = articleState ? [...articleState.tracks].sort((a, b) => a.order - b.order) : [];
-  const track1Articles = articleState?.byTrack.get('agent-practice') ?? [];
-  const track2Articles = articleState?.byTrack.get('ai-coding-practice') ?? [];
+  const track1Articles = zhArticles.filter((a) => a.meta.track === 'agent-practice');
+  const track2Articles = zhArticles.filter((a) => a.meta.track === 'ai-coding-practice');
   const track1Count = track1Articles.length;
   const track2Count = track2Articles.length;
   const tracksHtml = sortedTracks
-    .map((t, i) => renderKnowledgeTrack(t, articleState?.byTrack.get(t.id) ?? [], i + 1))
+    .map((t, i) => renderKnowledgeTrack(t, zhArticles.filter((a) => a.meta.track === t.id), i + 1, articleState!))
     .join('\n');
   return `  <section id="learn">
     <div class="container">
@@ -205,6 +212,7 @@ export function createLandingPageHtml(opts: LandingPageOptions = {}): string {
       'learn.cta': '查看全部文章 →',
       'learn.minutes': '分钟',
       'learn.more': ' 更多',
+      'learn.comingSoon': '敬请期待',
       'learn.dataBar.articles': '篇文章',
       'learn.dataBar.tracks': '个 Track',
       'learn.dataBar.track1': 'Agent 体系实践',
@@ -226,6 +234,7 @@ export function createLandingPageHtml(opts: LandingPageOptions = {}): string {
       'learn.cta': 'View all articles →',
       'learn.minutes': 'min',
       'learn.more': ' more',
+      'learn.comingSoon': 'coming soon',
       'learn.dataBar.articles': 'articles',
       'learn.dataBar.tracks': 'tracks',
       'learn.dataBar.track1': 'Agent Practice',
@@ -997,6 +1006,13 @@ ${knowledgeSectionHtml}
     document.querySelectorAll('[data-i18n]').forEach(el => {
       const key = el.dataset.i18n;
       if (I18N[lang][key]) el.textContent = I18N[lang][key];
+    });
+    document.querySelectorAll('[data-en]').forEach(el => {
+      el.textContent = el.getAttribute('data-' + lang) || el.textContent;
+    });
+    document.querySelectorAll('.article-card[data-slug]').forEach(el => {
+      const slug = el.getAttribute('data-slug');
+      if (slug) el.setAttribute('href', '/learn/' + slug + '?lang=' + lang);
     });
     const toggle = document.querySelector('[data-i18n="nav.lang"]');
     if (toggle) toggle.textContent = lang === 'zh' ? 'EN' : '中';

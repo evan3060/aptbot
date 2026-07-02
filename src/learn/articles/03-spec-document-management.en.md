@@ -3,7 +3,7 @@ slug: "03-spec-document-management"
 title: "Spec Document Management: Project Memory and Decision Constitution for AI-Assisted Development"
 description: "Boundaries between spec, plan, and design; file organization conventions; full lifecycle management (draft → review → active → revision → archive); self-review checklist; code synchronization..."
 track: ai-coding-practice
-chapter: 方法论
+chapter: Methodology
 order: 16
 difficulty: beginner
 estimatedReadingTime: 18
@@ -23,7 +23,7 @@ In AI-assisted development, one cost is often underestimated — repeated explan
 
 To understand the value of specs, you first need to grasp a fundamental contradiction in AI-assisted development: **Humans have long-term memory; AI does not.**
 
-A human developer who made a design decision a week ago opens the code today and still remembers why they chose that path. But AI doesn't — each session starts from zero. Without specs, the AI's understanding of the project relies entirely on scattered information in the current context. It can't distinguish between "this is a well-considered design" and "this is a随手临时方案."
+A human developer who made a design decision a week ago opens the code today and still remembers why they chose that path. But AI doesn't — each session starts from zero. Without specs, the AI's understanding of the project relies entirely on scattered information in the current context. It can't distinguish between "this is a well-considered design" and "this is aad-hoc temporary solution."
 
 This leads to a typical vicious cycle:
 
@@ -61,11 +61,11 @@ Clear boundaries look like this:
 
 The most common overstepping is: spec containing implementation details (should be moved to design or implementation phase), plan containing design rationale (should go back to spec), design containing task lists (should go to plan). Once overstepping happens, document responsibilities blur, and the AI can't tell whether a piece of information is a "constraint" or a "suggestion" — execution quality suffers.
 
-A simple判断方法: Take a piece of content and ask "is this a constraint, a step, or a technical choice?" — constraints go in spec, steps go in plan, technical choices go in design.
+A simplejudgment method: Take a piece of content and ask "is this a constraint, a step, or a technical choice?" — constraints go in spec, steps go in plan, technical choices go in design.
 
 ### File Naming and Organization
 
-Spec file naming needs to support both **time回溯** and **topic retrieval**. Standard naming format:
+Spec file naming needs to support both **timetrace back** and **topic retrieval**. Standard naming format:
 
 ```
 YYYY-MM-DD-<topic>-design.md
@@ -75,7 +75,7 @@ YYYY-MM-DD-<topic>-design.md
 - `<topic>`: Short topic keyword, e.g., `auth-redesign`, `api-rate-limiting`, `0.2.3-learn-system`
 - `-design.md`: Suffix indicating this is a design document
 
-All specs are stored in a single directory (e.g., `docs/specs/`), not分散 across module directories. Two reasons:
+All specs are stored in a single directory (e.g., `docs/specs/`), notscattered across module directories. Two reasons:
 
 1. **Global retrieval**: See all design decisions in one directory, instantly knowing "what decisions this project has made"
 2. **Cross-module references**: Module A's spec might reference Module B's spec; centralized storage keeps paths stable
@@ -93,7 +93,7 @@ The initial draft of a spec comes from the decision table produced during brains
 Once the draft is complete, it enters the review stage. Review has two steps:
 
 1. **Self-review**: The AI itself goes through a checklist. Self-review isn't a formality — it requires genuine item-by-item checking:
-   - **Placeholder残留**: Search for `TODO`, `TBD`, `xxx`, `???` — all placeholders must be filled or removed
+   - **Placeholderresidual**: Search for `TODO`, `TBD`, `xxx`, `???` — all placeholders must be filled or removed
    - **Internal consistency**: The earlier text says "supports 5 protocols," but the later list only has 4; the earlier text says "default true," but the configuration example writes `false`
    - **Reasonable scope**: In scope and out of scope are clearly divided, and each in scope item has a corresponding acceptance criterion
    - **Ambiguous phrasing**: Search for "roughly," "maybe," "it depends," "as applicable" — these are all ambiguity signals; either make them specific or mark them as open questions
@@ -106,12 +106,12 @@ After user review passes, the spec becomes the "constitution" for subsequent pla
 
 **Stage 4: Revision**
 A spec isn't frozen once written. During implementation, some decisions may prove infeasible and need adjustment. Revision rules:
-- Changes must be留痕 — add a "Change Log" section to the spec, recording date + change + reason
+- Changes must beleave traces — add a "Change Log" section to the spec, recording date + change + reason
 - Major changes (scope adjustment, architecture changes) must go through user review again
 - Outdated decisions should be marked in the spec as "changed in v0.x.y, see YYYY-spec"
 
 **Stage 5: Archive**
-After a version is released, the spec is archived as the design record for that version. Archiving isn't deletion — it's marking as "historical version's design basis." After archiving, the spec is no longer active but can be queried for future回溯.
+After a version is released, the spec is archived as the design record for that version. Archiving isn't deletion — it's marking as "historical version's design basis." After archiving, the spec is no longer active but can be queried for futuretrace back.
 
 The diagram below shows the complete spec lifecycle from birth to archive:
 
@@ -144,7 +144,7 @@ Not every change needs a spec. The judgment criteria determine the sustainabilit
 - Single-point bug fixes — fixing a clear, small bug
 - Purely experimental exploration — experiments where you haven't decided whether to proceed
 
-**Judgment尺度**: "Which modules will this change affect?" "Will I still need to know why this was changed six months from now?" — If it affects multiple modules and needs long-term memory, write a spec; if it's local and one-time, just make the change directly.
+**Judgmentscale**: "Which modules will this change affect?" "Will I still need to know why this was changed six months from now?" — If it affects multiple modules and needs long-term memory, write a spec; if it's local and one-time, just make the change directly.
 
 The problem with excessive specs: writing a spec for every typo dilutes the value of specs, burying important design documents in noise. Specs should be written where they belong — as an **index of important decisions** rather than a **log of every change**.
 
@@ -152,7 +152,7 @@ The problem with excessive specs: writing a spec for every typo dilutes the valu
 
 Specs aren't just written for AI — they're also a medium for team collaboration:
 
-- **PR review basis**: When reviewing a PR, reviewers对照 the spec to determine whether "the implementation matches the design." If the PR deviates from the spec, either change the PR or change the spec.
+- **PR review basis**: When reviewing a PR, reviewerscomparing against the spec to determine whether "the implementation matches the design." If the PR deviates from the spec, either change the PR or change the spec.
 - **Newcomer onboarding documents**: When a new person joins the project, they first read the latest spec, then read the code. The spec is "design intent," the code is "design implementation" — reading intent before implementation leads to faster understanding.
 - **Cross-team alignment**: Multiple teams or collaborators share the same spec, ensuring consistent implementation direction.
 
@@ -171,11 +171,11 @@ This is the most common practice — no documents, no specs, all requirements, d
 - **Zero maintenance cost**: No time spent writing documents
 - **Maximum flexibility**: Changing requirements means "directly tell the AI," no document updates needed
 - **Fully dependent on conversation history**: Everything is present in the current session, but everything is lost across sessions
-- **Suitable for one-time tasks**: No need to回顾 after completion
+- **Suitable for one-time tasks**: No need toreview after completion
 
 **Applicable scenarios**: One-off scripts, quick prototypes, temporary tasks. Done and discarded, no subsequent maintenance needed.
 
-**Limitations**: Once a task needs multiple sessions or回顾 after weeks, problems surface. You spend大量 time re-explaining the same things, and the AI repeats the same mistakes. Decisions can't be回溯 — two weeks later you ask yourself "why did I choose that?" and there's no record.
+**Limitations**: Once a task needs multiple sessions orreview after weeks, problems surface. You spendmassive time re-explaining the same things, and the AI repeats the same mistakes. Decisions can't betrace back — two weeks later you ask yourself "why did I choose that?" and there's no record.
 
 ### Approach B: Requirements Recorded in Chat Sessions
 
@@ -200,7 +200,7 @@ This is the approach detailed in this article — managing all design decisions 
 
 - **Structured documents**: Specs have uniform formatting, naming conventions, and directory organization
 - **Full lifecycle management**: From draft, review, active, revision, to archive
-- **Document as contract**: The spec is a共同 agreement between AI and human
+- **Document as contract**: The spec is acommon agreement between AI and human
 - **Cross-session usable**: Any new session reads the spec first, instantly restoring context
 - **Traceable**: Historical specs preserve the complete record of decision evolution
 
@@ -238,7 +238,7 @@ But aptbot chose Approach C for an even deeper reason: **teaching needs**. aptbo
 
 **Change log as a standalone section**: Every spec has a "Change Log" section formatted as "date | change | reason." This isn't a post-hoc addition — it's an inherent structure of the spec. Having this section from the start means the team never feels "recording changes is extra work."
 
-**Archive marking instead of deletion**: Archived specs are not removed; they are marked with `status: archived` in the frontmatter. These archived specs remain in the repository and can be回溯 queried at any time. Even if a decision is overturned, the record of the overturn remains — later developers can read the complete narrative of "why A was chosen → later A proved infeasible → changed to B," rather than just seeing B.
+**Archive marking instead of deletion**: Archived specs are not removed; they are marked with `status: archived` in the frontmatter. These archived specs remain in the repository and can betrace back queried at any time. Even if a decision is overturned, the record of the overturn remains — later developers can read the complete narrative of "why A was chosen → later A proved infeasible → changed to B," rather than just seeing B.
 
 **Cross-spec reference relationships**: One spec may reference another spec's decisions. For example, the "API Authentication Strategy" spec references the "User Data Model" spec. aptbot maintains reference links in specs (see: `YYYY-MM-DD-user-model-design.md`), making the cross-spec decision network traceable.
 
@@ -246,7 +246,7 @@ But aptbot chose Approach C for an even deeper reason: **teaching needs**. aptbo
 
 Compared to the three approaches, aptbot's biggest difference in spec management is **treating specs as code**.
 
-In Approaches A and B, documentation is an "accessory" — code is the主角, documentation is辅助. In typical Approach C practice, documentation is a "parallel product" — code and documentation are maintained in parallel, each with its own process.
+In Approaches A and B, documentation is an "accessory" — code is themain role, documentation isauxiliary. In typical Approach C practice, documentation is a "parallel product" — code and documentation are maintained in parallel, each with its own process.
 
 In aptbot, **the spec is itself part of the product**. The spec's version management follows the same process as code version management — submit PR, review, merge. Spec changes trigger the same CI checks as code changes (format validation, link checking, etc.). Specs and code live in the same repository, the same branch, the same iteration cycle — naturally synchronized.
 
@@ -274,6 +274,6 @@ Spec document management is an often underestimated but crucial aspect of AI-ass
 
 3. **Its lifecycle**: Draft → self-review + user review → active → revision → archive. Each stage has a clear status and quality gate, making the spec controllable from birth to retirement.
 
-4. **Approach comparison**: Approach A (no docs) is most flexible but can't be回溯; Approach B (chat records) has some context but cross-session loss is severe; Approach C (structured spec) is most规范 but has the highest maintenance cost. aptbot chooses Approach C and manages specs as part of the product, synchronized with code.
+4. **Approach comparison**: Approach A (no docs) is most flexible but can't betrace back; Approach B (chat records) has some context but cross-session loss is severe; Approach C (structured spec) is moststandardized but has the highest maintenance cost. aptbot chooses Approach C and manages specs as part of the product, synchronized with code.
 
 With this, the three core articles on AI-assisted development methodology are complete. From workflow constraints in the first (how to manage the process), to quality defense lines in the second (how to ensure quality), to spec management in the third (how to record decisions) — these three form a complete picture of structured AI-assisted development. If you're a developer bringing AI into your development process, the thinking in these three methodology articles can help you avoid the most common pitfalls — those moments when things "looked right but were actually wrong."

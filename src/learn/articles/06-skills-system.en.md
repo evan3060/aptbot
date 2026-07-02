@@ -343,7 +343,7 @@ The current L1 index is a simple sorting and truncation based on lastUsed. In th
 
 - **Dynamic retrieval based on conversation context**: In addition to lastUsed sorting, relevant skills can be retrieved from L2/L3 storage based on the current conversation's semantics
 - **Hierarchical token budget**: Instead of evenly distributing the 4K token budget among all skills, reserve a fixed quota for "core skills" (like debug, test, git) and leave the remaining budget for long-tail skills to compete
-- **Cross-skill关联 recommendation**: If the agent is using a "debug TypeScript" skill, automatically boost the sorting priority of "how to write tests" skills
+- **Cross-skillassociation recommendation**: If the agent is using a "debug TypeScript" skill, automatically boost the sorting priority of "how to write tests" skills
 
 These strategies can be stacked incrementally without requiring a one-time overhaul of the entire system. The value of the L1 index is precisely that it's "simple enough to serve as the foundation for more complex strategies."
 

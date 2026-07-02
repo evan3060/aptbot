@@ -114,7 +114,7 @@ This also introduces the core engineering challenge of agents: the context keeps
 
 From a code perspective, an agent loop is typically a while loop (or generator/async generator), with each iteration comprising: build request → call LLM → parse response → execute tool → collect result. The loop exits when "the model no longer requests tool calls" or "maximum turns reached."
 
-Different frameworks make different engineering trade-offs on this basic structure. Some追求 minimalism (core loop 100-150 lines), others追求 feature completeness (loop with embedded error recovery, context compression, hook mechanisms). These trade-offs have no absolute right or wrong—they depend on project positioning: is it an SDK for others to extend, or a product serving end users directly?
+Different frameworks make different engineering trade-offs on this basic structure. Somepursue minimalism (core loop 100-150 lines), otherspursue feature completeness (loop with embedded error recovery, context compression, hook mechanisms). These trade-offs have no absolute right or wrong—they depend on project positioning: is it an SDK for others to extend, or a product serving end users directly?
 
 ## 3. Comparison of Mainstream Agent Designs
 
@@ -143,7 +143,7 @@ This approach is the most radical—**no preset skills for the agent; it accumul
 
 - **Automatic task crystallization**: After completing a task, the agent distills the successful path into a new skill, which can be reused directly when encountering similar tasks next time.
 - **Ultra-low token consumption**: By "sending only new messages" (not full history) + tag truncation + working memory checkpoints, each turn's context is kept under 30K tokens, far below the 200K-1M range of other approaches.
-- **Atomic tool set**: Doesn't追求 tool abundance; instead uses 9 atomic tools (with `code_run` covering both Python and bash execution) to handle all capabilities.
+- **Atomic tool set**: Doesn'tpursue tool abundance; instead uses 9 atomic tools (with `code_run` covering both Python and bash execution) to handle all capabilities.
 - **Bootstrapping**: The repository itself was created by the agent—the agent not only uses tools but can also improve its own code.
 
 **Suitable for:** Personal desktop automation, long-term personal assistants (the longer you use it, the smarter it gets).

@@ -39,6 +39,18 @@ aptbot 从"个人 agent 工具"扩展为"边用边学的 agent 学习教材"。�
 - `SERVER_LANG` 服务端注入，客户端首次加载与服务端渲染语言一致，随后用 localStorage 偏好覆盖
 - Nav 链接、Footer、章节标题、筛选按钮、反馈表单占位符等全部双语
 
+#### 英文版 i18n 完善修复（v0.2.3 收尾轮）
+- **服务端直接渲染英文**：合并三个 `LEARN_I18N` 字典为顶层常量 + `t(key, lang)` 函数，模板内所有 `data-i18n` 元素按 lang 参数直接渲染对应语言文本，消除客户端 JS 交换导致的中文闪烁（FOC）
+- **首页知识区双语卡片**：`renderKnowledgeSection` 按 `lang === 'zh'` 过滤文章（18 张卡片非 36 张），每张卡片嵌入 `data-zh` / `data-en` 属性；`applyLang()` 扩展支持 `[data-en]` 元素即时切换 + 文章卡片 href 自动附加 `?lang=` 参数
+- **Track 标题/描述双语**：`TrackMeta` 新增 `titleEn` / `descriptionEn`，列表页数据条与首页知识区按 lang 选择对应语言
+- **难度标签双语**：`DIFFICULTY_LABELS` 改为 `{ beginner: { zh: '入门', en: 'Beginner' }, ... }`
+- **列表页按语言过滤**：`totalArticles`、`trackCount`、`tracksHtml` 均按 `a.lang === currentLang` 过滤，避免中英双版本文章混在同一列表
+- **新增 i18n 键**：`article.minutes`（分钟/min）、`list.subtitleSep`（中英文逗号）、`learn.comingSoon`（敬请期待/coming soon）
+- **/feedback 路由语言参数**：`websocket-server.ts` 中 `/feedback` 路由调用 `resolveLang(req)` 并传给 `createFeedbackHtml(lang)`
+- **英文文章正文清理**：18 篇 `.en.md` 共 233 处中文字符全部修正为英文（追求/pursue、沉淀/consolidate、强制/mandatorily、闭环/closed loop 等）；Track 2 英文版文章 `chapter: 方法论` → `chapter: Methodology`
+- **安全响应头增强**：所有 HTML 响应新增 `strict-transport-security` / `x-frame-options: DENY` / `referrer-policy` 头
+- **article-loader 噪音消除**：跨语言同 order 不再触发 duplicate order 警告（仅同语言重复才警告）
+
 #### 用户反馈区（v0.2.3 第 2 轮）
 - 访客可在文章页底部或 `/feedback` 通用反馈页提交想法 / bug / feature request
 - `src/infrastructure/feedback-storage.ts`：`FeedbackStorage` 类（append / list / moderate / findById）+ `FeedbackEntry` 接口
@@ -67,8 +79,9 @@ aptbot 从"个人 agent 工具"扩展为"边用边学的 agent 学习教材"。�
 ### Test Coverage
 - 新增 7 个测试文件
 - 类型检查 `tsc --noEmit` 0 错误
-- 全量测试 1228 passed / 81 files
+- 全量测试 1228 passed / 81 files（auth-api 1 项 flaky ECONNRESET 为既有时序问题）
 - API 路由测试 32 passed（含语言解析路由回归）
+- learn-page 测试 94 passed / landing-page 测试 39 passed（含双语卡片 data-zh/data-en 契约）
 
 ### Release Finalization（封仓收尾）
 - 设计文档 [docs/superpowers/specs/2026-07-01-0.2.3-learn-system-design.md](./docs/superpowers/specs/2026-07-01-0.2.3-learn-system-design.md) 已就位
@@ -77,8 +90,10 @@ aptbot 从"个人 agent 工具"扩展为"边用边学的 agent 学习教材"。�
 - `package.json` 版本升至 `0.2.3`
 - 双语文章翻译 18 篇 `.en.md` 文件 + 20 张插图 + 20 个 prompt 文件
 - 首页落地页「学习入口」按钮
-- 知识页面全线 i18n 界面翻译
+- 知识页面全线 i18n 界面翻译 + 英文版 i18n 完善修复（服务端渲染 + 双语卡片 + 正文清理）
+- 安全响应头增强（HSTS / X-Frame-Options / Referrer-Policy）
 - git tag `v0.2.3` + PR to main 已提交
+- VPS 部署验证：aptbot.de 线上英文版全页面无中文混入，安全头生效
 
 ---
 

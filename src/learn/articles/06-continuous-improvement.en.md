@@ -3,7 +3,7 @@ slug: "06-continuous-improvement"
 title: "Methodology and Continuous Improvement: Collaboration, Learning, Knowledge Accumulation"
 description: "How to establish effective collaboration with AI, learn from AI output, build a knowledge base, evaluate output quality at three levels, continuously optimize collaboration processes, avoid..."
 track: ai-coding-practice
-chapter: 方法论
+chapter: Methodology
 order: 19
 difficulty: intermediate
 estimatedReadingTime: 18
@@ -18,7 +18,7 @@ tags:
   - methodology
 ---
 
-The previous five articles discussed process, quality, documentation, long-term iteration maintenance, and boundary issues. This article is the culmination of Track 2 — returning to methodology itself. AI-assisted development isn't a static skill; it continuously changes with model upgrades, tool evolution, and project accumulation. The workflow that works well today may become outdated in six months due to changes in model behavior. This article doesn't discuss "a set of rules" — it discusses a methodology for **letting rules continuously evolve**: how to establish effective collaboration with AI, how to learn from AI output, how to沉淀 knowledge, how to evaluate output, how to continuously optimize processes, and how to avoid over-reliance.
+The previous five articles discussed process, quality, documentation, long-term iteration maintenance, and boundary issues. This article is the culmination of Track 2 — returning to methodology itself. AI-assisted development isn't a static skill; it continuously changes with model upgrades, tool evolution, and project accumulation. The workflow that works well today may become outdated in six months due to changes in model behavior. This article doesn't discuss "a set of rules" — it discusses a methodology for **letting rules continuously evolve**: how to establish effective collaboration with AI, how to learn from AI output, how toconsolidate knowledge, how to evaluate output, how to continuously optimize processes, and how to avoid over-reliance.
 
 ## Concept: Methodology Itself Is a Continuously Evolving System
 
@@ -26,11 +26,11 @@ If the previous five articles are like a set of "techniques," then this article 
 
 What makes AI-assisted development unique is: **the tool itself is evolving rapidly, and your collaboration method must evolve in sync**. The prompt strategies that worked well last year may no longer be necessary after this year's model upgrade; tasks that AI was bad at last year may be handled well this year. This means you can't treat "AI-assisted development methodology" as a fixed set of rules — you must see it as a **living system** that needs continuous observation, adjustment, and optimization.
 
-The core循环 of this system is: **Practice → Reflect →沉淀 → Optimize → Practice again**. The diagram below shows the complete structure of this continuous improvement闭环 — from collaboration to learning, from knowledge沉淀 to evaluation to optimization, forming a self-evolving cycle:
+The corecycle of this system is: **Practice → Reflect →consolidate → Optimize → Practice again**. The diagram below shows the complete structure of this continuous improvementclosed loop — from collaboration to learning, from knowledgeconsolidate to evaluation to optimization, forming a self-evolving cycle:
 
 ![Continuous Improvement Cycle](/learn/articles/images/continuous-improvement.png)
 
-Every time you collaborate with AI is a practice. After collaboration, reflect on what went well and what didn't,沉淀 the experience into the knowledge base (project_memory, design-notes), then adjust the next round's collaboration approach.
+Every time you collaborate with AI is a practice. After collaboration, reflect on what went well and what didn't,consolidate the experience into the knowledge base (project_memory, design-notes), then adjust the next round's collaboration approach.
 
 This cycle isn't optional — it's a **required course** for AI-assisted development. Because AI isn't like traditional tools — you can use an editor for ten years and its behavior is basically unchanged. AI might upgrade its model every few months, and its behavior patterns can change significantly. If your collaboration methodology doesn't adjust accordingly, you'll experience confusion like "it worked this way before, why has it changed now?"
 
@@ -61,7 +61,7 @@ The less context you provide, the more AI tends toward "general best practices" 
 
 **Element 3: Tool-ify constraint rules.**
 
-Writing "please use TDD" in a prompt is a suggestion — AI can selectively comply. It might verbally agree to "use TDD" but skip tests and go straight to implementation in practice. Using a skill to强制 TDD is a constraint — AI must complete the full "write test → see RED → write implementation → see GREEN" cycle before proceeding.
+Writing "please use TDD" in a prompt is a suggestion — AI can selectively comply. It might verbally agree to "use TDD" but skip tests and go straight to implementation in practice. Using a skill tomandate TDD is a constraint — AI must complete the full "write test → see RED → write implementation → see GREEN" cycle before proceeding.
 
 Distinguishing "suggestions" from "constraints" is simple: suggestions AI can ignore; constraints AI cannot skip. What can be tool-ified should not remain at the prompt level. Because prompts "tell AI what to do," while tools "ensure AI must do it."
 
@@ -71,11 +71,11 @@ Which constraints are worth tool-ifying: testing standards (TDD mandatory), proc
 
 AI output isn't just "code to use" — it's also a **learning material**. Every piece of AI-written code, every AI-written design document, contains something worth learning — provided you're willing to deconstruct it.
 
-**Don't just accept the result; understand the原理.**
+**Don't just accept the result; understand theprinciple.**
 
 AI gives you a piece of code using `Promise.allSettled` to handle concurrent requests. Don't just copy-paste it. Ask: why use `allSettled` instead of `all`? What's the semantic difference between `allSettled` and `all`? When should each be used? If one failure shouldn't affect other requests' handling, `allSettled` is more appropriate; if any failure should cause the entire operation to fail, then `all` is the right choice.
 
-Understand the原理, and next time you can judge similar situations yourself. Without understanding the原理, you won't spot it when AI gives the wrong choice — AI often uses `allSettled` where `all` is needed, or vice versa, because it has seen both usages in its training data but hasn't "understood" the boundary of correctness.
+Understand theprinciple, and next time you can judge similar situations yourself. Without understanding theprinciple, you won't spot it when AI gives the wrong choice — AI often uses `allSettled` where `all` is needed, or vice versa, because it has seen both usages in its training data but hasn't "understood" the boundary of correctness.
 
 **Compare AI's multiple outputs.**
 
@@ -99,7 +99,7 @@ AI-written code often has reasonable naming, tidy structure, and complete commen
 
 The knowledge base is an asset that accumulates "knowledge about how to collaborate." It has two layers:
 
-**Memory (session-level memory)** : Working memory for the current session. What the AI learns during a session — "this project's conventions," "your preferences," "the current task focus" — lives in the session's working memory. It disappears when the session ends; it's short-term. Memory的作用 is to give AI continuity within a single session — not forgetting what was said earlier.
+**Memory (session-level memory)** : Working memory for the current session. What the AI learns during a session — "this project's conventions," "your preferences," "the current task focus" — lives in the session's working memory. It disappears when the session ends; it's short-term. Memory role is to give AI continuity within a single session — not forgetting what was said earlier.
 
 **Project_memory (project-level knowledge base)** : Cross-session long-term memory. Hard constraints, lessons learned, principles, architecture map — written in project_memory, injected into the system prompt every session. This is long-term, cumulative, and available in every session.
 
@@ -108,8 +108,8 @@ What should and shouldn't be written in project_memory needs clear differentiati
 **What should be written:**
 
 - **Hard constraints**: Rules that cannot be violated in the project. For example, "core layer cannot import from access layer," "API keys can only be read from environment variables," "tests cannot depend on external networks."
-- **Lessons learned**: Pitfalls encountered and the corresponding constraints. For example, "AI once skipped tests and went straight to implementation, resulting in a production hotfix — from then on, TDD was set as a red line,强制 enforced by skill."
-- **Principles**: Design principles the项目遵循. For example, "YAGNI," "additive而非subtractive," "errors are not persisted."
+- **Lessons learned**: Pitfalls encountered and the corresponding constraints. For example, "AI once skipped tests and went straight to implementation, resulting in a production hotfix — from then on, TDD was set as a red line,mandatorily enforced by skill."
+- **Principles**: Design principles the project follows. For example, "YAGNI," "additive rather than subtractive," "errors are not persisted."
 - **Current version focus**: What this version does and doesn't do, preventing the AI from drifting into future version features.
 
 **What should NOT be written:**
@@ -120,7 +120,7 @@ What should and shouldn't be written in project_memory needs clear differentiati
 
 Project_memory should be concise. It's injected into the system prompt every session; being too long wastes tokens and dilutes the signal. A few hundred to a thousand words is most appropriate, covering only the most critical constraints and principles. Detailed content goes in the spec and design-notes; project_memory is the "constitution," not the "legal code."
 
-Knowledge base maintenance is a continuous process. After each version closure,回顾: what new pitfalls did this version uncover? What constraints should be added to project_memory? Which old constraints are outdated and should be removed? An unmaintained knowledge base becomes "historical baggage" — AI making decisions based on outdated constraints is worse than having no constraints at all.
+Knowledge base maintenance is a continuous process. After each version closure,review: what new pitfalls did this version uncover? What constraints should be added to project_memory? Which old constraints are outdated and should be removed? An unmaintained knowledge base becomes "historical baggage" — AI making decisions based on outdated constraints is worse than having no constraints at all.
 
 ### How to Evaluate AI Output Quality
 
@@ -142,7 +142,7 @@ Evaluating quality requires avoiding two extremes: total acceptance ("AI wrote i
 
 The collaboration process isn't designed once and done — it requires continuous optimization. The optimization cycle includes four steps:
 
-**Step 1: Retrospect.** After each version closure,回顾 the collaboration in this version. Which subtasks went smoothly? Which repeatedly circuit-broke? Which AI behaviors surprised you? The retrospect must be honest — "AI performed very well this time" — if true, find out why (was the spec well-written? were constraints properly configured?). "This time was terrible" — find out why (vague requirements? insufficient constraints?).
+**Step 1: Retrospect.** After each version closure,review the collaboration in this version. Which subtasks went smoothly? Which repeatedly circuit-broke? Which AI behaviors surprised you? The retrospect must be honest — "AI performed very well this time" — if true, find out why (was the spec well-written? were constraints properly configured?). "This time was terrible" — find out why (vague requirements? insufficient constraints?).
 
 A retrospect doesn't need to be long; a few key questions are enough:
 
@@ -156,7 +156,7 @@ Constraint adjustment is iterative — add a constraint, observe the effect, adj
 
 **Step 3: Iterate the workflow.** The workflow itself must also iterate. For example, if you find "the plan phase takes too much time," adjust the plan's granularity — from "detailed plan for every file" to "only module-level plan, letting AI decompose the details within subtasks." If you find "subtask isolation is insufficient," adjust the decomposition approach.
 
-The workflow isn't dogma — it's a tool. Tools should serve effectiveness. If a流程 step doesn't bring value (or brings less value than the cost it consumes), it should be adjusted or removed.
+The workflow isn't dogma — it's a tool. Tools should serve effectiveness. If aprocess step doesn't bring value (or brings less value than the cost it consumes), it should be adjusted or removed.
 
 **Step 4: Record adjustments.** Every process adjustment must be recorded in design-notes. What was adjusted, why it was adjusted, and what the effect was. Without recording, six months later you'll forget why you made this adjustment and will adjust back to the same approach, stepping in the same pitfall.
 
@@ -183,7 +183,7 @@ The solution is to **maintain autonomy in core decisions**:
 - **Occasionally write complex logic yourself** — keep your skills sharp. You don't need to write all the code yourself, but regularly practice on "challenging" code to keep your abilities active.
 - **Keep learning** — AI is an accelerator, not a replacement. New technologies, new paradigms, new tools still require you to actively learn — AI can provide summaries and overviews, but deep understanding still comes from you.
 
-AI is an amplifier — it amplifies your capabilities, and it also amplifies your blind spots. Capable people using AI are like a tiger with wings; less capable people using AI accelerate their mistakes. Maintain your own capabilities, and AI is a增益. Abandon your capabilities, and AI becomes a dependency trap.
+AI is an amplifier — it amplifies your capabilities, and it also amplifies your blind spots. Capable people using AI are like a tiger with wings; less capable people using AI accelerate their mistakes. Maintain your own capabilities, and AI is aamplifier. Abandon your capabilities, and AI becomes a dependency trap.
 
 ## Comparison with Other Approaches
 
@@ -191,7 +191,7 @@ Facing the question of "how to continuously improve AI collaboration," different
 
 ### Approach A: Learn as You Go, No Systemization
 
-The core attitude of this approach is "just use it." Developers don't deliberately record experiences, don't organize knowledge bases, don't回顾 and optimize processes. Every session is "starting from scratch" — prompts written on the fly, constraints thought up on the spot, processes improvised. When problems arise, they "pay more attention next time," but don't take time to沉淀 experience into reusable assets.
+The core attitude of this approach is "just use it." Developers don't deliberately record experiences, don't organize knowledge bases, don'treview and optimize processes. Every session is "starting from scratch" — prompts written on the fly, constraints thought up on the spot, processes improvised. When problems arise, they "pay more attention next time," but don't take time toconsolidate experience into reusable assets.
 
 **Applicable scenarios:** Developers who use AI occasionally, one-off projects, scenarios with low quality requirements.
 
@@ -205,56 +205,56 @@ This approach is a step up from Approach A: developers do personal experience su
 
 **Applicable scenarios:** Heavy personal AI users, developers with self-reflective habits.
 
-**Advantages:** Experience is沉淀ed to some extent. Knowledge in personal notes can be reused in the next project. Over time, the developer's AI collaboration ability improves — because they remember previous lessons.
+**Advantages:** Experience isconsolidated to some extent. Knowledge in personal notes can be reused in the next project. Over time, the developer's AI collaboration ability improves — because they remember previous lessons.
 
-**Cost:** Experience is personal,无法跨项目 or cross-team transfer. If the developer changes (or the project is handed to someone else), "experience is in personal notes" effectively means it doesn't exist. Moreover, personal notes are typically unstructured — you record something today and can't find it tomorrow; flipping through notes takes significant time.
+**Cost:** Experience is personal,cannot crossproject or cross-team transfer. If the developer changes (or the project is handed to someone else), "experience is in personal notes" effectively means it doesn't exist. Moreover, personal notes are typically unstructured — you record something today and can't find it tomorrow; flipping through notes takes significant time.
 
-In the AI-assisted development scenario, Approach B has another致命 problem: **AI can't read your personal notes**. Your personal experience can only optimize your own behavior, not AI's behavior. To make AI perform better, you need to沉淀 experience into places AI can read (project_memory, workflow documents, etc.).
+In the AI-assisted development scenario, Approach B has anotherfatal problem: **AI can't read your personal notes**. Your personal experience can only optimize your own behavior, not AI's behavior. To make AI perform better, you need toconsolidate experience into places AI can read (project_memory, workflow documents, etc.).
 
-### Approach C: Systematic Methodology沉淀
+### Approach C: Systematic Methodology Consolidation
 
 This is the methodology described in the "General Design" section. Core features:
 
 - **Layered knowledge base**: Memory (session-level) and project_memory (project-level) are differentiated. Short-term memory is effective within a session; long-term memory accumulates across sessions.
 - **Systematized evaluation**: Three-tier evaluation standards — tests pass → review code → compare against expectations. Not "feels right, so it's fine" — there are progressive verification steps.
 - **Processed retrospect**: Formal retrospect after each version, with results written into design-notes and project_memory as input for the next version.
-- **Tool-ified constraints**:沉淀ed experience isn't "noted in a journal" but "transformed into constraints written into the workflow." Constraints aren't about reminding yourself to "pay attention next time" — they强制 AI to follow the rules.
-- **Closed-loop iteration**: Practice → reflect →沉淀 → optimize → practice again, forming a continuously improving闭环. After the latest practice changes are applied, the next practice evaluates the effect, then changes again.
+- **Tool-ified constraints**:consolidated experience isn't "noted in a journal" but "transformed into constraints written into the workflow." Constraints aren't about reminding yourself to "pay attention next time" — they force AI to follow the rules.
+- **Closed-loop iteration**: Practice → reflect →consolidate → optimize → practice again, forming a continuously improvingclosed loop. After the latest practice changes are applied, the next practice evaluates the effect, then changes again.
 
 **Applicable scenarios:** Heavy AI users, long-term iteration projects, multi-person collaborative AI-assisted development.
 
-**Advantages:** Experience is systematically沉淀ed and transferred. AI can read constraints in project_memory; humans can read decision history in design-notes. The project-level collaboration methodology doesn't get lost when "people leave" or "projects change hands." The continuous improvement闭环 ensures the methodology doesn't stagnate but evolves in sync with AI capability upgrades.
+**Advantages:** Experience is systematicallyconsolidateed and transferred. AI can read constraints in project_memory; humans can read decision history in design-notes. The project-level collaboration methodology doesn't get lost when "people leave" or "projects change hands." The continuous improvementclosed loop ensures the methodology doesn't stagnate but evolves in sync with AI capability upgrades.
 
-**Cost:** High upfront investment. Building project_memory, defining evaluation standards, and setting up retrospect processes all take time. In the first one or two versions, these investments look like "extra work" — but after the third or fifth version, the cumulative effect starts to show, and the前期 investment begins paying off.
+**Cost:** High upfront investment. Building project_memory, defining evaluation standards, and setting up retrospect processes all take time. In the first one or two versions, these investments look like "extra work" — but after the third or fifth version, the cumulative effect starts to show, and theearly stage investment begins paying off.
 
 ### Design Philosophy Comparison
 
-| Dimension | Approach A (Learn as You Go) | Approach B (Personal Summary) | Approach C (Systematic沉淀) |
+| Dimension | Approach A (Learn as You Go) | Approach B (Personal Summary) | Approach C (Systematicconsolidate) |
 |---|---|---|---|
 | Core attitude | Just use it | Experience in the mind | Knowledge base + closed-loop iteration |
-| Knowledge沉淀 | None | Personal notes | project_memory + design-notes |
+| Knowledgeconsolidate | None | Personal notes | project_memory + design-notes |
 | AI can read | No | No | Yes (constraint injection) |
-| Retrospect mechanism | None | Occasional回想 | Formal retrospect after version |
+| Retrospect mechanism | None | Occasionalreminiscence | Formal retrospect after version |
 | Evaluation standard | Feeling | Personal judgment | Three-tier (test → review → compare) |
-| Constraint form | None | "I'll pay attention next time" | Tool-ified process强制 |
+| Constraint form | None | "I'll pay attention next time" | Tool-ified process mandates |
 | Usage frequency | Occasional | Frequent | Continuous daily use |
 | Transferability | None | Personal-level | Project-level |
 
-The essential difference between the three approaches is "whether experience is systematized" — Approach A doesn't沉淀 experience, Approach B does personal-level沉淀, Approach C does project-level, tool-level systematic沉淀.
+The essential difference between the three approaches is "whether experience is systematized" — Approach A doesn'tconsolidate experience, Approach B does personal-levelconsolidate, Approach C does project-level, tool-level systematicconsolidate.
 
 ## aptbot's Design Features
 
 aptbot chooses Approach C as its methodological foundation. The reason is straightforward: aptbot is a learning-oriented project; it must not only use AI well itself, but also serve as an example of "how to systematically improve AI collaboration."
 
-In concrete practice, aptbot has established a complete continuous improvement闭环:
+In concrete practice, aptbot has established a complete continuous improvementclosed loop:
 
-**Knowledge base体系.** aptbot differentiates between session-level memory and project-level project_memory. Memory is used for the current session's working memory — telling AI "what we just did in this session and what we're doing now." project_memory is cross-session long-term constraints — automatically injected into every new session, letting AI know the project's rules from the very first round. The two complement each other: the former ensures session continuity, the latter ensures cross-session consistency.
+**Knowledge basesystem.** aptbot differentiates between session-level memory and project-level project_memory. Memory is used for the current session's working memory — telling AI "what we just did in this session and what we're doing now." project_memory is cross-session long-term constraints — automatically injected into every new session, letting AI know the project's rules from the very first round. The two complement each other: the former ensures session continuity, the latter ensures cross-session consistency.
 
-**Three-tier evaluation embedded.** aptbot's workflow embeds evaluation mechanisms: test passing is the minimum threshold (can't submit without passing), followed by a review phase (human or AI reviewing code quality), and finally expectation comparison (in the UAT phase,对照 the spec to verify whether the output matches design intent). These three tiers aren't optional — they are强制ly executed steps in the process.
+**Three-tier evaluation embedded.** aptbot's workflow embeds evaluation mechanisms: test passing is the minimum threshold (can't submit without passing), followed by a review phase (human or AI reviewing code quality), and finally expectation comparison (in the UAT phase,comparing against the spec to verify whether the output matches design intent). These three tiers aren't optional — they aremandatorily executed steps in the process.
 
-**Retrospect as a formal version activity.** During the cool-down period after each version closure, retrospect is a standard流程 item. Retrospect output is written into design-notes and project_memory — new lessons added as constraints, outdated constraints cleaned up. The retrospect isn't "do it when you have time" — it's part of the version iteration, as formal as writing code.
+**Retrospect as a formal version activity.** During the cool-down period after each version closure, retrospect is a standardprocess item. Retrospect output is written into design-notes and project_memory — new lessons added as constraints, outdated constraints cleaned up. The retrospect isn't "do it when you have time" — it's part of the version iteration, as formal as writing code.
 
-**Tool-ified constraints.** aptbot's experience doesn't stop at document reminders — it's强制 enforced through skills (preconfigured workflow templates). TDD constraints, circuit breaker mechanisms, the plan-no-code rule — these aren't "suggestions recorded in project_memory" — they are processes the AI must follow. Tool-ified constraints leave AI no path to "choose to ignore."
+**Tool-ified constraints.** aptbot's experience doesn't stop at document reminders — it'smandatorily enforced through skills (preconfigured workflow templates). TDD constraints, circuit breaker mechanisms, the plan-no-code rule — these aren't "suggestions recorded in project_memory" — they are processes the AI must follow. Tool-ified constraints leave AI no path to "choose to ignore."
 
 **Continuous workflow iteration.** aptbot's workflow itself evolves through versioning. Each version may adjust one or two process points — adjusting subtask decomposition granularity, optimizing the spec template structure, refining the UAT verification checklist. Workflow iterations are also recorded in design-notes, ensuring every adjustment has a verifiable basis and every change has a clear reason.
 
@@ -268,7 +268,7 @@ The methodology of AI-assisted development continues to evolve. Several trends a
 
 **AI-assisted retrospect.** Currently, retrospect relies on developers manually reviewing. In the future, AI could automatically generate a "version collaboration report" at version closure — listing the number and causes of circuit breaks in this version, the frequency of AI retries, and statistics on constraint triggers. Developers can retrospect more efficiently based on the report.
 
-**Cross-project knowledge transfer.** Currently, project_memory is project-isolated — experience from one project doesn't automatically transfer to another. In the future, knowledge transfer mechanisms could allow AI collaboration experience (prompt patterns, constraint rules, document templates)沉淀ed in one project to be reused in a new project.
+**Cross-project knowledge transfer.** Currently, project_memory is project-isolated — experience from one project doesn't automatically transfer to another. In the future, knowledge transfer mechanisms could allow AI collaboration experience (prompt patterns, constraint rules, document templates)consolidateed in one project to be reused in a new project.
 
 **Team-level knowledge sharing.** When multiple people collaborate using AI, how can different members' AI collaboration experience be shared? If one person hits a pitfall, how can the entire team (and the team's AI) avoid that pitfall? Team-level project_memory and collaboration retrospect mechanisms will become increasingly important.
 
@@ -276,7 +276,7 @@ aptbot will gradually explore these directions in subsequent versions. The core 
 
 ## Summary
 
-This article is the culmination of Track 2 and the "meta perspective" of the entire methodology —不再 discussing specific collaboration techniques, but discussing how to let the collaboration techniques themselves continuously evolve.
+This article is the culmination of Track 2 and the "meta perspective" of the entire methodology —no longer discussing specific collaboration techniques, but discussing how to let the collaboration techniques themselves continuously evolve.
 
 Core points:
 
@@ -284,9 +284,9 @@ Core points:
 2. **Learning from AI** requires not just accepting results, but understanding principles, comparing multiple outputs, studying AI's errors, and being wary of code that "looks correct."
 3. **Knowledge base** should be layered — session-level memory ensures continuity; project-level project_memory ensures consistency. Working together, AI can output stably.
 4. **Evaluating quality** requires three escalating tiers — tests pass → review code → compare against expectations. No step can be skipped.
-5. **Optimizing processes** requires a closed loop — retrospect → adjust constraints → iterate workflow → record adjustments. Iterate one or two points per version,积累 continuously.
+5. **Optimizing processes** requires a closed loop — retrospect → adjust constraints → iterate workflow → record adjustments. Iterate one or two points per version,accumulating continuously.
 6. **Avoiding over-reliance** — maintain autonomy in core decisions, maintain the habit of reading code, maintain the ability to "do it without AI."
 
-Among the three approaches, Approach C (systematic methodology沉淀) is the inevitable choice for sustained AI use. It's not the easiest (requires upfront investment), but it ensures your AI collaboration ability doesn't stagnate — you'll get better with each iteration.
+Among the three approaches, Approach C (systematic methodologyconsolidate) is the inevitable choice for sustained AI use. It's not the easiest (requires upfront investment), but it ensures your AI collaboration ability doesn't stagnate — you'll get better with each iteration.
 
 The five articles of Track 2 (process, quality, documentation, long-term iteration, boundaries, continuous improvement) form a complete methodology for AI-assisted development. Return to Track 1 to see how a concrete agent project starts from an MVP and walks the evolutionary roadmap under these methodologies.
