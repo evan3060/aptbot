@@ -251,11 +251,14 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
     // Task 9 (0.2.3): learnEnabled 默认 false；feedbackEnabled 默认 true
     const isLearnEnabled = learnEnabled === true;
     const isFeedbackEnabled = feedbackEnabled !== false;
-    // Task 9 (0.2.3): HTML 响应头统一（所有 HTML 响应含 nosniff）
+    // Task 9 (0.2.3): HTML 响应头统一（所有 HTML 响应含 nosniff + HSTS）
     const htmlHeaders = {
       'content-type': 'text/html; charset=utf-8',
       'cache-control': 'no-cache, no-store, must-revalidate',
       'x-content-type-options': 'nosniff',
+      'strict-transport-security': 'max-age=31536000; includeSubDomains',
+      'x-frame-options': 'DENY',
+      'referrer-policy': 'no-referrer-when-downgrade',
     };
     // Task 9 (0.2.3): /learn/:slug 文章不存在时的友好 404 HTML
     const learnNotFoundHtml = `<!DOCTYPE html>

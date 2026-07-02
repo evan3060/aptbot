@@ -101,6 +101,9 @@ function renderArticleCard(article: Article, state: ArticleState, lang: string):
 }
 
 function renderTrack(track: TrackMeta, articles: readonly Article[], trackNumber: number, state: ArticleState, lang: string): string {
+  const currentLang = lang === 'en' ? 'en' : 'zh';
+  const trackTitle = currentLang === 'en' ? track.titleEn : track.title;
+  const trackDesc = currentLang === 'en' ? track.descriptionEn : track.description;
   const chapters = groupByChapter(articles);
   const chaptersHtml = chapters
     .map((ch) => {
@@ -123,8 +126,8 @@ ${cardsHtml}
 
   return `    <section class="track-container" data-track="${escapeHtml(track.id)}" id="track${trackNumber}">
       <div class="track-label">TRACK ${trackNumber}</div>
-      <h2 class="track-title">${escapeHtml(track.title)}</h2>
-      <p class="track-desc">${escapeHtml(track.description)}</p>
+      <h2 class="track-title">${escapeHtml(trackTitle)}</h2>
+      <p class="track-desc">${escapeHtml(trackDesc)}</p>
 ${chaptersHtml}
     </section>`;
 }
@@ -569,8 +572,8 @@ export function createLearnListHtml(state: ArticleState, lang?: string): string 
   <div class="filter-bar">
     <div class="track-tabs">
       <button type="button" class="track-tab active" data-track="all" data-i18n="list.all">全部</button>
-      <button type="button" class="track-tab" data-track="track1">Track 1</button>
-      <button type="button" class="track-tab" data-track="track2">Track 2</button>
+      <button type="button" class="track-tab" data-track="track1" data-i18n="list.track1">Track 1</button>
+      <button type="button" class="track-tab" data-track="track2" data-i18n="list.track2">Track 2</button>
     </div>
     <div class="view-toggle">
       <button type="button" class="view-btn active" data-view="grid" data-i18n="list.grid">网格</button>
@@ -618,6 +621,8 @@ var LEARN_I18N = {
     'list.all': '全部',
     'list.grid': '网格',
     'list.list': '列表',
+    'list.track1': 'Track 1',
+    'list.track2': 'Track 2',
     'footer.tagline': '你的个人 AI 助手',
     'footer.docs': '文档',
     'footer.changelog': '更新日志',
@@ -637,6 +642,8 @@ var LEARN_I18N = {
     'list.all': 'All',
     'list.grid': 'Grid',
     'list.list': 'List',
+    'list.track1': 'Track 1',
+    'list.track2': 'Track 2',
     'footer.tagline': 'Your Personal AI Assistant',
     'footer.docs': 'Documentation',
     'footer.changelog': 'Changelog',

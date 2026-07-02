@@ -103,8 +103,8 @@ function renderKnowledgeTrack(track: TrackMeta, articles: readonly Article[], tr
   const chaptersHtml = chapters.map(renderKnowledgeChapter).join('\n');
   return `    <div class="track-container" data-track="${escapeHtml(track.id)}">
       <div class="track-label">TRACK ${trackNumber}</div>
-      <h3 class="track-title">${escapeHtml(track.title)}</h3>
-      <p class="track-desc">${escapeHtml(track.description)}</p>
+      <h3 class="track-title" data-i18n="learn.${track.id}.title">${escapeHtml(track.title)}</h3>
+      <p class="track-desc" data-i18n="learn.${track.id}.desc">${escapeHtml(track.description)}</p>
 ${chaptersHtml}
     </div>`;
 }
@@ -208,7 +208,11 @@ export function createLandingPageHtml(opts: LandingPageOptions = {}): string {
       'learn.dataBar.articles': '篇文章',
       'learn.dataBar.tracks': '个 Track',
       'learn.dataBar.track1': 'Agent 体系实践',
-      'learn.dataBar.track2': 'AI 辅助编码实践'`
+      'learn.dataBar.track2': 'AI 辅助编码实践',
+      'learn.agent-practice.title': 'Agent 体系实践',
+      'learn.agent-practice.desc': '围绕 aptbot 项目展开，从 agent 原理到实现到演进路线',
+      'learn.ai-coding-practice.title': 'AI 辅助编码实践',
+      'learn.ai-coding-practice.desc': 'AI 辅助开发的通用经验总结与学习方法论，与具体项目无关'`
     : '';
 
   const learnI18nEn = learnEnabled
@@ -225,7 +229,11 @@ export function createLandingPageHtml(opts: LandingPageOptions = {}): string {
       'learn.dataBar.articles': 'articles',
       'learn.dataBar.tracks': 'tracks',
       'learn.dataBar.track1': 'Agent Practice',
-      'learn.dataBar.track2': 'AI Coding Practice'`
+      'learn.dataBar.track2': 'AI Coding Practice',
+      'learn.agent-practice.title': 'Agent Practice',
+      'learn.agent-practice.desc': 'Explore agent principles through aptbot, from fundamentals to roadmap',
+      'learn.ai-coding-practice.title': 'AI Coding Practice',
+      'learn.ai-coding-practice.desc': 'General AI-assisted development methodologies, tool-agnostic'`
     : '';
 
   return `<!DOCTYPE html>

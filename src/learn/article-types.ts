@@ -6,7 +6,9 @@ export type ArticleLang = 'zh' | 'en';
 export interface TrackMeta {
   readonly id: string;
   readonly title: string;
+  readonly titleEn: string;
   readonly description: string;
+  readonly descriptionEn: string;
   readonly order: number;
 }
 
@@ -14,13 +16,17 @@ export const TRACKS: readonly TrackMeta[] = [
   {
     id: 'agent-practice',
     title: 'Agent 体系实践',
+    titleEn: 'Agent Practice',
     description: '围绕 aptbot 项目展开，从 agent 原理到实现到演进路线',
+    descriptionEn: 'Explore agent principles through aptbot, from fundamentals to roadmap',
     order: 1,
   },
   {
     id: 'ai-coding-practice',
     title: 'AI 辅助编码实践',
+    titleEn: 'AI Coding Practice',
     description: 'AI 辅助开发的通用经验总结与学习方法论，与具体项目无关',
+    descriptionEn: 'General AI-assisted development methodologies, tool-agnostic',
     order: 2,
   },
 ];

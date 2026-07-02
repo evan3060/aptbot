@@ -166,10 +166,10 @@ describe('Task 4: createLearnListHtml 列表页', () => {
     it('含 [全部] [Track 1] [Track 2] tab 切换', () => {
       const html = createLearnListHtml(STATE);
       expect(html).toContain('全部');
-      // tab 按钮可见标签为 Track 1 / Track 2（与 data-bar 一致，符合 brief）
-      expect(html).toContain('data-track="track1">Track 1');
-      expect(html).toContain('data-track="track2">Track 2');
-      // track-tab 按钮结构存在
+      expect(html).toContain('data-i18n="list.track1"');
+      expect(html).toContain('data-i18n="list.track2"');
+      expect(html).toContain('data-track="track1"');
+      expect(html).toContain('data-track="track2"');
       expect(html).toContain('track-tab');
     });
 
