@@ -646,6 +646,17 @@ var LEARN_I18N = {
 };
 
 function learnApplyLang(lang) {
+  try { localStorage.setItem('aptbot.lang', lang); } catch(e) {}
+  var path = window.location.pathname;
+  if (path.startsWith('/learn') || path === '/feedback') {
+    var params = new URLSearchParams(window.location.search);
+    if (params.get('lang') !== lang) {
+      params.set('lang', lang);
+      var qs = params.toString();
+      window.location.href = path + (qs ? '?' + qs : '');
+      return;
+    }
+  }
   document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
   document.querySelectorAll('[data-i18n]').forEach(function(el) {
     var key = el.dataset.i18n;
@@ -659,7 +670,6 @@ function learnApplyLang(lang) {
   }
   var toggle = document.getElementById('lang-toggle');
   if (toggle) toggle.textContent = lang === 'zh' ? 'EN' : '中';
-  try { localStorage.setItem('aptbot.lang', lang); } catch(e) {}
 }
 
 (function () {
@@ -1346,6 +1356,17 @@ var LEARN_I18N = {
 };
 
 function learnApplyLang(lang) {
+  try { localStorage.setItem('aptbot.lang', lang); } catch(e) {}
+  var path = window.location.pathname;
+  if (path.startsWith('/learn') || path === '/feedback') {
+    var params = new URLSearchParams(window.location.search);
+    if (params.get('lang') !== lang) {
+      params.set('lang', lang);
+      var qs = params.toString();
+      window.location.href = path + (qs ? '?' + qs : '');
+      return;
+    }
+  }
   document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
   document.querySelectorAll('[data-i18n]').forEach(function(el) {
     var key = el.dataset.i18n;
@@ -1377,7 +1398,6 @@ function learnApplyLang(lang) {
   }
   var toggle = document.getElementById('lang-toggle');
   if (toggle) toggle.textContent = lang === 'zh' ? 'EN' : '中';
-  try { localStorage.setItem('aptbot.lang', lang); } catch(e) {}
 }
 
 (function () {
@@ -1844,6 +1864,17 @@ var LEARN_I18N = {
 };
 
 function learnApplyLang(lang) {
+  try { localStorage.setItem('aptbot.lang', lang); } catch(e) {}
+  var path = window.location.pathname;
+  if (path.startsWith('/learn') || path === '/feedback') {
+    var params = new URLSearchParams(window.location.search);
+    if (params.get('lang') !== lang) {
+      params.set('lang', lang);
+      var qs = params.toString();
+      window.location.href = path + (qs ? '?' + qs : '');
+      return;
+    }
+  }
   document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
   document.querySelectorAll('[data-i18n]').forEach(function(el) {
     var key = el.dataset.i18n;
@@ -1875,7 +1906,6 @@ function learnApplyLang(lang) {
   }
   var toggle = document.getElementById('lang-toggle');
   if (toggle) toggle.textContent = lang === 'zh' ? 'EN' : '中';
-  try { localStorage.setItem('aptbot.lang', lang); } catch(e) {}
 }
 
 (function () {
