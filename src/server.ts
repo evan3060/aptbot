@@ -276,9 +276,12 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
   // Task 5: 根据 config.landingPage 严格等于 true 决定根路径提供落地页还是聊天页
   // landingPage 为 undefined/false 时不启用，保持原有聊天页行为（向后兼容）
   const landingEnabled = aptbotConfig.landingPage === true;
-  // Task 11 (0.2.3): learn system 装配 — 根据 config 实例化 ArticleLoader + FeedbackStorage
-  // articlesDir 解析为 src/learn/articles/（与 server.ts 同目录的 learn/articles/）
-  const articlesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'learn', 'articles');
+  // Task 11 (0.2.3): learn system 装配
+  // articlesDir 优先从 src/learn/articles/ 读取（tsx dev 和生产部署均有效）
+  // production dist/ 模式下回退到 projectRoot/src/learn/articles/
+  const distArticlesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'learn', 'articles');
+  const srcArticlesDir = path.join(process.cwd(), 'src', 'learn', 'articles');
+  const articlesDir = fs.existsSync(distArticlesDir) ? distArticlesDir : srcArticlesDir;
   const learnWiring = await resolveLearnWiring({ aptbotConfig, articlesDir });
   const wsServer = await startWebSocketServer({
     port: config.port,
