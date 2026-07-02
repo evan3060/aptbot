@@ -1,96 +1,258 @@
 ---
 slug: "02-aptbot-architecture"
 title: "aptbot 全景：分层架构与设计哲学"
-description: "aptbot 四层架构（access/bus/core/infrastructure）+ shared 跨层的设计动机，单向依赖为何重要，以及与同类项目的定位差异"
+description: "四层架构（access/bus/core/infrastructure）+ shared 的设计动机，严格单向依赖为何重要，三种 agent 架构路线对比，以及「你的 agent」的设计哲学"
 track: agent-practice
 chapter: 入门篇
 order: 2
 difficulty: beginner
-estimatedReadingTime: 9
+estimatedReadingTime: 20
 status: published
 prerequisites:
   - 01-what-is-agent
-lastUpdated: "2026-07-01"
+lastUpdated: "2026-07-02"
 tags:
   - architecture
   - layered-design
   - aptbot
+  - dependency-injection
 ---
 
-# aptbot 全景：分层架构与设计哲学
+上一篇文章我们从"概念层"理解了 agent 是什么——ReAct 循环、四大组件、agent loop。这篇文章切换到"工程层"：一个 agent 系统的代码应该怎么组织？层怎么划分、依赖怎么管理、各个模块之间如何协作而不互相纠缠？
 
-上一篇文章我们建立了 agent 的心智模型：大脑 + 双手 + 长尾 + 嘴巴。这篇文章看 aptbot 如何用代码组织这套模型——四层架构、单向依赖、与同类项目的定位差异，以及贯穿全项目的设计哲学。
+我们会先用 aptbot 的四层架构作为具体例子，理解分层设计的真实动机；然后对比市面三种不同的 agent 架构路线，看它们各自取舍了什么；最后落到 aptbot 的设计哲学上——为什么它既不是框架也不是 SaaS，而是"你的 agent"。
 
-## 四层架构：access / bus / core / infrastructure + shared
+## 一、四层架构：access / bus / core / infrastructure + shared
 
-aptbot 把代码切分为五个层次：
+如果你打开 aptbot 的 src 目录，最先注意到的是四个顶层目录：`access/`、`bus/`、`core/`、`infrastructure/`，外加一个被所有层引用的 `shared/`。这不是随意的文件夹命名，而是有明确意图的分层设计。
 
-- **access（接入层）**：与外部世界对接。HTTP 路由、WebSocket、CLI Ink 界面、落地页 HTML 都属于这层。它把外部请求"翻译"成内部调用，把内部事件"翻译"回外部能消费的格式。
-- **bus（总线层）**：类型化事件总线 + Channel 抽象。它解决"多端接入如何共享同一个 agent 会话"的问题。一个 WebSocket 连接、一个未来的 Telegram channel，都通过 bus 接入同一个 session。
-- **core（核心层）**：agent 的运行循环本体。AgentLoop、provider 调用、工具调度、memory 管理、skills 加载、hook 触发都在这层。它是"大脑 + 双手 + 长尾"的实现。
-- **infrastructure（基础设施层）**：与具体技术对接。文件系统（JSONL 持久化）、子进程（bash 工具）、HTTP 客户端（provider 调用）、配置加载都在这层。它是 core 的"手脚"。
-- **shared（跨层共享）**：被多个层复用的纯类型与工具。commands 命令注册表、shared types、纯函数工具放这里。它不持有业务状态。
+![四层架构图](/learn/articles/images/aptbot-layers.png)
 
-这个划分的依据是**依赖方向**：access → bus → core → infrastructure，shared 被任意层引用。下一节解释为什么这个方向不能反过来。
+### 1.1 access（接入层）：与外部世界对接
 
-## 严格单向依赖的意义
+接入层是 aptbot 的"门面"。它负责与外部世界直接交互——接收外部请求、返回外部能消费的响应。具体内容包括：
 
-"单向依赖"听起来像教条，但它解决的是非常实际的工程问题：**可替换性与可测试性**。
+- **HTTP 路由**：REST API 端点，供 WebUI 或其他 HTTP 客户端调用
+- **WebSocket 处理**：WebSocket 连接的生命周期管理，支持流式事件推送
+- **CLI 终端界面**：基于 Ink（React 终端渲染库）实现的交互式命令行界面
+- **落地页 HTML**：aptbot 的 Web 管理界面
 
-考虑一个反例：如果 core 直接依赖 access 的 WebSocket 实现，会出现什么？
+接入层的核心职责是翻译——把外部输入"翻译"成内部调用的参数，把内部事件"翻译"回外部能消费的格式。接入层不包含业务逻辑：它不做 agent 决策、不管理会话、不调用 LLM。它只负责"怎么接入"。
 
-1. 想把 aptbot 接入 Telegram，必须改 core。core 是 agent 循环本体，任何改动都可能影响 agent 行为。
-2. 想给 core 写单元测试，必须 mock 整个 WebSocket 栈。测试变成集成测试，慢且脆。
-3. agent 循环里出现"如果是 WebSocket 客户端就…"的分支，业务逻辑被接入细节污染。
+这种隔离带来的好处在实际场景中非常明显：假如你要给 aptbot 添加一个 Slack 机器人接入，你只需要在 access 层加一个 Slack 路由处理逻辑，core 层的 agent 循环完全不需要做任何改动。接入方式和业务逻辑解耦，意味着每增加一种接入方式，核心系统的风险增量趋近于零。
 
-单向依赖把这些问题消解掉：core 不知道 access 存在，所以接入新端只需在 access/bus 层加一个 Channel 实现，core 不动。core 测试只需 mock core 自己的接口（Provider、ToolRegistry），不需要拉起 HTTP 服务。agent 循环保持纯粹。
+### 1.2 bus（总线层）：事件分发的中枢
 
-aptbot 的依赖规则：
+总线层解决一个核心问题：**多端接入如何共享同一个 agent 会话**。
 
-- `access/*` 可以 import `bus/*` `core/*` `infrastructure/*` `shared/*`
-- `bus/*` 可以 import `core/*` `infrastructure/*` `shared/*`
-- `core/*` 可以 import `infrastructure/*` `shared/*`，**不能** import `access/*` `bus/*`
-- `infrastructure/*` 只 import `shared/*` 与外部依赖
-- `shared/*` 不 import 任何业务层
+最简单的实现是"每个客户端一个 agent 实例"，但这是错的——如果用户在电脑上启动了一个任务让 agent 编辑文件，然后切换到手机查看进度，这两个客户端看到的是两个独立的 agent 会话，彼此不知道对方的存在。更糟的是，如果两个客户端先后执行了冲突的操作，agent 状态会分裂。
 
-这条规则让每一层的"替换成本"都明确：换 access 层（新前端），core 不动；换 infrastructure 层（从文件系统换 SQLite），core 接口不变；换 core 实现（重写 agent 循环），接入与基础设施保留。
+bus 层的方案是：agent 只做一件事——运行循环并把所有输出（LLM 流式 token、工具调用结果、状态变化）作为事件发到 bus。bus 再把事件分发给所有绑定该 session 的 channel。每个 channel 是一个接入端点（WebSocket、未来的 Telegram 等），它们通过 bus 共享同一个 agent 会话。
 
-## 与 pi-agent / nanobot / GenericAgent 的对比定位
+关键设计要点：
 
-agent 项目大致分两类：**框架型**（给开发者用来构建自己的 agent）和**应用型**（一个具体的 agent 实例）。pi-agent、nanobot 偏框架，GenericAgent（GA）偏应用，aptbot 也是应用型但带教学属性。
+- **类型化事件总线**：bus 上传递的不是散装的 JSON 字符串，而是类型化的 `AgentEvent` 联合类型。每个事件有明确的形状，消费方可以根据事件类型做精确处理。
+- **Channel 抽象**：每个接入端点实现 Channel 接口，核心方法只有 `onEvent(event)` 和 `dispose()`。这个接口足够小，使得添加一个新的 Channel 实现（比如 Telegram Channel）成本极低。
+- **Session 绑定**：一个 session 绑定到 bus 上，channel 通过 bus 订阅 session 的事件流。
 
-| 项目 | 类型 | 语言 | 关注点 | 多端接入 |
-|---|---|---|---|---|
-| pi-agent | 框架 | 多语言 | 提供可组合的原语 | 由开发者集成 |
-| nanobot | 框架 | Ruby | IM channel 全集（20+） | 内置丰富 |
-| GenericAgent | 应用 | Python | autonomous / 浏览器控制 | 偏单端 |
-| **aptbot** | **应用 + 教材** | **TypeScript** | **可靠性 + 可演进** | **Web 优先，IM 规划中** |
+### 1.3 core（核心层）：agent 的心脏
 
-aptbot 选这条路的核心理由：**它是个人学习项目**，不是要成为通用框架，也不追求 IM 全集。它的目标是把 agent 的关键工程问题（Provider 故障转移、工具安全、记忆压缩、流式 UX、多端同步）一个个吃透，并把决策过程留作教材。所以 aptbot 的特性优先级是"对学习有价值的优先"，不是"对用户数有价值的优先"。
+core 是 aptbot 最有技术含量的四层，它实现了上一篇文章描述的四个组件：
 
-## aptbot 选 TypeScript 的理由
+- **AgentLoop**：ReAct 循环的生成器实现。每次迭代：组装消息 → 调用 LLM → 解析响应 → 执行工具 → 收集结果。循环约 150 行，保持清晰可读。
+- **Provider**：LLM 服务接入的抽象层。Provider 接口定义了 `stream(model, context, options)` 方法，返回 `AsyncGenerator<AssistantMessageEvent>`。所有 LLM 调用都通过这个接口，core 不需要知道底层用的是 OpenAI 还是 Anthropic。
+- **Tool**：工具注册与调度系统。每个工具是一个函数（或更复杂的实现），有明确的输入输出类型。ToolRegistry 管理所有可用工具，AgentLoop 通过它执行工具调用。
+- **Memory**：记忆系统。管理对话历史、短期上下文窗口、跨会话的长期记忆。
+- **Skill**：技能系统。管理可复用的技能模板，让 agent 能沉淀和复用成功解决问题的模式。
+- **Hook**：钩子系统。提供 8 个扩展点（beforeTurn、afterToolCall 等），允许在不修改 core 代码的情况下插入自定义逻辑。
 
-agent 项目的语言选择没有唯一正确答案。Python 生态最丰富（GA、LangChain 都在 Python），Ruby 的 nanobot 证明动态语言也能做 agent，Rust 适合追求性能与正确性。aptbot 选 TypeScript 的具体理由：
+core 对 access 和 bus 层一无所知。它不关心用户是通过 CLI 还是 WebUI 接入的，不关心事件是怎么分发的。它只负责"做好 agent 的本职工作"——接收输入、推理、行动、输出。
 
-1. **类型系统够强**：zod + TypeBox 提供 runtime + compile-time 双重校验，agent 处理大量外部输入（LLM 响应、工具参数、配置文件），类型安全能挡掉一大批 bug。
-2. **全栈统一**：CLI 用 Ink（React for terminal）、WebUI 用 Lit、服务端用 Node.js，前后端共享 TypeScript 类型定义，事件流类型可以一路从 core 流到前端 reducer。
-3. **异步模型成熟**：agent 是高度 I/O 密集型（流式 LLM 响应、子进程、文件读写），Node.js 的 async/await + 流式抽象契合度高。
-4. **个人熟悉度**：作为学习项目，选熟悉的语言能专注于 agent 本身的问题，而不是语言学习。
+### 1.4 infrastructure（基础设施层）：与具体技术对接
 
-这不意味着 TypeScript 是 agent 的"最佳语言"。每条理由都对应着 trade-off：类型系统带来运行时开销、全栈统一在引入新端（如原生 mobile）时会失效、异步模型在 CPU 密集推理任务上不如 Python 生态。
+infrastructure 层是 core 的"手脚"——它把抽象的操作落地到具体的技术实现：
 
-## 设计哲学：不是框架，不是 SaaS，而是"你的"agent
+- **文件系统**：JSONL 持久化（对话历史存文件）、配置加载、日志写入
+- **子进程**：bash 工具执行命令时创建子进程，管理进程生命周期
+- **HTTP 客户端**：Provider 调用 LLM API 时发 HTTP 请求
 
-aptbot 的 README 里有句话：**"不是框架，不是 SaaS，而是'你的' agent"**。这句话浓缩了三个设计取舍：
+这层之所以独立，是因为它是"最容易换"的一层。比如，今天用 JSONL 文件存对话历史，明天想换成 SQLite——你只需要在 infrastructure 层重新实现 Memory 接口，core 层一行代码都不用改。同样，今天用 bash 子进程执行命令，明天想换 Docker 容器执行，也只需要换 infrastructure 层的实现。
 
-**不是框架**——意味着 aptbot 不追求"给开发者用"的通用 API。代码可以直接读、直接改，不需要为可扩展性预留抽象。这降低了代码复杂度，提升了可读性，代价是别人不能"基于 aptbot 二次开发"——但这不是目标。
+这种可替换性在生产环境中极其有价值：不同的部署场景需要不同的基础设施方案，而 infrastructure 层的存在让这些切换不影响 agent 的核心逻辑。
 
-**不是 SaaS**——意味着 aptbot 不托管用户数据，不提供托管服务，所有运行实例都是用户自部署。这换来了隐私、可定制性、零依赖外部服务，代价是没有"开箱即用"的便捷。落地页的 Demo 是同一个实例的演示，不是多租户服务。
+### 1.5 shared（跨层共享）：纯类型与工具
 
-**是"你的"agent**——意味着 aptbot 的所有设计都假设"用户能看懂代码、能改代码、能自己部署"。文档、注释、ARCHITECTURE.md、这套学习文章，都是为了让用户从"使用者"变成"理解者"。这是 aptbot 与商业 agent 产品最大的差异：**它假设你愿意理解它**。
+shared 层被所有其他层引用，但它**不引用任何业务层**。它包含：
+
+- 命令注册表（commands）
+- 共享类型定义（shared types）
+- 纯函数工具（如字符串处理、日期格式化）
+
+shared 层的核心约束是"不持有业务状态"。一个函数放在 shared 里，意味着它是纯的——同样的输入永远返回同样的输出，不依赖全局变量、不读写文件、不调用外部服务。这个约束让 shared 层的代码天然可测试、可推理。
+
+## 二、严格单向依赖的意义
+
+### 2.1 依赖规则
+
+四层架构不只是"把代码放到不同文件夹"，它更关键的是**依赖规则**。aptbot 的依赖方向是严格单向的：
+
+![单向依赖方向图](/learn/articles/images/aptbot-dependency.png)
+
+具体规则如下：
+
+- `access/*` → 可引用 `bus/*` `core/*` `infrastructure/*` `shared/*`
+- `bus/*` → 可引用 `core/*` `infrastructure/*` `shared/*`
+- `core/*` → 可引用 `infrastructure/*` `shared/*`，**不可**引用 `access/*` `bus/*`
+- `infrastructure/*` → 只引用 `shared/*` 与外部依赖
+- `shared/*` → 不引用任何业务层
+
+核心要求是：**依赖方向从接入层指向基础设施层，不能反过来**。
+
+### 2.2 为什么不能反过来？
+
+用反例来说明最直观。假设 core 层直接引用了 access 层的 WebSocket 实现，会出现什么问题？
+
+第一个问题：**可替换性崩塌**。你想把 aptbot 从 Web 接入改成 Telegram 接入，但 agent 循环里到处都是"如果是 WebSocket 客户端就…"的条件分支。改接入方式变成了改 core——而 core 是 agent 循环本体，任何改动都可能影响 agent 的推理行为。接一个 Telegram，结果把 agent 搞傻了，这是不可接受的。
+
+第二个问题：**可测试性崩溃**。你想给 AgentLoop 写一个单元测试——测试它收到一个工具调用请求后能否正确解析响应。但如果 AgentLoop 依赖 WebSocket 实现，你跑测试前必须先拉起一个 WebSocket 服务端，再连一个客户端。本来 5 行能写完的测试，变成了 50 行的环境搭建。测试变成了集成测试，跑一次慢、改一次痛，最终团队会放弃写测试。
+
+第三个问题：**逻辑污染**。agent 循环的代码里出现了接入层的概念——"如果是 WebSocket，用这种方式发送错误；如果是 CLI，用那种方式提示"。业务逻辑和接入细节纠缠在一起，代码的可读性急剧下降。新成员要理解 agent 循环，必须先理解所有接入方式——这和"关注点分离"的原则背道而驰。
+
+单向依赖解决了所有这三个问题：
+
+- **可替换性**：core 层不知道 access 层存在，加新接入方式 core 不动。换 infrastructure 层（JSONL → SQLite），core 接口不变。
+- **可测试性**：core 层测试只需要 mock Provider 和 ToolRegistry 两个接口，不需要拉起 HTTP 服务或 WebSocket 连接。一个 AgentLoop 的核心测试可以被控制在 20 行以内。
+- **逻辑纯净**：agent 循环的代码只包含"做决策"的逻辑，不混入"如何传输"的细节。读代码的人只需要理解 agent 本身，不需要理解所有接入方式。
+
+### 2.3 反方向依赖的实际案例
+
+曾经有一个阶段，aptbot 的 session 管理中包含了对 access 层 WebSocket 状态的直接引用——session 需要知道"当前有几个客户端连着"来做某些决策。这在依赖规则上是违规的（core 引用了 access）。
+
+后果很快显现：测试 session 逻辑时必须 mock WebSocket 连接，测试变慢；后来想加一个 CLI 接入，发现 session 把 WebSocket 当作"默认接入方式"硬编码了。最终重构时把"连接计数"的逻辑从 session 移到 bus 层，session 只关心自己的事件流，不关心谁在消费它。重构后，session 的测试从需要 3 个 mock 降到了 0 个 mock（纯函数测试），CLI 接入也只需在 bus 层加一个 Channel 实现，session 层零改动。
+
+这个经历验证了：**单向依赖不是教条，是经过实际教训总结出来的工程纪律**。
+
+## 三、市面其他 agent 架构方案对比
+
+aptbot 的四层架构不是唯一的组织方式。市面上的 agent 项目在架构上存在几种不同的设计路线，这里用方案 A/B/C 代表三种典型思路（它们对应某些开源项目，但本文关注设计思路本身）。
+
+### 3.1 方案 A：极简内核 SDK 路线
+
+这条路线的哲学是"少即是多"——内核足够小，上层可以自由组合。
+
+**核心设计：**
+
+- **无状态生成器内核**：agent loop 是一个无状态的 async generator 函数，核心 100-150 行。它不持有任何状态，状态由上层的 session/harness 管理。
+- **全链路类型安全**：用 TypeScript + schema 校验库（TypeBox/Zod）保证每个环节的类型安全——工具定义、配置、事件流都有完整的类型约束。编译期就能捕获大部分接口不一致问题。
+- **事件流模型**：agent 输出不是字符串，而是 `EventStream<AgentEvent>`——每个事件是类型化对象。上层 UI 通过订阅感兴趣的事件类型来渲染，不需要轮询或解析。
+- **复杂度上移**：内核极简，但上层可能包 40+ 组件来实现完整交互体验。这是一种"把选择权交给使用者"的策略——你不需要的功能就不引入。
+
+**优点：** 内核纯粹，可组合性强，类型安全让重构有信心。
+
+**代价：** 内核虽小，但要构建一个可用的产品需要在上层补大量胶水代码；事件流模型对简单"问答"场景偏重；类型系统的学习门槛不低。
+
+### 3.2 方案 B：自演化 + 极低 token 路线
+
+这条路线的哲学最激进——**不给 agent 预置任何技能，让它自己在解决问题的过程中积累经验**。agent 用得越多越聪明。
+
+**核心设计：**
+
+- **任务结晶机制**：agent 完成一个任务后，自动把成功路径抽象成 skill，存入 skill 库。下次遇到相似任务时直接调用，不需要从头推理。
+- **极致 token 控制**：通过"只传新消息"（而非全量历史）+ tag 截断 + 工作记忆 checkpoint，把每轮上下文控制在 30K token 以内，远低于动辄 200K-1M 的方案。
+- **原子工具集**：只用 9 个原子工具覆盖所有能力——其中 `code_run` 一个工具就包揽了 Python 执行和 bash 执行，工具之间可以自由组合。
+- **自举性**：项目自身的代码就是 agent 创建的——agent 不仅使用工具，还能理解自己的代码并提出修改。
+
+**优点：** 长期使用后越来越贴合个人习惯；token 消耗极低，对按量计费的用户友好；agent 能力的进化路径自然。
+
+**代价：** 初次使用时 skill 库为空，表现不如预置技能的方案；自演化路径不可控，可能结晶出低质量的 skill；threading + generator 的并发模型在多端接入时比 async/await 复杂。
+
+### 3.3 方案 C：全栈工程化配置驱动路线
+
+这条路线的哲学是"生产就绪"——从 IM 渠道到 WebUI 到定时任务全覆盖，配置驱动一切，不改代码。
+
+**核心设计：**
+
+- **Channel 抽象 + 丰富实现**：把每个聊天平台（Telegram、Discord、Slack…）抽象成 Channel，通过统一的 MessageBus 接收和发送消息。内置 20+ Channel 实现。
+- **配置驱动**：30+ 内置 provider、20+ 内置 channel，全部通过 YAML/TOML 配置文件切换。用户不需要写代码，改配置就能切换模型、增减平台。
+- **循环内嵌恢复**：agent loop 单方法约 400 行，内置 orphan 修复（工具调用后未返回的处理）、backfill（补全遗漏的上下文）、microcompact（上下文压缩）等多种错误恢复路径。
+- **弱类型**：运行时大量 dict/JSON 传递，类型校验仅覆盖配置层。核心逻辑中类型约束不严格，重构时依赖测试覆盖。
+
+**优点：** 开箱即用，功能完整；多平台接入覆盖广；配置驱动的使用门槛低。
+
+**代价：** 单方法 400 行的循环可读性差，新成员理解成本高；弱类型在重构时风险大（改一个字段可能引发多处运行时错误）；功能全但每个模块的精炼度不够。
+
+### 3.4 架构方案对比
+
+| 维度 | 方案 A（极简 SDK） | 方案 B（自演化） | 方案 C（全栈工程） |
+|---|---|---|---|
+| 核心哲学 | 少即是多，可组合 | 不预置技能，用中演化 | 生产就绪，配置驱动 |
+| 核心循环规模 | ~150 行 | ~100 行 | ~400 行 |
+| 类型安全 | 强（全链路 TypeBox/Zod） | 弱（几乎无类型约束） | 弱（仅配置层 Pydantic） |
+| token 策略 | 中等（全量上下文） | 极低（<30K，截断+checkpoint） | 高（依赖大 context window） |
+| 工具策略 | 用户手写 + 内置组合 | 原子工具 + 自动结晶 | 内置 30+ 工具 |
+| 多平台 | 无（纯 SDK，由使用者集成） | 有限（多前端非 Channel） | 20+ Channel |
+| 测试难度 | 低（纯函数 + mock 接口） | 中（有状态，但单进程） | 高（多平台依赖复杂） |
+| 适合谁 | 开发者嵌入自己产品 | 个人长期使用的桌面助理 | 团队多平台运维 |
+
+## 四、aptbot 的设计特点
+
+### 4.1 定位决定取舍
+
+在上一篇文章中我们说过，aptbot 有双重身份：**学习型项目**和**个人助理**。这双重身份决定了 aptbot 的架构风格必须在上述三种方案之间找到自己的位置。
+
+对比来看：
+
+- 不能像方案 A 那样只做 SDK，因为学习者需要看到一个完整的产品——他们需要理解"agent 从启动到服务的完整生命周期"，而不是只有一个内核。
+- 不能像方案 C 那样堆功能，因为学习者会被淹没在 400 行的循环和 20+ 的 Channel 实现中，找不到主线。
+- 不能像方案 B 那样追求自演化，因为初学者无法理解不可控的 skill 结晶过程，而且自演化的路径依赖太强，不适合教学。
+
+### 4.2 关键架构决策
+
+基于这一定位，aptbot 在几个关键维度上做了以下选择：
+
+**类型安全（向方案 A 看齐）**：选择 TypeScript + Zod 作为类型系统。这既是工程质量保证，也是教学优势——读代码就能看出每个数据的形状。一个 `AgentEvent` 联合类型定义，比十页文档更能让人理解 agent 输出什么。类型安全带来的编译期检查，也降低了学习者修改代码时"改崩了不知道"的风险。
+
+**核心循环（参考方案 A 的分层思路）**：AgentLoop 保持无状态生成器风格，约 150 行。复杂度上移到 session 层（管理状态）和 harness 层（管理生命周期）。这样新手可以先理解最简单的"输入 → 推理 → 工具 → 输出"循环，再逐步看上层如何管理状态和生命周期。
+
+**事件流（区别于方案 B 的字符串 yield）**：采用类型化 EventStream，每个事件有明确的 type 和 payload。这让 UI 层能以类型安全的方式订阅事件，也让学习者在读代码时能精确理解"agent 输出流中可能包含哪些东西"。
+
+**工具系统（区别于方案 B 的原子工具自结晶）**：预置文档齐全的工具集，每个工具有清晰的定义和参数说明。学习者一看就知道 agent 能做什么、不能做什么。
+
+**多端接入（区别于方案 C 的 20+ Channel）**：MVP 聚焦 CLI + WebSocket 两种接入。但保留 Channel 抽象和 bus 层，为未来扩展留空间。架构上保持了方案 C 的扩展性，但实现上控制了复杂度。
+
+**记忆与可靠性**：这是 aptbot 投入最多精力的领域——Provider 故障转移、工具安全边界、记忆压缩、Hook 插件机制，每项都在解决"如何让 agent 在真实环境中更可靠"的问题。这部分在后续文章中会逐一深入。
+
+### 4.3 教学优先的可读性约束
+
+aptbot 和其他方案相比，一个独特的约束是"**教学优先的可读性**"。
+
+其他方案优化的是性能（低延迟）、token（低成本）、功能覆盖（多平台）。aptbot 在考虑这些的同时，还有一条额外的标准：**代码和架构必须能让初学者读懂**。
+
+这意味着 aptbot 会主动放弃一些"聪明但晦涩"的实现技巧。举个具体的例子：aptbot 的配置加载没有采用"运行时反射 + 配置类自动绑定"的魔法实现，而是用显式的 `readConfig()` → `validateConfig()` → `applyConfig()` 三步流程。前者更"优雅"（少写代码），后者更"朴素"（读代码的人能一步一步跟着看到配置怎么被加载和应用的）。
+
+这不是技术上的退让——从项目定位来看，一个让人学习 agent 的项目，自己的代码不能是黑盒。如果 aptbot 自己都让人看不懂，那就失去了存在的意义。
+
+## 五、发展方向
+
+四层架构为 aptbot 的演进提供了清晰的路线图。每一层都可以独立进化，不影响其他层。
+
+**access 层**：未来的重点是 IM 集成（Telegram 作为首通道）。这会验证 Channel 抽象的设计是否真的够用——当接入的不是"WebSocket 客户端"而是"IM Bot"时，Channel 接口是否需要修改。
+
+**bus 层**：规模化方向是"事件路由"——当单个实例服务多个用户、多个 session 时，bus 需要从简单的事件广播升级为事件路由。用户 A 的事件只到用户 A 的 channel。
+
+**core 层**：持续深化的方向是"更智能的 agent 行为"——更好的上下文压缩策略、更可靠的错误恢复、多轮推理的深度控制。core 层的进化是 aptbot 长期的核心主线。
+
+**infrastructure 层**：扩展方向是存储后端的多样性——从 JSONL 到 SQLite 到 S3，让 aptbot 适应不同规模的部署场景。
+
+**shared 层**：保持"不持有状态"的纯函数集合，持续提炼各层共用的工具函数。
 
 ## 小结
 
-aptbot 的四层架构不是教条，是"可替换 + 可测试"的工程结果。单向依赖让每一层都能独立演进，shared 承载跨层纯逻辑。与同类项目相比，aptbot 选了"应用型 + 教学型"的窄定位，用 TypeScript 平衡类型安全与全栈统一。它的设计哲学——"你的 agent"——决定了后续每一项功能决策的优先级。
+这篇文章从工程视角拆解了 aptbot 的架构设计：
 
-接下来 8 篇文章进入核心特性深入篇，每一篇拆解一个具体子系统：Provider、Tool、Memory、Skills、Hook、Channel、Session、Security。它们是 core + infrastructure 的具体内容。
+1. **四层架构**（access/bus/core/infrastructure）+ shared 层，每层有明确的职责边界。access 管接入、bus 管分发、core 管推理决策、infrastructure 管技术对接、shared 管纯类型与工具。
+2. **严格单向依赖**是"可替换性 + 可测试性"的工程纪律。反例证明：核心依赖接入层会导致替换成本高、测试变慢、逻辑污染。
+3. **三种架构路线**对比：方案 A（极简 SDK）追求可组合性，方案 B（自演化）追求自主积累，方案 C（全栈工程）追求生产就绪。
+4. **aptbot 的选择**：取各方案之长，加"教学可读性"约束。TypeScript + Zod 保证类型安全，清晰分层保证可读性，面向学习的定位决定了每一项取舍。
+
+架构是骨架，下一篇文章看血肉——Provider 系统，它负责让 agent 的大脑（LLM）真正运转起来，处理多协议、多模型、故障转移。

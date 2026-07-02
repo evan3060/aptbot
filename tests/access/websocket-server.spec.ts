@@ -421,9 +421,8 @@ describe('WebSocketServer', () => {
       return {
         getState: () => testState,
         getBySlug: (slug: string) => testState.bySlug.get(slug) ?? null,
-        getArticleNav: (slug: string) => {
-          const article = testState.bySlug.get(slug);
-          if (!article) return { prev: null, next: null };
+        getBySlugAndLang: (slug: string, _lang: string) => testState.bySlug.get(slug) ?? null,
+        getArticleNav: (_slug: string, _lang?: string) => {
           return { prev: null, next: null };
         },
       } as unknown as ArticleLoader;

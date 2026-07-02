@@ -7,6 +7,7 @@ import {
   ArticleMetaSchema,
   TRACKS,
   type Article,
+  type ArticleLang,
   type ArticleMeta,
   type ArticleNav,
   type ArticleState,
@@ -33,6 +34,13 @@ const TRACK_ORDER: ReadonlyMap<string, number> = new Map(
 
 function trackOrder(trackId: string): number {
   return TRACK_ORDER.get(trackId) ?? Number.MAX_SAFE_INTEGER;
+}
+
+/** 从文件名解析语言版本 (.en.md → 'en', .zh.md or .md → 'zh') */
+const LANG_SUFFIX_RE = /\.(zh|en)\.md$/;
+function parseLangFromFilename(filename: string): ArticleLang {
+  const m = filename.match(LANG_SUFFIX_RE);
+  return (m?.[1] as ArticleLang) ?? 'zh';
 }
 
 function createEmptyState(): ArticleState {
@@ -123,6 +131,7 @@ interface ParsedArticle {
   meta: ArticleMeta;
   body: string;
   filename: string;
+  lang: ArticleLang;
 }
 
 /**
@@ -175,24 +184,32 @@ export class ArticleLoader {
     return this.state;
   }
 
-  /** 从 bySlug Map 查找单篇文章 */
+  /** 兼容：按 slug 查找中文版（默认语言）。 */
   getBySlug(slug: string): Article | null {
-    return this.getState().bySlug.get(slug) ?? null;
+    return this.getBySlugAndLang(slug, 'zh');
+  }
+
+  /** 查找指定语言版本的文章。 */
+  getBySlugAndLang(slug: string, lang: ArticleLang): Article | null {
+    return this.getState().bySlug.get(`${slug}:${lang}`) ?? null;
   }
 
   /**
-   * 返回同 track 内上一篇/下一篇（按 order 排序，跨 chapter 边界）。
+   * 返回同 track 同语言内上一篇/下一篇（按 order 排序，跨 chapter 边界）。
    * slug 不存在时返回 { prev: null, next: null }。
    */
-  getArticleNav(slug: string): ArticleNav {
+  getArticleNav(slug: string, lang: ArticleLang = 'zh'): ArticleNav {
     const state = this.getState();
-    const article = state.bySlug.get(slug);
+    const key = `${slug}:${lang}`;
+    const article = state.bySlug.get(key);
     if (!article) return { prev: null, next: null };
     const trackArticles = state.byTrack.get(article.meta.track) ?? [];
-    const idx = trackArticles.findIndex((a) => a.meta.slug === slug);
+    // 过滤出同语言版本
+    const langArticles = trackArticles.filter((a) => a.lang === lang);
+    const idx = langArticles.findIndex((a) => a.meta.slug === slug);
     if (idx < 0) return { prev: null, next: null };
-    const prev = idx > 0 ? trackArticles[idx - 1] : null;
-    const next = idx < trackArticles.length - 1 ? trackArticles[idx + 1] : null;
+    const prev = idx > 0 ? langArticles[idx - 1] : null;
+    const next = idx < langArticles.length - 1 ? langArticles[idx + 1] : null;
     return { prev, next };
   }
 
@@ -310,28 +327,30 @@ export class ArticleLoader {
 
       knownFiles.push(filename);
       mtimeNsList.push(fileMtimeNs);
-      parsed.push({ meta: zodResult.data, body: matterResult.content, filename });
+      parsed.push({ meta: zodResult.data, body: matterResult.content, filename, lang: parseLangFromFilename(filename) });
     }
 
-    // 4. slug 去重（保留 order 较小者；order 相同保留先扫描者）
+    // 4. slug:lang 去重（保留 order 较小者；order 相同保留先扫描者）
     const bySlugTemp = new Map<string, ParsedArticle>();
     for (const item of parsed) {
-      const existing = bySlugTemp.get(item.meta.slug);
+      const key = `${item.meta.slug}:${item.lang}`;
+      const existing = bySlugTemp.get(key);
       if (!existing) {
-        bySlugTemp.set(item.meta.slug, item);
+        bySlugTemp.set(key, item);
         continue;
       }
       const keepNew = item.meta.order < existing.meta.order;
       const kept = keepNew ? item : existing;
       const skipped = keepNew ? existing : item;
-      bySlugTemp.set(item.meta.slug, kept);
+      bySlugTemp.set(key, kept);
       this.logger.warn(
-        `[article-loader] duplicate slug "${item.meta.slug}" in ${skipped.filename}; keeping ${kept.filename} (order ${kept.meta.order})`,
+        `[article-loader] duplicate slug:lang "${key}" in ${skipped.filename}; keeping ${kept.filename} (order ${kept.meta.order})`,
       );
     }
 
     // 5. prerequisites 引用校验（清空不存在的引用）
-    const slugSet = new Set(bySlugTemp.keys());
+    // 用不包含语言后缀的原始 slug 构建集合，因为 prerequisites 只存 slug 不存 lang
+    const slugSet = new Set([...bySlugTemp.values()].map((item) => item.meta.slug));
     for (const item of bySlugTemp.values()) {
       const invalid = item.meta.prerequisites.filter((p) => !slugSet.has(p));
       if (invalid.length > 0) {
@@ -390,14 +409,15 @@ export class ArticleLoader {
         meta: item.meta,
         renderedHtml,
         markdownBody: item.body,
+        lang: item.lang,
       });
     }
 
-    // 9. 构建 bySlug / byTrack
+    // 9. 构建 bySlug（slug:lang 复合键）/ byTrack
     const bySlug = new Map<string, Article>();
     const byTrack = new Map<string, Article[]>();
     for (const article of articles) {
-      bySlug.set(article.meta.slug, article);
+      bySlug.set(`${article.meta.slug}:${article.lang}`, article);
       const arr = byTrack.get(article.meta.track) ?? [];
       arr.push(article);
       byTrack.set(article.meta.track, arr);

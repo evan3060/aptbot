@@ -218,9 +218,10 @@ describe('Task 7: learnEnabled 时知识 section 扩展', () => {
       expect(html).toContain('边用边学，从 0 理解 agent');
     });
 
-    it('含知识 section 副标题含 "19 篇结构化文章"', () => {
+    it('含知识 section 副标题含 "19" + "篇结构化文章"', () => {
       const html = createLandingPageHtml({ learnEnabled: true, articleState: STATE });
-      expect(html).toContain('19 篇结构化文章');
+      expect(html).toContain('>19<');
+      expect(html).toContain('篇结构化文章');
     });
 
     it('含 TRACK 1 / TRACK 2 等宽标签', () => {
@@ -245,9 +246,10 @@ describe('Task 7: learnEnabled 时知识 section 扩展', () => {
       expect(html).toMatch(/href="\/learn"/);
     });
 
-    it('每 chapter 限显 4 张卡片超出含 "+N 更多" 链接（核心特性深入篇 8 篇 → +4 更多）', () => {
+    it('每 chapter 限显 4 张卡片超出含 "+N more" 链接（核心特性深入篇 8 篇 → +4 more）', () => {
       const html = createLandingPageHtml({ learnEnabled: true, articleState: STATE });
-      expect(html).toContain('+4 更多');
+      expect(html).toContain('+4<');
+      expect(html).toContain('更多');
     });
 
     it('planned 卡片含 coming soon 标记', () => {

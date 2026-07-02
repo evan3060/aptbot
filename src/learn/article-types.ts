@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+export type ArticleLang = 'zh' | 'en';
+
 // TRACKS 注册表：0.2.3 含两个 track。未来扩展只需在数组追加一项。
 export interface TrackMeta {
   readonly id: string;
@@ -55,6 +57,7 @@ export interface Article {
   readonly meta: ArticleMeta;
   readonly renderedHtml: string | null;
   readonly markdownBody: string;
+  readonly lang: ArticleLang;
 }
 
 export interface ArticleState {

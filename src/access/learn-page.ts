@@ -62,8 +62,13 @@ function groupByChapter(articles: readonly Article[]): ChapterGroup[] {
   return groups;
 }
 
-function renderArticleCard(article: Article): string {
+function renderArticleCard(article: Article, state: ArticleState, lang: string): string {
   const meta = article.meta;
+  const currentLang = lang === 'en' ? 'en' : 'zh';
+  // 尝试显示当前语言版本的 title/description
+  const langSpecific = state.bySlug.get(`${meta.slug}:${currentLang}`);
+  const display = langSpecific ?? article;
+  const dMeta = display.meta;
   const difficultyLabel = DIFFICULTY_LABELS[meta.difficulty] ?? meta.difficulty;
   const metaRow = `${escapeHtml(difficultyLabel)} · ${meta.estimatedReadingTime} 分钟`;
   const tagsHtml = meta.tags.length > 0
@@ -75,8 +80,8 @@ function renderArticleCard(article: Article): string {
   if (meta.status === 'planned') {
     return `        <div class="article-card article-card-planned" data-track="${escapeHtml(meta.track)}">
           <div class="article-meta">${metaRow}</div>
-          <h3 class="article-title">${escapeHtml(meta.title)}</h3>
-          <p class="article-desc">${escapeHtml(meta.description)}</p>
+          <h3 class="article-title">${escapeHtml(dMeta.title)}</h3>
+          <p class="article-desc">${escapeHtml(dMeta.description)}</p>
           <div class="article-footer">
             ${tagsHtml}
             <span class="coming-soon-badge">coming soon</span>
@@ -84,10 +89,10 @@ function renderArticleCard(article: Article): string {
         </div>`;
   }
 
-  return `        <a class="article-card" href="/learn/${escapeHtml(meta.slug)}" data-track="${escapeHtml(meta.track)}">
+  return `        <a class="article-card" href="/learn/${escapeHtml(meta.slug)}?lang=${currentLang}" data-track="${escapeHtml(meta.track)}">
           <div class="article-meta">${metaRow}</div>
-          <h3 class="article-title">${escapeHtml(meta.title)}</h3>
-          <p class="article-desc">${escapeHtml(meta.description)}</p>
+          <h3 class="article-title">${escapeHtml(dMeta.title)}</h3>
+          <p class="article-desc">${escapeHtml(dMeta.description)}</p>
           <div class="article-footer">
             ${tagsHtml}
             <span class="article-arrow" aria-hidden="true">→</span>
@@ -95,12 +100,12 @@ function renderArticleCard(article: Article): string {
         </a>`;
 }
 
-function renderTrack(track: TrackMeta, articles: readonly Article[], trackNumber: number): string {
+function renderTrack(track: TrackMeta, articles: readonly Article[], trackNumber: number, state: ArticleState, lang: string): string {
   const chapters = groupByChapter(articles);
   const chaptersHtml = chapters
     .map((ch) => {
       const chapterId = `${track.id}__${ch.name}`;
-      const cardsHtml = ch.articles.map(renderArticleCard).join('\n');
+      const cardsHtml = ch.articles.map((a) => renderArticleCard(a, state, lang)).join('\n');
       return `      <div class="chapter" data-chapter-id="${escapeHtml(chapterId)}">
         <button type="button" class="chapter-header" aria-expanded="true">
           <span class="chapter-arrow" aria-hidden="true">▼</span>
@@ -124,7 +129,8 @@ ${chaptersHtml}
     </section>`;
 }
 
-export function createLearnListHtml(state: ArticleState): string {
+export function createLearnListHtml(state: ArticleState, lang?: string): string {
+  const currentLang = lang === 'en' ? 'en' : 'zh';
   const totalArticles = state.articles.length;
   const totalTracks = state.tracks.length;
   const sortedTracks = [...state.tracks].sort((a, b) => a.order - b.order);
@@ -144,11 +150,11 @@ export function createLearnListHtml(state: ArticleState): string {
   const track2Title = track2Meta?.title ?? 'AI 辅助编码实践';
 
   const tracksHtml = sortedTracks
-    .map((t, i) => renderTrack(t, state.byTrack.get(t.id) ?? [], i + 1))
+    .map((t, i) => renderTrack(t, state.byTrack.get(t.id) ?? [], i + 1, state, currentLang))
     .join('\n');
 
   return `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="${currentLang === 'en' ? 'en' : 'zh-CN'}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -523,8 +529,8 @@ export function createLearnListHtml(state: ArticleState): string {
 <header id="nav">
   <a href="/" class="nav-wordmark">aptbot</a>
   <nav class="nav-links">
-    <a href="/">首页</a>
-    <a href="/learn" class="active">知识</a>
+    <a href="/" data-i18n="nav.home">首页</a>
+    <a href="/learn" class="active" data-i18n="nav.learn">知识</a>
     <a href="/demo">Demo</a>
   </nav>
   <div class="nav-actions">
@@ -534,18 +540,18 @@ export function createLearnListHtml(state: ArticleState): string {
 
 <main>
   <div class="page-header">
-    <h1>知识体系</h1>
-    <p class="page-subtitle">${totalArticles} 篇文章，${totalTracks} 个 Track · ${track1Count} 篇 ${escapeHtml(track1Title)} · ${track2Count} 篇 ${escapeHtml(track2Title)}</p>
+    <h1 data-i18n="list.h1">知识体系</h1>
+    <p class="page-subtitle"><span class="count">${totalArticles}</span><span data-i18n="list.articlesLabel"> 篇文章</span>，<span class="count">${totalTracks}</span><span data-i18n="list.tracksLabel"> 个 Track</span> · <span class="count">${track1Count}</span><span data-i18n="list.track1Label"> 篇 </span><span>${escapeHtml(track1Title)}</span> · <span class="count">${track2Count}</span><span data-i18n="list.track2Label"> 篇 </span><span>${escapeHtml(track2Title)}</span></p>
     <div class="data-bar">
       <div>
         <div class="data-label">Articles</div>
         <div class="data-value">${totalArticles}</div>
-        <div class="data-caption">篇文章</div>
+        <div class="data-caption" data-i18n="list.articles">篇文章</div>
       </div>
       <div>
         <div class="data-label">Tracks</div>
         <div class="data-value">${totalTracks}</div>
-        <div class="data-caption">个 Track</div>
+        <div class="data-caption" data-i18n="list.tracks">个 Track</div>
       </div>
       <div>
         <div class="data-label">Track 1</div>
@@ -562,13 +568,13 @@ export function createLearnListHtml(state: ArticleState): string {
 
   <div class="filter-bar">
     <div class="track-tabs">
-      <button type="button" class="track-tab active" data-track="all">全部</button>
+      <button type="button" class="track-tab active" data-track="all" data-i18n="list.all">全部</button>
       <button type="button" class="track-tab" data-track="track1">Track 1</button>
       <button type="button" class="track-tab" data-track="track2">Track 2</button>
     </div>
     <div class="view-toggle">
-      <button type="button" class="view-btn active" data-view="grid">网格</button>
-      <button type="button" class="view-btn" data-view="list">列表</button>
+      <button type="button" class="view-btn active" data-view="grid" data-i18n="list.grid">网格</button>
+      <button type="button" class="view-btn" data-view="list" data-i18n="list.list">列表</button>
     </div>
   </div>
 
@@ -579,13 +585,13 @@ ${tracksHtml}
   <div class="footer-grid">
     <div>
       <div class="footer-wordmark">aptbot</div>
-      <div class="footer-tagline">你的个人 AI 助手</div>
+      <div class="footer-tagline" data-i18n="footer.tagline">你的个人 AI 助手</div>
     </div>
     <div class="footer-links">
       <a href="https://github.com/evan3060/aptbot">GitHub</a>
-      <a href="https://github.com/evan3060/aptbot#readme">文档</a>
-      <a href="https://github.com/evan3060/aptbot/releases">更新日志</a>
-      <a href="https://github.com/evan3060/aptbot/blob/main/LICENSE">开源协议</a>
+      <a href="https://github.com/evan3060/aptbot#readme" data-i18n="footer.docs">文档</a>
+      <a href="https://github.com/evan3060/aptbot/releases" data-i18n="footer.changelog">更新日志</a>
+      <a href="https://github.com/evan3060/aptbot/blob/main/LICENSE" data-i18n="footer.license">开源协议</a>
     </div>
     <div class="footer-meta">
       <div>v0.2.3</div>
@@ -593,11 +599,74 @@ ${tracksHtml}
       <div>© 2026 aptbot</div>
     </div>
   </div>
-  <div class="footer-bottom">用心打造 · 开源 · 可自托管</div>
+  <div class="footer-bottom" data-i18n="footer.bottom">用心打造 · 开源 · 可自托管</div>
 </footer>
 
 <script>
-  (function () {
+var SERVER_LANG = '${currentLang}';
+var LEARN_I18N = {
+    zh: {
+      'nav.home': '首页',
+    'nav.learn': '知识',
+    'list.h1': '知识体系',
+    'list.articles': '篇文章',
+    'list.tracks': '个 Track',
+    'list.articlesLabel': ' 篇文章',
+    'list.tracksLabel': ' 个 Track',
+    'list.track1Label': ' 篇 ',
+    'list.track2Label': ' 篇 ',
+    'list.all': '全部',
+    'list.grid': '网格',
+    'list.list': '列表',
+    'footer.tagline': '你的个人 AI 助手',
+    'footer.docs': '文档',
+    'footer.changelog': '更新日志',
+    'footer.license': '开源协议',
+    'footer.bottom': '用心打造 · 开源 · 可自托管'
+  },
+  en: {
+    'nav.home': 'Home',
+    'nav.learn': 'Learn',
+    'list.h1': 'Knowledge Base',
+    'list.articles': 'articles',
+    'list.tracks': 'tracks',
+    'list.articlesLabel': ' articles',
+    'list.tracksLabel': ' tracks',
+    'list.track1Label': ' ',
+    'list.track2Label': ' ',
+    'list.all': 'All',
+    'list.grid': 'Grid',
+    'list.list': 'List',
+    'footer.tagline': 'Your Personal AI Assistant',
+    'footer.docs': 'Documentation',
+    'footer.changelog': 'Changelog',
+    'footer.license': 'License',
+    'footer.bottom': 'Made with care · Open source · Self-hostable'
+  }
+};
+
+function learnApplyLang(lang) {
+  document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+  document.querySelectorAll('[data-i18n]').forEach(function(el) {
+    var key = el.dataset.i18n;
+    if (LEARN_I18N[lang] && LEARN_I18N[lang][key]) {
+      el.textContent = LEARN_I18N[lang][key];
+    }
+  });
+  var titleEl = document.querySelector('title');
+  if (titleEl && LEARN_I18N[lang] && LEARN_I18N[lang]['list.h1']) {
+    titleEl.textContent = LEARN_I18N[lang]['list.h1'] + ' - aptbot';
+  }
+  var toggle = document.getElementById('lang-toggle');
+  if (toggle) toggle.textContent = lang === 'zh' ? 'EN' : '中';
+  try { localStorage.setItem('aptbot.lang', lang); } catch(e) {}
+}
+
+(function () {
+    var savedLang = typeof SERVER_LANG !== 'undefined' ? SERVER_LANG : 'zh';
+    try { var ls = localStorage.getItem('aptbot.lang'); if (ls === 'zh' || ls === 'en') savedLang = ls; } catch(e) {}
+    learnApplyLang(savedLang);
+
     var STORAGE_PREFIX = 'aptbot.learn.';
     var tabs = document.querySelectorAll('.track-tab');
     var trackContainers = document.querySelectorAll('.track-container');
@@ -689,10 +758,8 @@ ${tracksHtml}
       langToggle.addEventListener('click', function (e) {
         e.preventDefault();
         var current = document.documentElement.lang;
-        var next = current === 'zh-CN' ? 'en' : 'zh-CN';
-        document.documentElement.lang = next;
-        langToggle.textContent = next === 'zh-CN' ? 'EN' : '中';
-        try { localStorage.setItem('aptbot.lang', next === 'zh-CN' ? 'zh' : 'en'); } catch (e) {}
+        var next = current === 'zh-CN' ? 'en' : 'zh';
+        learnApplyLang(next);
       });
     }
   })();
@@ -733,7 +800,8 @@ function renderPlannedOutline(description: string): string {
  * published 文章渲染 marked HTML + 上下篇导航 + 反馈表单。
  * planned 文章渲染 PLANNED 标签 + 大纲列表，不含反馈表单与上下篇导航。
  */
-export function createLearnArticleHtml(article: Article, nav: ArticleNav): string {
+export function createLearnArticleHtml(article: Article, nav: ArticleNav, lang?: string): string {
+  const currentLang = lang === 'en' ? 'en' : 'zh';
   const meta = article.meta;
   const trackNumber = getTrackOrder(meta.track);
   const isPlanned = article.renderedHtml === null;
@@ -744,12 +812,12 @@ export function createLearnArticleHtml(article: Article, nav: ArticleNav): strin
       ? meta.prerequisites
           .map((slug) => `<a href="/learn/${escapeHtml(slug)}">${escapeHtml(slug)}</a>`)
           .join('、')
-      : '无';
-  const metaInfo = `最后更新 ${escapeHtml(meta.lastUpdated)} · 前置文章：${prerequisitesHtml}`;
+      : '<span data-i18n="article.prerequisitesNone">无</span>';
+  const metaInfo = `<span data-i18n="article.lastUpdated">最后更新</span> ${escapeHtml(meta.lastUpdated)} · <span data-i18n="article.prerequisites">前置文章：</span>${prerequisitesHtml}`;
   const metaRow = `TRACK ${trackNumber} · ${escapeHtml(meta.chapter)} · ${escapeHtml(meta.difficulty)} · ${meta.estimatedReadingTime} min`;
 
   const headerHtml = `    <header class="article-header">
-      <a class="back-link" href="/learn">← 返回知识体系</a>
+      <a class="back-link" href="/learn"><span data-i18n="article.back">← 返回知识体系</span></a>
       <div class="article-meta-row">${metaRow}</div>
       <h1 class="article-title">${escapeHtml(meta.title)}</h1>
       <p class="article-summary">${escapeHtml(meta.description)}</p>
@@ -762,10 +830,10 @@ export function createLearnArticleHtml(article: Article, nav: ArticleNav): strin
     const outlineHtml = renderPlannedOutline(meta.description);
     bodyHtml = `      <div class="article-body planned-body">
         <div class="planned-label">PLANNED</div>
-        <h2 class="planned-title">本章正在撰写中</h2>
-        <p class="planned-outline-label">计划内容：</p>
+        <h2 class="planned-title" data-i18n="article.plannedTitle">本章正在撰写中</h2>
+        <p class="planned-outline-label" data-i18n="article.plannedOutline">计划内容：</p>
 ${outlineHtml}
-        <a class="planned-back-link" href="/learn">返回知识体系 →</a>
+        <a class="planned-back-link" href="/learn"><span data-i18n="article.backToLearn">返回知识体系 →</span></a>
       </div>`;
   } else {
     bodyHtml = `      <div class="article-body">
@@ -777,10 +845,10 @@ ${article.renderedHtml}
   let footerHtml = '';
   if (!isPlanned) {
     const prevNavHtml = nav.prev
-      ? `<a class="prev-link" href="/learn/${escapeHtml(nav.prev.meta.slug)}">← 上一篇 · ${escapeHtml(nav.prev.meta.title)}</a>`
+      ? `<a class="prev-link" href="/learn/${escapeHtml(nav.prev.meta.slug)}"><span data-i18n="article.prev">← 上一篇</span> · ${escapeHtml(nav.prev.meta.title)}</a>`
       : '';
     const nextNavHtml = nav.next
-      ? `<a class="next-link" href="/learn/${escapeHtml(nav.next.meta.slug)}">下一篇 · ${escapeHtml(nav.next.meta.title)} →</a>`
+      ? `<a class="next-link" href="/learn/${escapeHtml(nav.next.meta.slug)}">${escapeHtml(nav.next.meta.title)} · <span data-i18n="article.next">下一篇 →</span></a>`
       : '';
     const navSection =
       prevNavHtml || nextNavHtml
@@ -790,13 +858,13 @@ ${article.renderedHtml}
     footerHtml = `      <footer class="article-footer">
 ${navSection}
         <div class="feedback-area">
-          <p class="feedback-prompt">这篇文章对你有帮助吗？有想法或问题？</p>
+          <p class="feedback-prompt" data-i18n="article.feedbackTitle">这篇文章对你有帮助吗？有想法或问题？</p>
           <form class="feedback-form" method="post" action="/api/feedback">
             <input type="hidden" name="category" value="article">
             <input type="hidden" name="articleSlug" value="${escapeHtml(meta.slug)}">
-            <textarea class="feedback-textarea" name="message" maxlength="2000" required placeholder="写下你的反馈..."></textarea>
-            <input class="feedback-contact" name="contact" maxlength="120" placeholder="联系方式（可选）">
-            <button class="feedback-submit" type="submit">提交反馈</button>
+            <textarea class="feedback-textarea" name="message" maxlength="2000" required placeholder="写下你的反馈..." data-i18n-placeholder="article.feedbackPlaceholder"></textarea>
+            <input class="feedback-contact" name="contact" maxlength="120" placeholder="联系方式（可选）" data-i18n-placeholder="article.feedbackContactPlaceholder">
+            <button class="feedback-submit" type="submit" data-i18n="article.submitFeedback">提交反馈</button>
           </form>
           <div class="feedback-status"></div>
         </div>
@@ -893,8 +961,8 @@ ${navSection}
     font-size: 40px;
     font-weight: 400;
     color: var(--text-primary);
-    line-height: 1.2;
-    letter-spacing: -1px;
+    line-height: 1.35;
+    letter-spacing: -0.5px;
     margin-bottom: 16px;
   }
   .article-summary {
@@ -932,17 +1000,51 @@ ${navSection}
     letter-spacing: -0.3px;
   }
   .article-body p {
-    font-size: 18px;
-    line-height: 1.7;
+    font-size: 16px;
+    line-height: 1.8;
     color: var(--text-primary);
-    margin: 16px 0;
+    margin: 14px 0;
+    text-indent: 2em;
   }
   .article-body ul, .article-body ol {
-    font-size: 18px;
-    line-height: 1.7;
+    font-size: 16px;
+    line-height: 1.8;
     color: var(--text-primary);
-    padding-left: 24px;
-    margin: 16px 0;
+    padding-left: 32px;
+    margin: 14px 0;
+  }
+  .article-body ul li, .article-body ol li { margin: 6px 0; }
+  .article-body table {
+    border-collapse: collapse;
+    max-width: 90%;
+    margin: 20px auto;
+    font-size: 14px;
+    overflow-x: auto;
+    display: block;
+  }
+  .article-body table thead { background: var(--bg-muted); }
+  .article-body table th, .article-body table td {
+    border: 1px solid var(--border);
+    padding: 10px 14px;
+    text-align: left;
+    line-height: 1.6;
+  }
+  .article-body table th {
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .article-body table td { color: var(--text-primary); }
+  .article-body table tr:nth-child(even) td { background: var(--bg-muted); }
+  .article-body img {
+    max-width: 640px;
+    max-height: 640px;
+    width: 100%;
+    height: auto;
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+    border-radius: 8px;
+    border: 1px solid var(--border);
   }
   .article-body code {
     background: var(--bg-muted);
@@ -952,12 +1054,17 @@ ${navSection}
     border-radius: 3px;
   }
   .article-body pre {
-    background: var(--bg-dark);
-    color: var(--bg-base);
-    padding: 16px;
-    border-radius: 8px;
+    background: var(--bg-muted);
+    color: var(--text-primary);
+    padding: 16px 20px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
     overflow-x: auto;
-    margin: 16px 0;
+    margin: 16px auto;
+    max-width: 85%;
+    text-align: center;
+    font-size: 14px;
+    line-height: 1.6;
   }
   .article-body pre code {
     background: none;
@@ -976,11 +1083,6 @@ ${navSection}
     text-decoration: none;
   }
   .article-body a:hover { text-decoration: underline; }
-  .article-body img {
-    max-width: 100%;
-    height: auto;
-    margin: 16px 0;
-  }
 
   footer {
     background: var(--bg-dark);
@@ -1183,87 +1285,200 @@ ${navSection}
   const scriptHtml = isPlanned
     ? ''
     : `<script>
-  (function () {
-    var form = document.querySelector('.feedback-form');
-    if (!form) return;
-    var statusDiv = document.querySelector('.feedback-status');
-    var submitBtn = form.querySelector('button[type="submit"]');
-    var originalText = submitBtn ? submitBtn.textContent : '';
+var SERVER_LANG = '${currentLang}';
+var LEARN_I18N = {
+  zh: {
+    'nav.home': '首页',
+    'nav.learn': '知识',
+    'article.back': '← 返回知识体系',
+    'article.lastUpdated': '最后更新',
+    'article.prerequisites': '前置文章：',
+    'article.prerequisitesNone': '无',
+    'article.plannedTitle': '本章正在撰写中',
+    'article.plannedOutline': '计划内容：',
+    'article.backToLearn': '返回知识体系 →',
+    'article.prev': '← 上一篇',
+    'article.next': '下一篇 →',
+    'article.titleSuffix': '知识体系',
+    'article.feedbackTitle': '这篇文章对你有帮助吗？有想法或问题？',
+    'article.feedbackPlaceholder': '写下你的反馈...',
+    'article.feedbackContactPlaceholder': '联系方式（可选）',
+    'article.submitFeedback': '提交反馈',
+    'article.feedbackSubmitted': '感谢反馈，已记录到待办',
+    'article.feedbackError': '提交失败',
+    'article.feedbackRateLimit': '提交过于频繁，请稍后再试',
+    'article.feedbackNetworkError': '网络错误，请检查连接',
+    'article.submitting': '提交中...',
+    'footer.tagline': '你的个人 AI 助手',
+    'footer.docs': '文档',
+    'footer.changelog': '更新日志',
+    'footer.license': '开源协议',
+    'footer.bottom': '用心打造 · 开源 · 可自托管'
+  },
+  en: {
+    'nav.home': 'Home',
+    'nav.learn': 'Learn',
+    'article.back': '← Back to Knowledge Base',
+    'article.lastUpdated': 'Last updated',
+    'article.prerequisites': 'Prerequisites: ',
+    'article.prerequisitesNone': 'None',
+    'article.plannedTitle': 'This chapter is being written',
+    'article.plannedOutline': 'Planned content:',
+    'article.backToLearn': 'Back to Knowledge Base →',
+    'article.prev': '← Previous',
+    'article.next': 'Next →',
+    'article.titleSuffix': 'Knowledge Base',
+    'article.feedbackTitle': 'Was this article helpful? Have thoughts or questions?',
+    'article.feedbackPlaceholder': 'Write your feedback...',
+    'article.feedbackContactPlaceholder': 'Contact (optional)',
+    'article.submitFeedback': 'Submit Feedback',
+    'article.feedbackSubmitted': 'Feedback recorded. Thank you!',
+    'article.feedbackError': 'Submission failed',
+    'article.feedbackRateLimit': 'Too frequent. Please try later.',
+    'article.feedbackNetworkError': 'Network error. Please check connection.',
+    'article.submitting': 'Submitting...',
+    'footer.tagline': 'Your Personal AI Assistant',
+    'footer.docs': 'Documentation',
+    'footer.changelog': 'Changelog',
+    'footer.license': 'License',
+    'footer.bottom': 'Made with care · Open source · Self-hostable'
+  }
+};
 
-    form.addEventListener('submit', function (e) {
+function learnApplyLang(lang) {
+  document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+  document.querySelectorAll('[data-i18n]').forEach(function(el) {
+    var key = el.dataset.i18n;
+    if (LEARN_I18N[lang] && LEARN_I18N[lang][key]) {
+      el.textContent = LEARN_I18N[lang][key];
+    }
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(function(el) {
+    var key = el.dataset.i18nPlaceholder;
+    if (LEARN_I18N[lang] && LEARN_I18N[lang][key]) {
+      el.placeholder = LEARN_I18N[lang][key];
+    }
+  });
+  var titleEl = document.querySelector('title');
+  if (titleEl && LEARN_I18N[lang]) {
+    var suffixKey = titleEl.getAttribute('data-i18n-title-suffix');
+    if (suffixKey && LEARN_I18N[lang][suffixKey]) {
+      var text = titleEl.textContent || '';
+      var sep = ' - aptbot ';
+      var idx = text.indexOf(sep);
+      if (idx !== -1) {
+        titleEl.textContent = text.substring(0, idx + sep.length) + LEARN_I18N[lang][suffixKey];
+      }
+    }
+    var prefixKey = titleEl.getAttribute('data-i18n-title-prefix');
+    if (prefixKey && LEARN_I18N[lang][prefixKey]) {
+      titleEl.textContent = LEARN_I18N[lang][prefixKey] + ' - aptbot';
+    }
+  }
+  var toggle = document.getElementById('lang-toggle');
+  if (toggle) toggle.textContent = lang === 'zh' ? 'EN' : '中';
+  try { localStorage.setItem('aptbot.lang', lang); } catch(e) {}
+}
+
+(function () {
+  var savedLang = typeof SERVER_LANG !== 'undefined' ? SERVER_LANG : 'zh';
+  try { var ls = localStorage.getItem('aptbot.lang'); if (ls === 'zh' || ls === 'en') savedLang = ls; } catch(e) {}
+  learnApplyLang(savedLang);
+
+  var langToggle = document.getElementById('lang-toggle');
+  if (langToggle) {
+    langToggle.addEventListener('click', function (e) {
       e.preventDefault();
-      if (submitBtn) {
-        submitBtn.disabled = true;
-        submitBtn.textContent = '提交中...';
-      }
-      if (statusDiv) {
-        statusDiv.textContent = '';
-        statusDiv.style.color = '';
-      }
+      var current = document.documentElement.lang;
+      var next = current === 'zh-CN' ? 'en' : 'zh';
+      learnApplyLang(next);
+    });
+  }
 
-      var formData = new FormData(form);
-      var payload = {};
-      formData.forEach(function (v, k) { payload[k] = v; });
+  function _t(key) {
+    var lang = document.documentElement.lang === 'zh-CN' ? 'zh' : 'en';
+    return (LEARN_I18N[lang] && LEARN_I18N[lang][key]) || key;
+  }
 
-      fetch('/api/feedback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      }).then(
-        function (res) {
-          if (res.ok) {
-            form.reset();
-            if (statusDiv) {
-              statusDiv.textContent = '感谢反馈，已记录到待办';
-              statusDiv.style.color = 'var(--accent)';
-            }
-            return;
-          }
-          if (res.status === 429) {
-            if (statusDiv) {
-              statusDiv.textContent = '提交过于频繁，请稍后再试';
-              statusDiv.style.color = 'var(--text-secondary)';
-            }
-            return;
-          }
-          res.json().then(
-            function (data) {
-              if (statusDiv) {
-                statusDiv.textContent = (data && data.error) ? data.error : '提交失败';
-                statusDiv.style.color = 'var(--text-secondary)';
-              }
-            },
-            function () {
-              if (statusDiv) {
-                statusDiv.textContent = '提交失败';
-                statusDiv.style.color = 'var(--text-secondary)';
-              }
-            }
-          );
-        },
-        function () {
+  var form = document.querySelector('.feedback-form');
+  if (!form) return;
+  var statusDiv = document.querySelector('.feedback-status');
+  var submitBtn = form.querySelector('button[type="submit"]');
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = _t('article.submitting');
+    }
+    if (statusDiv) {
+      statusDiv.textContent = '';
+      statusDiv.style.color = '';
+    }
+
+    var formData = new FormData(form);
+    var payload = {};
+    formData.forEach(function (v, k) { payload[k] = v; });
+
+    fetch('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).then(
+      function (res) {
+        if (res.ok) {
+          form.reset();
           if (statusDiv) {
-            statusDiv.textContent = '网络错误，请检查连接';
+            statusDiv.textContent = _t('article.feedbackSubmitted');
+            statusDiv.style.color = 'var(--accent)';
+          }
+          return;
+        }
+        if (res.status === 429) {
+          if (statusDiv) {
+            statusDiv.textContent = _t('article.feedbackRateLimit');
             statusDiv.style.color = 'var(--text-secondary)';
           }
+          return;
         }
-      ).finally(function () {
-        if (submitBtn) {
-          submitBtn.disabled = false;
-          submitBtn.textContent = originalText;
+        res.json().then(
+          function (data) {
+            if (statusDiv) {
+              statusDiv.textContent = (data && data.error) ? data.error : _t('article.feedbackError');
+              statusDiv.style.color = 'var(--text-secondary)';
+            }
+          },
+          function () {
+            if (statusDiv) {
+              statusDiv.textContent = _t('article.feedbackError');
+              statusDiv.style.color = 'var(--text-secondary)';
+            }
+          }
+        );
+      },
+      function () {
+        if (statusDiv) {
+          statusDiv.textContent = _t('article.feedbackNetworkError');
+          statusDiv.style.color = 'var(--text-secondary)';
         }
-      });
+      }
+    ).finally(function () {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = _t('article.submitFeedback');
+      }
     });
-  })();
+  });
+})();
 </script>`;
 
   return `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="${currentLang === 'en' ? 'en' : 'zh-CN'}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="data:,">
-<title>${escapeHtml(meta.title)} - aptbot 知识体系</title>
+<title data-i18n-title-suffix="article.titleSuffix">${escapeHtml(meta.title)} - aptbot 知识体系</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 ${css}
@@ -1273,8 +1488,8 @@ ${css}
 <header id="nav">
   <a href="/" class="nav-wordmark">aptbot</a>
   <nav class="nav-links">
-    <a href="/">首页</a>
-    <a href="/learn" class="active">知识</a>
+    <a href="/" data-i18n="nav.home">首页</a>
+    <a href="/learn" class="active" data-i18n="nav.learn">知识</a>
     <a href="/demo">Demo</a>
   </nav>
   <div class="nav-actions">
@@ -1295,13 +1510,13 @@ ${footerHtml ? '\n' + footerHtml : ''}
   <div class="footer-grid">
     <div>
       <div class="footer-wordmark">aptbot</div>
-      <div class="footer-tagline">你的个人 AI 助手</div>
+      <div class="footer-tagline" data-i18n="footer.tagline">你的个人 AI 助手</div>
     </div>
     <div class="footer-links">
       <a href="https://github.com/evan3060/aptbot">GitHub</a>
-      <a href="https://github.com/evan3060/aptbot#readme">文档</a>
-      <a href="https://github.com/evan3060/aptbot/releases">更新日志</a>
-      <a href="https://github.com/evan3060/aptbot/blob/main/LICENSE">开源协议</a>
+      <a href="https://github.com/evan3060/aptbot#readme" data-i18n="footer.docs">文档</a>
+      <a href="https://github.com/evan3060/aptbot/releases" data-i18n="footer.changelog">更新日志</a>
+      <a href="https://github.com/evan3060/aptbot/blob/main/LICENSE" data-i18n="footer.license">开源协议</a>
     </div>
     <div class="footer-meta">
       <div>v0.2.3</div>
@@ -1309,7 +1524,7 @@ ${footerHtml ? '\n' + footerHtml : ''}
       <div>© 2026 aptbot</div>
     </div>
   </div>
-  <div class="footer-bottom">用心打造 · 开源 · 可自托管</div>
+  <div class="footer-bottom" data-i18n="footer.bottom">用心打造 · 开源 · 可自托管</div>
 </footer>
 
 ${scriptHtml}
@@ -1329,14 +1544,15 @@ ${scriptHtml}
  *
  * Task 6 实现。
  */
-export function createFeedbackHtml(): string {
+export function createFeedbackHtml(lang?: string): string {
+  const currentLang = lang === 'en' ? 'en' : 'zh';
   return `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="${currentLang === 'en' ? 'en' : 'zh-CN'}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="data:,">
-<title>留言反馈 - aptbot</title>
+<title data-i18n-title-prefix="feedback.title">留言反馈 - aptbot</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -1536,8 +1752,8 @@ export function createFeedbackHtml(): string {
 <header id="nav">
   <a href="/" class="nav-wordmark">aptbot</a>
   <nav class="nav-links">
-    <a href="/">首页</a>
-    <a href="/learn" class="active">知识</a>
+    <a href="/" data-i18n="nav.home">首页</a>
+    <a href="/learn" class="active" data-i18n="nav.learn">知识</a>
     <a href="/demo">Demo</a>
   </nav>
   <div class="nav-actions">
@@ -1547,16 +1763,16 @@ export function createFeedbackHtml(): string {
 
 <main>
   <div class="page-header">
-    <h1>留言反馈</h1>
-    <p class="page-subtitle">有想法、问题或需求？提交给我们，会记录到待办。</p>
+    <h1 data-i18n="feedback.title">留言反馈</h1>
+    <p class="page-subtitle" data-i18n="feedback.subtitle">有想法、问题或需求？提交给我们，会记录到待办。</p>
   </div>
   <div class="feedback-container">
     <div class="feedback-area">
       <form class="feedback-form" method="post" action="/api/feedback">
         <input type="hidden" name="category" value="general">
-        <textarea class="feedback-textarea" name="message" maxlength="2000" required placeholder="写下你的反馈..."></textarea>
-        <input class="feedback-contact" name="contact" maxlength="120" placeholder="联系方式（可选）">
-        <button class="feedback-submit" type="submit">提交反馈</button>
+        <textarea class="feedback-textarea" name="message" maxlength="2000" required placeholder="写下你的反馈..." data-i18n-placeholder="feedback.placeholder"></textarea>
+        <input class="feedback-contact" name="contact" maxlength="120" placeholder="联系方式（可选）" data-i18n-placeholder="feedback.contactPlaceholder">
+        <button class="feedback-submit" type="submit" data-i18n="feedback.submit">提交反馈</button>
       </form>
       <div class="feedback-status"></div>
     </div>
@@ -1567,13 +1783,13 @@ export function createFeedbackHtml(): string {
   <div class="footer-grid">
     <div>
       <div class="footer-wordmark">aptbot</div>
-      <div class="footer-tagline">你的个人 AI 助手</div>
+      <div class="footer-tagline" data-i18n="footer.tagline">你的个人 AI 助手</div>
     </div>
     <div class="footer-links">
       <a href="https://github.com/evan3060/aptbot">GitHub</a>
-      <a href="https://github.com/evan3060/aptbot#readme">文档</a>
-      <a href="https://github.com/evan3060/aptbot/releases">更新日志</a>
-      <a href="https://github.com/evan3060/aptbot/blob/main/LICENSE">开源协议</a>
+      <a href="https://github.com/evan3060/aptbot#readme" data-i18n="footer.docs">文档</a>
+      <a href="https://github.com/evan3060/aptbot/releases" data-i18n="footer.changelog">更新日志</a>
+      <a href="https://github.com/evan3060/aptbot/blob/main/LICENSE" data-i18n="footer.license">开源协议</a>
     </div>
     <div class="footer-meta">
       <div>v0.2.3</div>
@@ -1581,82 +1797,177 @@ export function createFeedbackHtml(): string {
       <div>© 2026 aptbot</div>
     </div>
   </div>
-  <div class="footer-bottom">用心打造 · 开源 · 可自托管</div>
+  <div class="footer-bottom" data-i18n="footer.bottom">用心打造 · 开源 · 可自托管</div>
 </footer>
 
 <script>
-  (function () {
-    var form = document.querySelector('.feedback-form');
-    if (!form) return;
-    var statusDiv = document.querySelector('.feedback-status');
-    var submitBtn = form.querySelector('button[type="submit"]');
-    var originalText = submitBtn ? submitBtn.textContent : '';
+var SERVER_LANG = '${currentLang}';
+var LEARN_I18N = {
+  zh: {
+    'nav.home': '首页',
+    'nav.learn': '知识',
+    'feedback.title': '留言反馈',
+    'feedback.subtitle': '有想法、问题或需求？提交给我们，会记录到待办。',
+    'feedback.placeholder': '写下你的反馈...',
+    'feedback.contactPlaceholder': '联系方式（可选）',
+    'feedback.submit': '提交反馈',
+    'feedback.submitting': '提交中...',
+    'feedback.submitted': '感谢反馈，已记录到待办',
+    'feedback.error': '提交失败',
+    'feedback.rateLimit': '提交过于频繁，请稍后再试',
+    'feedback.networkError': '网络错误，请检查连接',
+    'footer.tagline': '你的个人 AI 助手',
+    'footer.docs': '文档',
+    'footer.changelog': '更新日志',
+    'footer.license': '开源协议',
+    'footer.bottom': '用心打造 · 开源 · 可自托管'
+  },
+  en: {
+    'nav.home': 'Home',
+    'nav.learn': 'Learn',
+    'feedback.title': 'Feedback',
+    'feedback.subtitle': 'Have thoughts, questions, or requests? Send them to us.',
+    'feedback.placeholder': 'Write your feedback...',
+    'feedback.contactPlaceholder': 'Contact (optional)',
+    'feedback.submit': 'Submit Feedback',
+    'feedback.submitting': 'Submitting...',
+    'feedback.submitted': 'Feedback recorded. Thank you!',
+    'feedback.error': 'Submission failed',
+    'feedback.rateLimit': 'Too frequent. Please try later.',
+    'feedback.networkError': 'Network error. Please check connection.',
+    'footer.tagline': 'Your Personal AI Assistant',
+    'footer.docs': 'Documentation',
+    'footer.changelog': 'Changelog',
+    'footer.license': 'License',
+    'footer.bottom': 'Made with care · Open source · Self-hostable'
+  }
+};
 
-    form.addEventListener('submit', function (e) {
+function learnApplyLang(lang) {
+  document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+  document.querySelectorAll('[data-i18n]').forEach(function(el) {
+    var key = el.dataset.i18n;
+    if (LEARN_I18N[lang] && LEARN_I18N[lang][key]) {
+      el.textContent = LEARN_I18N[lang][key];
+    }
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(function(el) {
+    var key = el.dataset.i18nPlaceholder;
+    if (LEARN_I18N[lang] && LEARN_I18N[lang][key]) {
+      el.placeholder = LEARN_I18N[lang][key];
+    }
+  });
+  var titleEl = document.querySelector('title');
+  if (titleEl && LEARN_I18N[lang]) {
+    var suffixKey = titleEl.getAttribute('data-i18n-title-suffix');
+    if (suffixKey && LEARN_I18N[lang][suffixKey]) {
+      var text = titleEl.textContent || '';
+      var sep = ' - aptbot ';
+      var idx = text.indexOf(sep);
+      if (idx !== -1) {
+        titleEl.textContent = text.substring(0, idx + sep.length) + LEARN_I18N[lang][suffixKey];
+      }
+    }
+    var prefixKey = titleEl.getAttribute('data-i18n-title-prefix');
+    if (prefixKey && LEARN_I18N[lang][prefixKey]) {
+      titleEl.textContent = LEARN_I18N[lang][prefixKey] + ' - aptbot';
+    }
+  }
+  var toggle = document.getElementById('lang-toggle');
+  if (toggle) toggle.textContent = lang === 'zh' ? 'EN' : '中';
+  try { localStorage.setItem('aptbot.lang', lang); } catch(e) {}
+}
+
+(function () {
+  var savedLang = typeof SERVER_LANG !== 'undefined' ? SERVER_LANG : 'zh';
+  try { var ls = localStorage.getItem('aptbot.lang'); if (ls === 'zh' || ls === 'en') savedLang = ls; } catch(e) {}
+  learnApplyLang(savedLang);
+
+  var langToggle = document.getElementById('lang-toggle');
+  if (langToggle) {
+    langToggle.addEventListener('click', function (e) {
       e.preventDefault();
-      if (submitBtn) {
-        submitBtn.disabled = true;
-        submitBtn.textContent = '提交中...';
-      }
-      if (statusDiv) {
-        statusDiv.textContent = '';
-        statusDiv.style.color = '';
-      }
+      var current = document.documentElement.lang;
+      var next = current === 'zh-CN' ? 'en' : 'zh';
+      learnApplyLang(next);
+    });
+  }
 
-      var formData = new FormData(form);
-      var payload = {};
-      formData.forEach(function (v, k) { payload[k] = v; });
+  function _t(key) {
+    var lang = document.documentElement.lang === 'zh-CN' ? 'zh' : 'en';
+    return (LEARN_I18N[lang] && LEARN_I18N[lang][key]) || key;
+  }
 
-      fetch('/api/feedback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      }).then(
-        function (res) {
-          if (res.ok) {
-            form.reset();
-            if (statusDiv) {
-              statusDiv.textContent = '感谢反馈，已记录到待办';
-              statusDiv.style.color = 'var(--accent)';
-            }
-            return;
-          }
-          if (res.status === 429) {
-            if (statusDiv) {
-              statusDiv.textContent = '提交过于频繁，请稍后再试';
-              statusDiv.style.color = 'var(--text-secondary)';
-            }
-            return;
-          }
-          res.json().then(
-            function (data) {
-              if (statusDiv) {
-                statusDiv.textContent = (data && data.error) ? data.error : '提交失败';
-                statusDiv.style.color = 'var(--text-secondary)';
-              }
-            },
-            function () {
-              if (statusDiv) {
-                statusDiv.textContent = '提交失败';
-                statusDiv.style.color = 'var(--text-secondary)';
-              }
-            }
-          );
-        },
-        function () {
+  var form = document.querySelector('.feedback-form');
+  if (!form) return;
+  var statusDiv = document.querySelector('.feedback-status');
+  var submitBtn = form.querySelector('button[type="submit"]');
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = _t('feedback.submitting');
+    }
+    if (statusDiv) {
+      statusDiv.textContent = '';
+      statusDiv.style.color = '';
+    }
+
+    var formData = new FormData(form);
+    var payload = {};
+    formData.forEach(function (v, k) { payload[k] = v; });
+
+    fetch('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).then(
+      function (res) {
+        if (res.ok) {
+          form.reset();
           if (statusDiv) {
-            statusDiv.textContent = '网络错误，请检查连接';
+            statusDiv.textContent = _t('feedback.submitted');
+            statusDiv.style.color = 'var(--accent)';
+          }
+          return;
+        }
+        if (res.status === 429) {
+          if (statusDiv) {
+            statusDiv.textContent = _t('feedback.rateLimit');
             statusDiv.style.color = 'var(--text-secondary)';
           }
+          return;
         }
-      ).finally(function () {
-        if (submitBtn) {
-          submitBtn.disabled = false;
-          submitBtn.textContent = originalText;
+        res.json().then(
+          function (data) {
+            if (statusDiv) {
+              statusDiv.textContent = (data && data.error) ? data.error : _t('feedback.error');
+              statusDiv.style.color = 'var(--text-secondary)';
+            }
+          },
+          function () {
+            if (statusDiv) {
+              statusDiv.textContent = _t('feedback.error');
+              statusDiv.style.color = 'var(--text-secondary)';
+            }
+          }
+        );
+      },
+      function () {
+        if (statusDiv) {
+          statusDiv.textContent = _t('feedback.networkError');
+          statusDiv.style.color = 'var(--text-secondary)';
         }
-      });
+      }
+    ).finally(function () {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = _t('feedback.submit');
+      }
     });
-  })();
+  });
+})();
 </script>
 </body>
 </html>`;

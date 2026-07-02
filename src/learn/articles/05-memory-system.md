@@ -1,16 +1,17 @@
 ---
 slug: "05-memory-system"
 title: "Memory 系统：持久化、压缩、跨会话记忆"
-description: "JSONL append-only 持久化、增量流式解析、SessionEntry 联合类型、Working memory 与 /continue 跨会话继承、Compaction 触发与三级 token 估算、三层记忆架构规划"
+description: "理解 agent 记忆系统的核心矛盾，JSONL append-only 持久化设计、增量流式解析与破损容错、Compaction 压缩策略、跨会话记忆继承，以及三种持久化方案的对比取舍"
 track: agent-practice
 chapter: 核心特性深入篇
 order: 5
 difficulty: intermediate
-estimatedReadingTime: 10
+estimatedReadingTime: 16
 status: published
 prerequisites:
+  - 01-what-is-agent
   - 04-tool-system
-lastUpdated: "2026-07-01"
+lastUpdated: "2026-07-02"
 tags:
   - memory
   - jsonl
@@ -18,109 +19,299 @@ tags:
   - persistence
 ---
 
-# Memory 系统：持久化、压缩、跨会话记忆
+没有记忆的 agent 每次对话都从零开始。它不记得你十分钟前说了什么，不记得昨天修了哪个 bug，不记得这个项目上周的进度。这就像一个同事每次见面都要你重新介绍自己——你能容忍，但无法合作。
 
-没有记忆的 agent 每次都从零开始，无法承担持续项目。但记忆多了又会让 context window 爆炸——LLM 的 context 是有限的，把所有历史都塞进去既贵又慢。Memory 系统就是在这两个极端之间找平衡：保留有用的，压缩冗余的，丢弃过期的。
+但"记住一切"也不是答案。LLM 的 context window 是有限的——当前主流模型在 128K-200K token 之间，看起来很大，但一轮完整的 ReAct 循环（对话历史 + 工具定义 + 工具结果 + system prompt）可以轻松吃掉 10K-20K token。几十轮交互后，context 就会被撑爆。而且 context 越长，推理速度和成本都线性增长。
 
-## JSONL append-only 持久化设计
+所以 Memory 系统的核心矛盾是：**既要记住足够多的信息以保持连续性，又不能让记忆无限制膨胀撑爆 context window**。这篇文章会从记忆系统的基本概念讲起，对比几种持久化方案的取舍，然后深入看 aptbot 如何通过 append-only 日志 + 定时压缩来解决这个矛盾。
 
-aptbot 的会话历史用 JSONL（JSON Lines）格式持久化。每个 session 一个 `.jsonl` 文件，每行一个 JSON 对象，按时间顺序 append。
+## 一、概念：agent 需要什么样的"记忆"
 
-为什么 JSONL 而不是 SQLite 或 JSON 数组？
+### 1.1 三种记忆类型
 
-**vs JSON 数组**：JSON 数组要改一个元素得重写整个文件。append-only 的 JSONL 写入只需追加一行，O(1) 操作，不会因为文件变大而变慢。
+认知科学把人脑的记忆分为三层：感觉记忆、短期记忆、长期记忆。agent 的记忆系统也有类似的层次划分，但工程实现上，我们通常按功能分为三类：
 
-**vs SQLite**：SQLite 是强大的嵌入式数据库，但对 aptbot 这个场景太重——session 数据量小（百级 entry）、查询模式简单（按顺序读）、并发低（单 agent 单 session）。引入 SQLite 会增加依赖、增加打包体积、增加运维复杂度。JSONL 的"零依赖、纯文本、可读"对学习项目更合适。
+**对话历史（Conversation History）**：当前 session 中每一轮的完整记录——用户说了什么、模型回复了什么、调用了哪些工具、结果如何。这是最"贵"的记忆，因为它需要完整的上下文才能让模型理解当前状态。
 
-**append-only 的代价**：删除或修改某个 entry 需要重写整个文件。aptbot 用 Compaction 机制把"修改"转成"压缩后重写"，平时只 append，定期 compact，兼顾写入性能与空间占用。
+**工作记忆（Working Memory）**：agent 正在关注的"当前任务"的关键信息。它不像对话历史那样逐条记录，而是 agent 主动维护的"摘要卡片"——当前在修哪个 bug、已经尝试了什么方案、还有什么待办。工作记忆是"主动维护"的，agent 自己决定哪些信息值得记住。
 
-## 增量流式解析 + 破损行容错 + fs.truncateSync 自动修复
+**长期知识（Long-term Knowledge）**：跨 session 的事实性知识——项目的代码结构、常用的命令模式、用户的偏好设置。这类记忆不需要每轮加载，只在相关时检索。长期知识是最"便宜"的，但也是最难做好的——它需要高效的检索和合理的更新策略。
 
-读 JSONL 不是 `JSON.parse(fs.readFileSync(...))`，而是用增量流式解析。原因有三：
+### 1.2 记忆在 ReAct 循环中的角色
 
-1. **大文件不爆内存**：流式解析逐行处理，不需要把整个文件读进内存。
-2. **并发安全**：流式解析能容忍文件被 append（读到一半有新行写入也能正确处理）。
-3. **破损行容错**：如果某行 JSON 损坏（写入中途崩溃、磁盘错误），流式解析跳过这一行继续，不整个 fail。
+在 ReAct 循环中，记忆出现在两个环节：
 
-破损行容错是关键。生产环境中 JSONL 文件可能因为进程崩溃、磁盘满、并发写入而出现破损行。aptbot 的策略是：
+1. **推理前的上下文组装**：每一轮开始前，系统需要从持久化存储中取出相关记忆，组装成 LLM 的输入上下文。取什么、取多少、以什么格式组织——这些决策直接影响推理质量和成本。
+2. **行动后的记忆更新**：每轮结束后，新的交互需要写入持久化存储。对话历史追加上去，工作记忆可能更新，工具执行结果记录下来。
 
-- 解析时遇到破损行：stderr warning + skip，不阻塞
-- 检测到破损行后：`fs.truncateSync` 把文件截断到最后一个完整行，自动修复
+简单说就是：**推理时读记忆，行动后写记忆**。读决定了 agent 当前的"视野"，写决定了 agent 未来的"可回忆范围"。
 
-这个"容错 + 自修复"组合让 JSONL 在非理想环境下也能用。它不保证零数据丢失（破损行的内容会丢），但保证文件始终可解析、agent 始终能启动。
+### 1.3 持久化存储的工程需求
 
-## SessionEntry 联合类型 + UUID 路径校验
+一个 agent 的记忆存储方案，需要满足以下工程需求：
 
-session 文件里每一行是一个 `SessionEntry`，它是联合类型（discriminated union）：
+- **写入高效**：每轮交互后都要写，写入必须快。最好是 append-only 的 O(1) 写入。
+- **读取灵活**：要能按顺序读完整历史（恢复上下文），也要能跳读（检索特定信息）。
+- **容错性好**：进程崩溃、磁盘写满、并发写入——这些异常场景不能导致数据全部丢失或文件不可解析。
+- **轻量可读**：对学习项目来说，存储文件应该能用文本编辑器打开直接看。这既是教学优势，也是调试优势。
+- **零依赖或低依赖**：不需要引入外部数据库系统就能正常运行。
 
-- **user message**：用户输入
-- **assistant message**：模型回复
-- **tool call**：工具调用记录（name + args + result）
-- **compaction marker**：压缩点标记
-- **metadata**：会话元数据（标题、创建时间等）
+这些需求之间可能存在冲突。比如"写入高效"和"读取灵活"就很难兼得——特定存储方案的选择本质上是对这些需求的优先级排序。
 
-联合类型让 TypeScript 在每行解析时强制类型校验，避免把一个 tool call 当 user message 处理这类错误。
+## 二、通用设计方案
 
-session 文件名是 `sessionId.jsonl`，sessionId 是 UUID v4。aptbot 在读写 session 文件前都做 UUID 路径校验——只接受符合 UUID 格式的 sessionId。这是路径遍历防护的一部分：即使攻击者构造 `../../etc/passwd` 作为 sessionId，UUID 校验会直接拒绝。
+### 2.1 持久化格式的选择
 
-## Working memory + /continue 跨会话继承
+agent 的记忆持久化，本质上是一个"如何把结构化的交互数据存到磁盘上"的问题。常用的选择有三个：
 
-aptbot 区分两类记忆：
+**JSON 数组**：把整个对话历史作为一个 JSON 数组存到一个文件里。简单直接，`JSON.parse` / `JSON.stringify` 两行代码就能读写。
 
-- **会话历史**：完整的 turn-by-turn 记录，存在 JSONL 文件
-- **Working memory**：agent 当前任务的关键信息，存在 `.meta.json` sidecar 里
+但问题在于：append 一个 entry 需要重写整个文件。当文件增长到几 MB（对话历史很容易达到这个规模），每次写入的 O(N) 成本会变得不可接受。而且整个文件读入内存再解析，对大 session 的内存压力很大。
 
-Working memory 不是历史压缩，是 agent 主动维护的"当前关注点"。比如执行"修复 bug X"任务时，working memory 可能记着"问题在 src/foo.ts:42、相关测试是 foo.spec.ts、已尝试方案 A 失败"。
+**SQLite**：用嵌入式关系数据库存储每条 entry。写入是 O(1) 的 INSERT，读取可以用 SQL 灵活查询和过滤，并发控制、事务、索引一应俱全。
 
-`/continue` 命令实现跨会话继承：新 session 启动时，从指定旧 session 继承 working memory（不继承完整历史，避免 context 爆炸）。这让用户能"昨天没做完的事今天接着做"——agent 不需要重新读所有历史，working memory 已经把关键信息浓缩好了。
+但 SQLite 是二进制格式——你不能用文本编辑器直接看数据。它的引入会增加打包体积和依赖复杂度。对于学习项目来说，SQLite 像一个"黑箱"——你看不到数据是怎么存的，只能通过 API 操作。
 
-## Compaction：80% 触发、30% 目标、token 三级估算
+**JSONL（JSON Lines）**：每行一个独立的 JSON 对象，写入是 append-only 的 O(1) 操作。读取时逐行解析，不需要把整个文件加载到内存。纯文本格式，任何编辑器都能打开直接查看。
 
-session 越长，context 越大，直到超过 LLM 的 context window。Compaction 解决这个问题：当 context 占用达到阈值，压缩历史。
+JSONL 的代价是"按行号修改"的成本高——要改某一行需要重写后续所有行。但这个代价可以通过"只 append、定期 compact"的策略来管理。
 
-aptbot 的 Compaction 参数：
+### 2.2 压缩策略的通用思路
 
-- **触发阈值 80%**：context 占用达到 80% 时触发压缩
-- **目标 30%**：压缩后 context 占用降到 30%
-- **token 估算三级**：用三级精度估算 token 数（粗略/中等/精确），平衡精度与性能
+无论用什么存储方案，context window 的容量上限是无法回避的硬约束。所以任何 agent 记忆系统都需要压缩策略——把早期的对话历史浓缩成摘要，而不是逐条保留。
 
-压缩不是简单"删掉旧消息"。aptbot 的策略是：
+通用的压缩思路是：
+1. 设置一个触发阈值（比如 context 占用达到 80%）
+2. 保留最近 N 轮完整对话（保证近期的交互细节不丢失）
+3. 把 N 轮之前的对话压缩成一段摘要——用 LLM 生成一个简短的总结，包含关键决策和结果
+4. 用摘要替换掉旧的历史
 
-1. 保留最近的 N 轮完整对话
-2. 把更早的对话压缩成一段摘要（"用户要求修复 X，agent 通过工具 A/B 完成了 Y，剩余 Z 待办"）
-3. 把摘要作为一条 system message 注入 context，旧对话不再加载
+这样可以保持"近期完整 + 远期摘要"的平衡。近期上下文保留细节让模型能准确理解当前状态，远期摘要保留关键信息又不需要付出逐条记录的成本。
 
-这个策略保住了"近期上下文完整"与"长期记忆摘要"两个目标。agent 还能引用早期发生的事（通过摘要），但不需要为每一条历史消息付出 token 成本。
+### 2.3 跨会话记忆的两种模式
 
-## 三层记忆架构规划（参考 GA L1/L2/L3）
+agent 的记忆如果不跨越 session，那么每次新会话都是一次"失忆"。跨会话记忆的通用方案有两种：
 
-aptbot 当前的记忆系统是"单层"——只有会话历史 + working memory。但规划是走向三层架构，参考 GenericAgent 的 L1/L2/L3：
+**完整继承**：新 session 启动时，把旧 session 的完整历史加载到 context。最简单，但 context 膨胀最快——如果旧 session 已经跑了几百轮，继承后直接超限。
 
-- **L1（即时记忆）**：当前 session 的对话历史，正在使用，最贵
-- **L2（短期记忆）**：近期 session 的摘要，按需检索，中等成本
-- **L3（长期记忆）**：跨 session 的事实性知识，按相关性检索，最便宜
+**摘要继承**：新 session 启动时，只从旧 session 继承"关键摘要"（比如任务状态、待办事项、关键发现），不加载完整历史。更节省 token，但摘要的质量直接决定继承的效果。
 
-L1 已实现，L2/L3 是 future。三层架构的核心思想是"按使用频率分层存储"——频繁访问的放贵的层，少访问的沉到便宜的层，按需"提升"或"沉降"。
+这两种模式不是互斥的——很多系统会结合使用：短间隔的新 session 用完整继承，长间隔的用摘要继承。
 
-这个架构让 agent 既能记住大量历史（L3 容量大），又能在当前任务中快速引用（L1 速度快），还不需要为所有历史付出 L1 的成本。这是 agent 走向"长期使用"的关键基础设施。
+## 三、市面其他记忆方案对比
 
-## future: working dict（LLM 主动管理）
+在不同 agent 项目中，记忆系统的持久化和压缩策略各有侧重。以下是三种有代表性的设计路线。
 
-更远期的规划是 working dict：让 LLM 自己管理一个键值存储，而不是被动地写 working memory。
+### 3.1 方案 A：全量 JSON 内存加载
 
-区别在哪？当前 working memory 是一个字符串字段，agent 用 update_working_memory 工具整体替换。working dict 是结构化的：
+这套路线的做法最朴素：把所有对话历史以 JSON 数组格式持久化，启动时整个文件读入内存，运行时在内存中追加修改，结束时整体写回磁盘。
 
-- `set(key, value)` 设置某项
-- `get(key)` 读某项
-- `delete(key)` 删某项
-- `keys()` 列出所有键
+**设计特点：**
 
-这让 agent 能"记住 N 件事并分别引用"，而不是把所有事塞进一个字符串。比如执行多步任务时，每步的中间结果可以存到不同 key，后续步骤按 key 取用。
+- **数据结构简单**：就是一个 JSON 数组 `[{role, content, timestamp}, ...]`
+- **全量内存加载**：session 启动时 `JSON.parse(fs.readFileSync(path))`，所有历史在内存中
+- **整文件写回**：每次变更后 `fs.writeFileSync(path, JSON.stringify(data))`
 
-GA 已经实现了 working dict，是它 autonomous 能力的关键基础。aptbot 0.2.x 还没做，但在路线图上。
+**优势：**
+
+- 实现极为简单：总共只需要几十行代码
+- 内存中所有数据立即可用，读取速度最快
+- 没有任何外部依赖
+
+**劣势：**
+
+- 写入是 O(N) 操作——session 越长写入越慢，几百轮后每次 append 可能需要几百毫秒
+- 大 session 的内存占用持续增长——一个 500 轮的 session 可能占用几十 MB 内存
+- 并发写入不安全——两次并行写操作可能导致数据丢失
+- 没有容错——如果写入中途进程崩溃，文件可能损坏成不可解析的 JSON
+
+### 3.2 方案 B：SQLite 数据库
+
+这套路线的做法是把每条 entry 作为一行写入 SQLite 数据库表，通过 SQL 进行查询和管理。
+
+**设计特点：**
+
+- **结构化存储**：每个字段独立列（role、content、tool_name、timestamp 等）
+- **SQL 查询**：按时间范围、按角色、按工具类型灵活过滤
+- **事务支持**：写入有 ACID 保证，崩溃后自动回滚
+- **索引优化**：可以在 session_id、timestamp 等字段建索引加速查询
+
+**优势：**
+
+- 功能最完整——事务、索引、复杂查询全部开箱即用
+- 读性能稳定——即使百万级数据也能通过索引快速定位
+- 并发控制成熟——多个会话同时写入不会互相干扰
+- 数据完整性高——写入崩溃不会损坏已有数据
+
+**劣势：**
+
+- 依赖重——项目需要包含 SQLite 库，增加打包体积和编译时间
+- 二进制不可读——数据文件 `.db` 无法用文本编辑器直接查看，对学习和调试不友好
+- 查询需要 SQL 知识——简单的"读全部"也要写 `SELECT * FROM entries ORDER BY seq`
+- 对小数据量场景过度设计——agent session 通常只有几百到几千条 entry，SQLite 的索引和事务优势体现不出来
+- 嵌入式数据库的运维知识（WAL 模式、vacuum、连接池）对学习项目是负担
+
+### 3.3 方案 C：JSONL append-only + compaction
+
+这套路线用 JSONL 格式做 append-only 写入，配合定期的 compaction 机制控制文件增长和 context 膨胀。
+
+**设计特点：**
+
+- **append-only 写入**：每次新 entry 追加一行到文件末尾，O(1) 操作，不重写已有数据
+- **增量解析**：读取时逐行流式解析，不一次性加载整个文件到内存
+- **定期 compaction**：当 context 占用达到阈值时，把旧历史压缩成摘要，重写文件
+- **容错机制**：破损行跳过 + 自动截断修复
+
+**优势：**
+
+- 零依赖——纯文本格式，不需要数据库库
+- 纯文本可读——任何编辑器都能打开查看，方便学习和调试
+- 写入性能稳定——无论 session 多大，追加一行都是 O(1)
+- 读取内存可控——逐行解析，文件再大也不会爆内存
+
+**劣势：**
+
+- compaction 逻辑复杂——需要实现"旧历史 → 摘要 → 替换"的完整流程
+- 不支持随机行修改——要改中间某行只能通过 compaction 重写
+- 并发写入需要文件锁保护——不过对单 agent 场景通常够用
+
+### 3.4 三种方案对比
+
+| 维度 | 方案 A（全量 JSON） | 方案 B（SQLite） | 方案 C（JSONL + compaction） |
+|---|---|---|---|
+| 写入性能 | O(N) 整文件写 | O(1) INSERT | O(1) append |
+| 内存开销 | 全量加载，高 | 按需加载，低 | 逐行解析，低 |
+| 依赖复杂度 | 无依赖 | 需要 SQLite 库 | 无依赖 |
+| 数据可读性 | 纯文本可读 | 二进制不可读 | 纯文本可读 |
+| 容错能力 | 差（崩溃丢全部） | 好（事务保护） | 中（略过破损行） |
+| 并发安全 | 差 | 好 | 中（需文件锁） |
+| 实现复杂度 | 低 | 中 | 中高（compaction 逻辑） |
+| 适合场景 | 极简原型 | 企业级多用户 | 学习项目 / 个人 agent |
+
+## 四、aptbot 的设计特点
+
+aptbot 的选择是方案 C 的路线——JSONL append-only + compaction。原因很直接：作为学习型个人项目，"零依赖、纯文本可读、教学友好"的优先级高于"功能完整、企业级并发"。下面看具体实现。
+
+### 4.1 JSONL append-only：为什么每行一个 JSON
+
+每个 session 对应一个 `.jsonl` 文件，文件名是 UUID v4。每行一个 JSON 对象，按时间顺序 append。
+
+![记忆系统架构](/learn/articles/images/memory-architecture.png)
+
+```
+session_abc123.jsonl 内容示例：
+{"type":"user","content":"帮我看看这个 bug","ts":1717000000000}
+{"type":"assistant","content":"让我先读一下代码","ts":1717000001000}
+{"type":"tool_call","name":"read","args":{"path":"src/foo.ts"},"result":"...","ts":1717000002000}
+{"type":"tool_result","name":"read","content":"...","ts":1717000002001}
+```
+
+写入时只做追加——`fs.appendFileSync(file, JSON.stringify(entry) + '\n')`。这个操作不论文件多大都是 O(1)，保证了写入性能不会随着 session 增长而劣化。
+
+### 4.2 增量流式解析 + 破损行容错 + 自动修复
+
+读取 JSONL 时不是一次性读入内存再 `JSON.parse`，而是逐行流式解析。这样做有三个原因：
+
+1. **大文件不爆内存**：逐行处理，不需要把整个文件放进内存。即使 session 文件增长到几十 MB，内存占用始终是"一行的大小"。
+2. **并发安全**：流式解析能容忍文件在读取过程中被追加——读到一半有新行写入，不会影响已读取的部分。
+3. **破损行容错**：文件写入可能因进程崩溃、磁盘错误产生损坏行（比如写入了一半个 JSON）。流式解析遇到破损行会跳过并输出 warning，不阻塞整个加载过程。
+
+破损行容错的基础上，aptbot 还加了一层自动修复：检测到破损行后，调用 `fs.truncateSync` 把文件截断到最后一个完整行之后。这是"修复"而非"忽略"——它把文件恢复到可正常使用的状态，保证下次启动时 agent 能加载所有有效数据。
+
+这个"容错 + 自修复"组合让 JSONL 在非理想环境下也能稳定工作。它不保证零数据丢失（破损行的内容确实丢了），但保证文件始终可解析、agent 始终能启动。对一个可能随时被用户 `Ctrl+C` 中断的个人项目来说，这层韧性很重要。
+
+### 4.3 SessionEntry 联合类型 + UUID 路径校验
+
+session 文件中的每一行是一个 `SessionEntry`，使用 TypeScript 的联合类型（discriminated union）来区分不同类型：
+
+- **user message**：用户的输入
+- **assistant message**：模型的回复文本
+- **tool_call**：工具调用记录（工具名 + 参数 + 结果）
+- **compaction_marker**：压缩点标记，标识历史摘要的位置
+- **metadata**：会话元数据（标题、创建时间、模型名称等）
+
+联合类型的价值在于类型安全——TypeScript 在解析每一行时强制做类型收窄（type narrowing），确保你不可能把一个 `tool_call` 当成 `user message` 来处理。这是方案 A 和方案 B 都做不到的编译时保障。
+
+session 文件名使用 UUID v4 格式。每次读写 session 文件前都校验 UUID 格式——只接受符合 `/^[0-9a-f-]{36}$/` 的 sessionId。这是一层容易被忽略的安全防护：即使攻击者构造 `../../etc/passwd` 作为 sessionId 试图做路径遍历，UUID 校验会直接拒绝。它和 tool 系统中的 path-guard 形成了跨模块的安全合力。
+
+### 4.4 Working memory + /continue 跨会话继承
+
+aptbot 区分两类记忆，而不是一个"大而全"的存储：
+
+**会话历史（Conversation History）**：完整的 turn-by-turn 记录，存在 `.jsonl` 文件。这是 agent 的"长期存档"，只读不删（除非 compaction）。
+
+**工作记忆（Working Memory）**：agent 当前关注的关键信息，存在 `.meta.json` sidecar 文件中。这不是历史的压缩，而是 agent 主动维护的"当前状态卡"。
+
+举个例子：当 agent 在执行"修复 bug X"任务时，工作记忆可能包含：
+```
+当前任务：修复 src/foo.ts 中第 42 行的 null reference
+已尝试：方案 A（加 optional chain）失败，因为 foo 可能是 undefined
+待尝试：方案 B（加 early return）
+相关文件：src/foo.ts, tests/foo.spec.ts
+```
+
+工作记忆由 agent 通过 `update_working_memory` 工具主动更新。这意味着 agent 自己决定"什么信息值得记住"——这是一个语义化的记忆机制，不是简单的"最后几轮对话"。
+
+`/continue` 命令实现跨会话继承：新 session 启动时，用户指定 `--continue <sessionId>`，新 session 继承旧 session 的工作记忆（不继承完整历史）。这让用户可以"昨天没做完的事今天接着做"——agent 不需要重新读所有历史，工作记忆已经把关键信息浓缩好了。
+
+### 4.5 Compaction：80% 触发、30% 目标、三级 token 估算
+
+session 越长，context 越大。当 context 占用超过 LLM 的 context window 时，推理会失败——要么截断关键信息，要么直接报错。Compaction 是解决这个问题的核心机制。
+
+aptbot 的 compaction 参数：
+
+- **触发阈值 80%**：当当前 context 的 token 估算值达到 context window 的 80% 时触发压缩。留 20% 的缓冲避免刚好在边缘时因一次 tool result 返回就超限。
+- **目标 30%**：压缩完成后，context 占用降到 30%。留下 70% 的空间给后续对话，避免频繁压缩。
+- **三级 token 估算**：提供粗略/中等/精确三种估算级别。粗略估算最快（基于字符数 x 系数），精确估算最慢（使用 tokenizer）。平衡精度与性能——日常用粗略，compaction 触发时用精确。
+
+压缩的执行流程：
+
+1. 保留最近的 N 轮完整对话（当前配置是 10 轮，保留最近的交互细节）
+2. 把 N 轮之前的所有对话发送给 LLM，请求生成一段摘要："用户最初要求 X，agent 通过工具 A 和 B 完成了 Y，遇到了问题 Z，当前方案是 W"
+3. 把生成的摘要作为一条 `compaction_marker` 类型的 system message 注入 context
+4. 将 `.jsonl` 文件重写为：摘要行 + 最近 N 轮的完整行
+
+这样做的效果是：**agent 还能引用早期发生的事（通过摘要），但不需要为每一条历史消息付出逐条的 token 成本**。
+
+对比方案 A 的"全量内存加载"，compaction 让 aptbot 能在 128K context window 下运行几百轮不超限；对比方案 B 的"SQLite 但无压缩"，compaction 从根源上控制了 context 增长，而不只是把存储问题推给数据库。
+
+## 五、发展方向
+
+### 5.1 三层记忆架构（L1/L2/L3）
+
+aptbot 当前的记忆系统是"单层"的——只有会话历史 + 工作记忆。规划的远期架构是三层，参考认知科学的分层记忆模型：
+
+- **L1（即时记忆）**：当前 session 的对话历史，正在使用。每次 LLM 调用都完整加载，最贵。
+- **L2（短期记忆）**：近期 session 的摘要，按需检索。当 agent 需要使用"上周的工作成果"时，从 L2 检索相关摘要加载到 context。
+- **L3（长期记忆）**：跨 session 的事实性知识，按相关性检索。项目的代码结构、常用的命令模式、用户的偏好设置——这些不需要每轮加载，只在相关场景由 agent 主动查询。
+
+三层架构的核心思想是"按使用频率分层存储"：频繁访问的放贵的 L1，少访问的沉到便宜的 L3，按需"提升"或"沉降"。L1 已实现，L2/L3 是未来版本的方向。
+
+### 5.2 Working dict：让 LLM 自己管键值存储
+
+当前的工作记忆是一个字符串字段，agent 通过 `update_working_memory` 工具整体替换。远期的规划是 working dict——结构化的键值存储：
+
+- `set(key, value)`：设置某项
+- `get(key)`：读取某项
+- `delete(key)`：删除某项
+- `keys()`：列出所有键
+
+这让 agent 能"记住多件事并分别引用"，而不是把所有事塞进一个字符串。执行多步任务时，每步的中间结果可以存到不同的 key 下，后续步骤按 key 取用。相比当前"替换整个字符串"的模式，working dict 更精确、更可控。
+
+### 5.3 记忆检索的语义化
+
+当前记忆检索是基于"时间顺序"和"显式继承"的——要么按时间顺序加载历史，要么通过 `/continue` 显式继承。未来可以引入语义检索：agent 能"回忆"相关记忆，而不是只按时间线性回溯。
+
+比如用户说"还记得上周我们讨论的数据库迁移方案吗？"，agent 应该能检索到相关的 session 摘要或工作记忆内容，而不是从头翻历史。这需要嵌入索引和向量检索的引入，是 L2/L3 架构落地的关键技术。
 
 ## 小结
 
-Memory 系统让 agent 不止活在当下。JSONL append-only 提供持久化、增量流式解析提供容错、SessionEntry 联合类型提供类型安全、Working memory + /continue 提供跨会话继承、Compaction 控制 context 增长、三层架构规划长期演进方向。每一项都对应"如何让 agent 既记得住又不爆 context"这个核心矛盾的一面。
+Memory 系统解决的是 agent 的"连续性"问题——让 agent 不止活在当下一轮对话中。这篇文章从三个角度拆解了记忆系统的设计：
 
-下一篇文章看 Skills 系统：如何让 agent 按需加载能力描述，控制 system prompt 的 token 成本。
+1. **概念层面**：agent 需要对话历史（完整记录）、工作记忆（当前关注）、长期知识（跨 session 事实）三种记忆类型。记忆在 ReAct 循环中扮演"推理时读、行动后写"的角色。
+
+2. **方案对比**：方案 A（全量 JSON 内存加载）实现简单但大 session 性能差；方案 B（SQLite 数据库）功能完整但依赖重且二进制不可读；方案 C（JSONL append-only + compaction）零依赖、纯文本可读，适合学习项目。
+
+3. **aptbot 的选择**：JSONL append-only 保证写入性能不随 session 增长劣化，增量流式解析 + 破损行容错 + 自动修复保障数据韧性，SessionEntry 联合类型提供类型安全，Compaction（80% 触发 / 30% 目标 / 三级估算）控制 context 增长，Working memory + /continue 提供轻量的跨会话继承。
+
+下一篇文章，我们看 Skills 系统：agent 的"知识层"如何做到既丰富又不撑爆 system prompt。

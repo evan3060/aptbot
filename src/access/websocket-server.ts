@@ -1,5 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { readFileSync, existsSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { WebSocketServer as WsServer, WebSocket } from 'ws';
 import { createLogger } from '../infrastructure/logger.js';
 import type { MessageBus, InboundMessage, AgentEventEnvelope } from '../bus/types.js';
@@ -7,9 +10,13 @@ import { type UserStorage, UsernameExistsError } from '../infrastructure/user-st
 import type { StorageAdapter } from '../infrastructure/storage/file-storage.js';
 import type { ReplayMessage } from '../core/memory/session-repo.js';
 import type { ArticleLoader } from '../learn/article-loader.js';
+import type { ArticleLang } from '../learn/article-types.js';
 import type { FeedbackStorage } from '../infrastructure/feedback-storage.js';
 import { handleFeedbackApi } from './feedback-api.js';
 import { createLearnListHtml, createLearnArticleHtml, createFeedbackHtml } from './learn-page.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const log = createLogger('websocket-server');
 
@@ -271,6 +278,36 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
   <a href="/learn">← 返回知识体系</a>
 </body>
 </html>`;
+
+    /**
+     * 从请求中解析用户语言偏好，优先级：
+     * 1. URL query parameter ?lang=en|zh
+     * 2. Cookie aptbot.lang
+     * 3. Accept-Language header
+     * 4. 默认 'zh'
+     */
+    function resolveLang(req: IncomingMessage): ArticleLang {
+      const url = new URL(req.url ?? '/', 'http://localhost');
+      const queryLang = url.searchParams.get('lang');
+      if (queryLang === 'en') return 'en';
+      if (queryLang === 'zh') return 'zh';
+
+      const cookies = parseCookies(req.headers.cookie);
+      const cookieLang = cookies['aptbot.lang'];
+      if (cookieLang === 'en' || cookieLang === 'zh') return cookieLang;
+
+      const acceptLanguage = req.headers['accept-language'];
+      if (acceptLanguage) {
+        const langs = acceptLanguage.split(',').map(s => s.trim().split(';')[0]);
+        for (const l of langs) {
+          if (l.startsWith('zh')) return 'zh';
+          if (l.startsWith('en')) return 'en';
+        }
+      }
+
+      return 'zh';
+    }
+
     const httpServer = createServer((req, res) => {
       const pathname = new URL(req.url ?? '/', `http://localhost:${port}`).pathname;
 
@@ -306,9 +343,43 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
       }
       // Task 9 (0.2.3): /learn 列表页（仅 learnEnabled 且 articleLoader 提供时）
       if (isLearnEnabled && articleLoader && req.method === 'GET' && pathname === '/learn') {
-        const html = createLearnListHtml(articleLoader.getState());
+        const lang = resolveLang(req);
+        const html = createLearnListHtml(articleLoader.getState(), lang);
         res.writeHead(200, htmlHeaders);
         res.end(html);
+        return;
+      }
+      // 静态图片资源：/learn/articles/images/*.png|jpg|svg
+      if (isLearnEnabled && req.method === 'GET' && pathname.startsWith('/learn/articles/images/')) {
+        const imagesDir = path.resolve(__dirname, '../learn/articles/images');
+        const requested = path.resolve(__dirname, '../learn', pathname.replace(/^\/learn\//, ''));
+        const rel = path.relative(imagesDir, requested);
+        if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+          const ext = path.extname(requested).toLowerCase();
+          const mimeMap: Record<string, string> = {
+            '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+            '.gif': 'image/gif', '.svg': 'image/svg+xml', '.webp': 'image/webp',
+          };
+          const mime = mimeMap[ext];
+          if (mime && existsSync(requested)) {
+            try {
+              const data = readFileSync(requested);
+              res.writeHead(200, {
+                'Content-Type': mime,
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'X-Content-Type-Options': 'nosniff',
+              });
+              res.end(data);
+              return;
+            } catch {
+              res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+              res.end('Not Found');
+              return;
+            }
+          }
+        }
+        res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Forbidden');
         return;
       }
       // Task 9 (0.2.3): /learn/:slug 文章页（仅 learnEnabled 且 articleLoader 提供时）
@@ -317,10 +388,11 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
         const articleMatch = pathname.match(/^\/learn\/([a-z0-9-]+)$/);
         if (articleMatch) {
           const slug = articleMatch[1];
-          const article = articleLoader.getBySlug(slug);
+          const lang = resolveLang(req);
+          const article = articleLoader.getBySlugAndLang(slug, lang) ?? articleLoader.getBySlug(slug);
           if (article) {
-            const nav = articleLoader.getArticleNav(slug);
-            const html = createLearnArticleHtml(article, nav);
+            const nav = articleLoader.getArticleNav(slug, lang);
+            const html = createLearnArticleHtml(article, nav, lang);
             res.writeHead(200, htmlHeaders);
             res.end(html);
             return;

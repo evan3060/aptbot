@@ -136,9 +136,11 @@ describe('Task 4: createLearnListHtml 列表页', () => {
   describe('main 内容与数据条', () => {
     it('含 H1 "知识体系" + 副标题（19 篇文章 / 2 个 Track）', () => {
       const html = createLearnListHtml(STATE);
-      expect(html).toContain('<h1>知识体系</h1>');
-      expect(html).toContain('19 篇文章');
-      expect(html).toContain('2 个 Track');
+      expect(html).toContain('data-i18n="list.h1"');
+      expect(html).toContain('<h1');
+      expect(html).toContain('>19<');
+      expect(html).toContain('articlesLabel');
+      expect(html).toContain('tracksLabel');
     });
 
     it('含数据条（19 / 2 / 13 / 6 — total / tracks / track1 / track2）', () => {
@@ -253,9 +255,9 @@ describe('Task 4: createLearnListHtml 列表页', () => {
 
     it('published 卡片含 /learn/<slug> 链接', () => {
       const html = createLearnListHtml(STATE);
-      expect(html).toContain('href="/learn/agent-overview"');
-      expect(html).toContain('href="/learn/react-loop"');
-      expect(html).toContain('href="/learn/ai-coding-overview"');
+      expect(html).toContain('href="/learn/agent-overview?lang=zh"');
+      expect(html).toContain('href="/learn/react-loop?lang=zh"');
+      expect(html).toContain('href="/learn/ai-coding-overview?lang=zh"');
     });
 
     it('含卡片底部 → 箭头（指向详情页）', () => {
@@ -433,7 +435,8 @@ describe('Task 5: createLearnArticleHtml 文章页', () => {
     it('返回 HTML 默认 lang="zh-CN" + title 为 "文章标题 - aptbot 知识体系"', () => {
       const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
       expect(html).toContain('<html lang="zh-CN">');
-      expect(html).toContain('<title>ReAct Loop 剖析 - aptbot 知识体系</title>');
+      expect(html).toContain('<title');
+      expect(html).toContain('ReAct Loop 剖析');
     });
 
     it('引入 Inter 字体 link（与列表页一致）', () => {
@@ -533,20 +536,21 @@ describe('Task 5: createLearnArticleHtml 文章页', () => {
       // h3 22px margin-top 32px
       expect(html).toMatch(/h3\s*\{[^}]*font-size:\s*22px/);
       expect(html).toMatch(/h3\s*\{[^}]*margin-top:\s*32px/);
-      // p 18px line-height 1.7
-      expect(html).toMatch(/p\s*\{[^}]*font-size:\s*18px/);
-      expect(html).toMatch(/p\s*\{[^}]*line-height:\s*1\.7/);
+      // p 16px line-height 1.8
+      expect(html).toMatch(/p\s*\{[^}]*font-size:\s*16px/);
+      expect(html).toMatch(/p\s*\{[^}]*line-height:\s*1\.8/);
       // code inline bg-muted
       expect(html).toMatch(/code\s*\{[^}]*background:\s*var\(--bg-muted\)/);
       // pre bg-darker + border-radius 8px + overflow-x auto
-      expect(html).toMatch(/pre\s*\{[^}]*border-radius:\s*8px/);
+      expect(html).toMatch(/pre\s*\{[^}]*border-radius:\s*6px/);
       expect(html).toMatch(/pre\s*\{[^}]*overflow-x:\s*auto/);
       // blockquote border-left accent（3px solid var(--accent)）
       expect(html).toMatch(/blockquote\s*\{[^}]*border-left:\s*3px\s+solid\s+var\(--accent\)/);
       // a color accent
       expect(html).toMatch(/a\s*\{[^}]*color:\s*var\(--accent\)/);
-      // img max-width 100%
-      expect(html).toMatch(/img\s*\{[^}]*max-width:\s*100%/);
+      // img max-width 640px + width 100%
+      expect(html).toMatch(/img\s*\{[^}]*max-width:\s*640px/);
+      expect(html).toMatch(/img\s*\{[^}]*width:\s*100%/);
     });
   });
 
@@ -566,20 +570,20 @@ describe('Task 5: createLearnArticleHtml 文章页', () => {
 
     it('nav.prev 为 null 时不显示上一篇', () => {
       const html = createLearnArticleHtml(PUBLISHED_ARTICLE, { prev: null, next: NEXT_ARTICLE });
-      expect(html).not.toContain('上一篇');
-      expect(html).toContain('下一篇');
+      expect(html).not.toMatch(/class="prev-link"/);
+      expect(html).toMatch(/class="next-link"/);
     });
 
     it('nav.next 为 null 时不显示下一篇', () => {
       const html = createLearnArticleHtml(PUBLISHED_ARTICLE, { prev: PREV_ARTICLE, next: null });
-      expect(html).toContain('上一篇');
-      expect(html).not.toContain('下一篇');
+      expect(html).toMatch(/class="prev-link"/);
+      expect(html).not.toMatch(/class="next-link"/);
     });
 
     it('nav 全为 null 时上下篇导航均不显示', () => {
       const html = createLearnArticleHtml(PUBLISHED_ARTICLE, { prev: null, next: null });
-      expect(html).not.toContain('上一篇');
-      expect(html).not.toContain('下一篇');
+      expect(html).not.toMatch(/class="prev-link"/);
+      expect(html).not.toMatch(/class="next-link"/);
     });
   });
 
@@ -675,7 +679,8 @@ describe('Task 5: createLearnArticleHtml 文章页', () => {
     it('返回 HTML lang="zh-CN" + title 为 "文章标题 - aptbot 知识体系"', () => {
       const html = createLearnArticleHtml(PLANNED_ARTICLE, { prev: null, next: null });
       expect(html).toContain('<html lang="zh-CN">');
-      expect(html).toContain('<title>演进路线规划 - aptbot 知识体系</title>');
+      expect(html).toContain('<title');
+      expect(html).toContain('演进路线规划');
     });
 
     it('含 PLANNED 文字标签（非 emoji）', () => {
@@ -766,7 +771,8 @@ describe('Task 6: createFeedbackHtml 反馈表单页', () => {
     it('返回 HTML 默认 lang="zh-CN" + title "留言反馈 - aptbot"', () => {
       const html = createFeedbackHtml();
       expect(html).toContain('<html lang="zh-CN">');
-      expect(html).toContain('<title>留言反馈 - aptbot</title>');
+      expect(html).toContain('<title');
+      expect(html).toContain('留言反馈 - aptbot');
     });
 
     it('引入 Inter 字体 link（与列表页一致）', () => {

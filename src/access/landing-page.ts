@@ -61,7 +61,7 @@ function groupByChapter(articles: readonly Article[]): ChapterGroup[] {
 function renderKnowledgeArticleCard(article: Article): string {
   const meta = article.meta;
   const difficultyLabel = DIFFICULTY_LABELS[meta.difficulty] ?? meta.difficulty;
-  const metaRow = `${escapeHtml(difficultyLabel)} · ${meta.estimatedReadingTime} 分钟`;
+  const metaRow = `${escapeHtml(difficultyLabel)} · ${meta.estimatedReadingTime} <span data-i18n="learn.minutes">分钟</span>`;
   if (meta.status === 'planned') {
     return `        <div class="article-card article-card-planned" data-track="${escapeHtml(meta.track)}">
           <div class="article-meta">${metaRow}</div>
@@ -88,7 +88,7 @@ function renderKnowledgeChapter(chapter: ChapterGroup): string {
   const hiddenCount = chapter.articles.length - visible.length;
   const cardsHtml = visible.map(renderKnowledgeArticleCard).join('\n');
   const moreLink = hiddenCount > 0
-    ? `\n        <a class="chapter-more-link" href="/learn">+${hiddenCount} 更多</a>`
+    ? `\n        <a class="chapter-more-link" href="/learn">+${hiddenCount}<span data-i18n="learn.more"> 更多</span></a>`
     : '';
   return `      <div class="chapter">
         <div class="chapter-name">${escapeHtml(chapter.name)}</div>
@@ -124,27 +124,27 @@ function renderKnowledgeSection(articleState: ArticleState | undefined): string 
   return `  <section id="learn">
     <div class="container">
       <h2 class="section-h2-md" data-i18n="learn.h2">边用边学，从 0 理解 agent</h2>
-      <p class="knowledge-subtitle" data-i18n="learn.subtitle">${totalArticles} 篇结构化文章，覆盖 agent 原理、实现与演进。</p>
+      <p class="knowledge-subtitle"><span class="knowledge-count">${totalArticles}</span><span data-i18n="learn.subtitle"> 篇结构化文章，覆盖 agent 原理、实现与演进。</span></p>
       <div class="data-bar">
         <div>
           <div class="eval-label">Articles</div>
           <div class="eval-value">${totalArticles}</div>
-          <div class="card-desc">篇文章</div>
+          <div class="card-desc" data-i18n="learn.dataBar.articles">篇文章</div>
         </div>
         <div>
           <div class="eval-label">Tracks</div>
           <div class="eval-value">${totalTracks}</div>
-          <div class="card-desc">个 Track</div>
+          <div class="card-desc" data-i18n="learn.dataBar.tracks">个 Track</div>
         </div>
         <div>
           <div class="eval-label">Track 1</div>
           <div class="eval-value">${track1Count}</div>
-          <div class="card-desc">Agent 体系实践</div>
+          <div class="card-desc" data-i18n="learn.dataBar.track1">Agent 体系实践</div>
         </div>
         <div>
           <div class="eval-label">Track 2</div>
           <div class="eval-value">${track2Count}</div>
-          <div class="card-desc">AI 辅助编码实践</div>
+          <div class="card-desc" data-i18n="learn.dataBar.track2">AI 辅助编码实践</div>
         </div>
       </div>
 ${tracksHtml}
@@ -201,8 +201,14 @@ export function createLandingPageHtml(opts: LandingPageOptions = {}): string {
       'architecture.eval5.label': '篇文章',
       'architecture.eval6.label': '个 Track',
       'learn.h2': '边用边学，从 0 理解 agent',
-      'learn.subtitle': '19 篇结构化文章，覆盖 agent 原理、实现与演进。',
-      'learn.cta': '查看全部文章 →'`
+      'learn.subtitle': ' 篇结构化文章，覆盖 agent 原理、实现与演进。',
+      'learn.cta': '查看全部文章 →',
+      'learn.minutes': '分钟',
+      'learn.more': ' 更多',
+      'learn.dataBar.articles': '篇文章',
+      'learn.dataBar.tracks': '个 Track',
+      'learn.dataBar.track1': 'Agent 体系实践',
+      'learn.dataBar.track2': 'AI 辅助编码实践'`
     : '';
 
   const learnI18nEn = learnEnabled
@@ -212,8 +218,14 @@ export function createLandingPageHtml(opts: LandingPageOptions = {}): string {
       'architecture.eval5.label': 'articles',
       'architecture.eval6.label': 'tracks',
       'learn.h2': 'Learn while using, understand agents from 0',
-      'learn.subtitle': '19 structured articles covering agent principles, implementation, and evolution.',
-      'learn.cta': 'View all articles →'`
+      'learn.subtitle': ' structured articles covering agent principles, implementation, and evolution.',
+      'learn.cta': 'View all articles →',
+      'learn.minutes': 'min',
+      'learn.more': ' more',
+      'learn.dataBar.articles': 'articles',
+      'learn.dataBar.tracks': 'tracks',
+      'learn.dataBar.track1': 'Agent Practice',
+      'learn.dataBar.track2': 'AI Coding Practice'`
     : '';
 
   return `<!DOCTYPE html>
@@ -719,7 +731,7 @@ export function createLandingPageHtml(opts: LandingPageOptions = {}): string {
       <p class="hero-subtitle" data-i18n="${heroSubtitleI18nKey}">${heroSubtitleZh}</p>${heroTaglineHtml}
       <div class="hero-ctas">
         <a href="/demo" class="btn-pill btn-pill-primary" data-i18n="hero.cta.primary">体验 Demo →</a>
-        <a href="https://github.com/evan3060/aptbot" class="btn-pill btn-pill-secondary" data-i18n="hero.cta.secondary">查看 GitHub</a>
+        <a href="/learn" class="btn-pill btn-pill-secondary" data-i18n="hero.cta.secondary">学习入口</a>
       </div>
     </div>
     <div class="hero-visual" aria-hidden="true">
@@ -876,7 +888,7 @@ ${knowledgeSectionHtml}
       'hero.h1': '开源 · 自托管 · 完全属于你的 AI 助手',
       'hero.subtitle': '不只是聊天机器人，而是一个会思考、会行动、会记忆的 agent。能通过工具操作你的本地环境，能记住你的跨会话偏好，能通过 CLI / WebUI / IM 多端接入。',
       'hero.cta.primary': '体验 Demo →',
-      'hero.cta.secondary': '查看 GitHub',
+      'hero.cta.secondary': '学习入口',
       'features.h2': '不是框架，不是 SaaS，而是"你的"agent',
       'features.card1.title': '透明思考过程',
       'features.card1.desc': 'core 仅 ~3 文件，可读的 ReAct loop。每个思考、每次工具调用、每个决策都对你完全可见。',
@@ -928,7 +940,7 @@ ${knowledgeSectionHtml}
       'hero.h1': "Open-source · Self-hosted · An AI assistant that's truly yours",
       'hero.subtitle': 'Not just a chatbot, but an agent that thinks, acts, and remembers. It operates your local environment through tools, remembers your cross-session preferences, and connects via CLI / WebUI / IM.',
       'hero.cta.primary': 'Try Demo →',
-      'hero.cta.secondary': 'View on GitHub',
+      'hero.cta.secondary': 'Learning Hub',
       'features.h2': 'Not a framework, not a SaaS, but "your" agent',
       'features.card1.title': 'Transparent Thinking',
       'features.card1.desc': 'Core is only ~3 files, a readable ReAct loop. Every thought, every tool call, every decision is fully visible to you.',
