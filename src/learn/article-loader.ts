@@ -363,18 +363,22 @@ export class ArticleLoader {
       }
     }
 
-    // 6. order 全局重复检测
+    // 6. order 全局重复检测（跨语言同 order 是正常的，不警告）
     const orderGroups = new Map<number, string[]>();
     for (const item of bySlugTemp.values()) {
       const arr = orderGroups.get(item.meta.order) ?? [];
-      arr.push(item.filename);
+      arr.push(`${item.filename} (${item.lang})`);
       orderGroups.set(item.meta.order, arr);
     }
     for (const [order, files] of orderGroups) {
       if (files.length > 1) {
-        this.logger.warn(
-          `[article-loader] duplicate order ${order} across files: ${files.join(', ')}; using filename fallback sort`,
-        );
+        // 检查是否仅因不同语言版本导致重复
+        const langs = new Set(files.map((f) => f.match(/\((\w+)\)$/)?.[1]));
+        if (langs.size === 1) {
+          this.logger.warn(
+            `[article-loader] duplicate order ${order} across files: ${files.join(', ')}; using filename fallback sort`,
+          );
+        }
       }
     }
 
