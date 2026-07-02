@@ -350,9 +350,12 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
         return;
       }
       // 静态图片资源：/learn/articles/images/*.png|jpg|svg
+      // 优先从 dist/learn/articles/images/ 读取，production 模式下回退到 src/learn/articles/images/
       if (isLearnEnabled && req.method === 'GET' && pathname.startsWith('/learn/articles/images/')) {
-        const imagesDir = path.resolve(__dirname, '../learn/articles/images');
-        const requested = path.resolve(__dirname, '../learn', pathname.replace(/^\/learn\//, ''));
+        const distImagesDir = path.resolve(__dirname, '../learn/articles/images');
+        const srcImagesDir = path.resolve(process.cwd(), 'src', 'learn', 'articles', 'images');
+        const imagesDir = existsSync(distImagesDir) ? distImagesDir : srcImagesDir;
+        const requested = path.resolve(imagesDir, path.basename(pathname));
         const rel = path.relative(imagesDir, requested);
         if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
           const ext = path.extname(requested).toLowerCase();
