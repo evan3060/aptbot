@@ -36,6 +36,7 @@ import { createLogger } from './infrastructure/logger.js';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import * as os from 'node:os';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 const FULL_CAP: ChannelCapability = {
