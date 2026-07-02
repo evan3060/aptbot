@@ -483,3 +483,4 @@ git checkout main && git pull origin main
 | `9fedcd4` | fix: break session ownership mismatch infinite loop |
 | `94e4145` | feat(l1): complete L1 with user system and multi-client sync |
 | `53c234c` | feat(v0.2.1): aptbot.de landing page + adept-style chat migration + mobile adaptation |
+| `39bc791` | fix(v0.2.3): comprehensive English i18n + security headers (HSTS/X-Frame-Options/Referrer-Policy) + bilingual landing page cards + article body cleanup |
