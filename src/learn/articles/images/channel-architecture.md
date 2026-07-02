@@ -1,0 +1,1 @@
+设计一张现代企业级中文架构图信息图。主题：AI Agent Channel 多端接入架构——类型化事件总线。整体布局：左侧多个客户端（WebSocket/Telegram/CLI）连接到中央 Channel 接口（type/send/close/isAlive 4方法）。右侧 Agent Session 通过 bindSession(sessionKey, channel) 多对一共享。底部 dead-channel 自动 unbind 机制。整体风格：Figma UI 风格，蓝白科技风，扁平化矢量图标，细边框卡片，微阴影，浅灰背景，科技感网格纹理。配色：白色背景，蓝色主色调，绿色代表活跃连接，灰色代表已断开，深蓝文字。从左到右分层布局，蓝色箭头连接。画面质量：超高分辨率，专业 PPT 级视觉。size: 1024x1024

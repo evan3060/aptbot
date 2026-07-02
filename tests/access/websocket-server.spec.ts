@@ -14,6 +14,10 @@ import {
 import { InMemoryMessageBus } from '../../src/bus/message-bus.js';
 import { createUserStorage } from '../../src/infrastructure/user-storage.js';
 import type { MessageBus, AgentEventEnvelope } from '../../src/bus/types.js';
+import type { ArticleLoader } from '../../src/learn/article-loader.js';
+import type { FeedbackStorage } from '../../src/infrastructure/feedback-storage.js';
+import { TRACKS, type Article, type ArticleState } from '../../src/learn/article-types.js';
+import { resetRateLimiter } from '../../src/access/feedback-api.js';
 
 const TEST_PORT = 18765;
 
@@ -371,6 +375,322 @@ describe('WebSocketServer', () => {
       await startLandingServer();
       const res = await httpPostJson('/api/login', { username: 'nobody', password: 'wrong' });
       expect(res.status).toBe(401);
+    });
+  });
+
+  // Task 9: learn/feedback routing — /learn, /learn/:slug, /feedback, /api/feedback
+  describe('Task 9: learn/feedback routing', () => {
+    const LEARN_PORT = 18795;
+    const AUTH_TOKEN = 'admin-secret';
+    let learnTmpDir: string | null = null;
+
+    afterEach(() => {
+      if (learnTmpDir) {
+        rmSync(learnTmpDir, { recursive: true, force: true });
+        learnTmpDir = null;
+      }
+    });
+
+    // Stub article data
+    const testArticle: Article = {
+      meta: {
+        slug: 'test-article',
+        title: 'Test Article Title',
+        description: 'A test article for routing',
+        track: 'agent-practice',
+        chapter: 'Chapter 1',
+        order: 1,
+        difficulty: 'beginner',
+        estimatedReadingTime: 5,
+        status: 'published',
+        prerequisites: [],
+        lastUpdated: '2026-07-01',
+        tags: ['test'],
+      },
+      renderedHtml: '<p>Test content</p>',
+      markdownBody: 'Test content',
+    };
+    const testState: ArticleState = {
+      articles: [testArticle],
+      tracks: TRACKS,
+      bySlug: new Map([['test-article', testArticle]]),
+      byTrack: new Map([['agent-practice', [testArticle]]]),
+    };
+
+    function makeArticleLoaderStub(): ArticleLoader {
+      return {
+        getState: () => testState,
+        getBySlug: (slug: string) => testState.bySlug.get(slug) ?? null,
+        getBySlugAndLang: (slug: string, _lang: string) => testState.bySlug.get(slug) ?? null,
+        getArticleNav: (_slug: string, _lang?: string) => {
+          return { prev: null, next: null };
+        },
+      } as unknown as ArticleLoader;
+    }
+
+    function makeFeedbackStorageStub(): FeedbackStorage {
+      const entries: any[] = [];
+      return {
+        append: async (input: any) => {
+          const entry = {
+            id: `fb-test-${entries.length + 1}`,
+            message: input.message,
+            category: input.category,
+            articleSlug: input.articleSlug,
+            contact: input.contact,
+            ip: input.ip,
+            userAgent: input.userAgent,
+            status: 'open' as const,
+            createdAt: new Date().toISOString(),
+          };
+          entries.push(entry);
+          return entry;
+        },
+        list: async (filter: any) => {
+          let filtered = [...entries];
+          const status = filter.status ?? 'open';
+          filtered = filtered.filter((e) => e.status === status);
+          if (filter.category) {
+            filtered = filtered.filter((e) => e.category === filter.category);
+          }
+          return { items: filtered, total: filtered.length };
+        },
+        findById: async (id: string) => entries.find((e) => e.id === id) ?? null,
+        moderate: async (id: string, update: any) => {
+          const idx = entries.findIndex((e) => e.id === id);
+          if (idx === -1) return null;
+          const existing = entries[idx];
+          const updated = {
+            ...existing,
+            status: update.status,
+            moderatedAt: new Date().toISOString(),
+            ...(update.note !== undefined ? { note: update.note } : {}),
+          };
+          entries[idx] = updated;
+          return updated;
+        },
+      } as unknown as FeedbackStorage;
+    }
+
+    async function httpGet(path: string, headers?: Record<string, string>): Promise<{ status: number; body: string; headers: Record<string, string> }> {
+      const res = await fetch(`http://localhost:${LEARN_PORT}${path}`, { method: 'GET', headers });
+      const text = await res.text();
+      const headerMap: Record<string, string> = {};
+      res.headers.forEach((v, k) => { headerMap[k.toLowerCase()] = v; });
+      return { status: res.status, body: text, headers: headerMap };
+    }
+
+    async function httpPostJson(path: string, body: unknown, headers?: Record<string, string>): Promise<{ status: number; body: any }> {
+      const res = await fetch(`http://localhost:${LEARN_PORT}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headers },
+        body: JSON.stringify(body),
+      });
+      const text = await res.text();
+      let parsed: any = text;
+      try { parsed = JSON.parse(text); } catch { /* keep text */ }
+      return { status: res.status, body: parsed };
+    }
+
+    async function startLearnServer(opts: {
+      learnEnabled?: boolean;
+      feedbackEnabled?: boolean;
+      articleLoader?: ArticleLoader;
+      feedbackStorage?: FeedbackStorage;
+      withUserStorage?: boolean;
+      serveHtml?: string;
+      serveDemoHtml?: string;
+    } = {}): Promise<void> {
+      resetRateLimiter();
+      const options: Record<string, unknown> = {
+        port: LEARN_PORT,
+        bus,
+        learnEnabled: opts.learnEnabled,
+        feedbackEnabled: opts.feedbackEnabled,
+        articleLoader: opts.articleLoader,
+        feedbackStorage: opts.feedbackStorage,
+        authToken: AUTH_TOKEN,
+      };
+      if (opts.withUserStorage) {
+        learnTmpDir = mkdtempSync(join(tmpdir(), 'aptbot-ws-learn-'));
+        options.userStorage = createUserStorage(learnTmpDir);
+      }
+      if (opts.serveHtml !== undefined) options.serveHtml = opts.serveHtml;
+      if (opts.serveDemoHtml !== undefined) options.serveDemoHtml = opts.serveDemoHtml;
+      server = await startWebSocketServer(options as any);
+    }
+
+    // 1. GET /learn when learnEnabled → 200 HTML
+    it('GET /learn when learnEnabled returns 200 HTML (createLearnListHtml)', async () => {
+      await startLearnServer({
+        learnEnabled: true,
+        articleLoader: makeArticleLoaderStub(),
+      });
+      const res = await httpGet('/learn');
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('知识体系');
+      expect(res.headers['content-type']).toContain('text/html');
+    });
+
+    // 2. GET /learn when !learnEnabled → 404
+    it('GET /learn when !learnEnabled returns 404', async () => {
+      await startLearnServer({ learnEnabled: false });
+      const res = await httpGet('/learn');
+      expect(res.status).toBe(404);
+    });
+
+    // 3. GET /learn/:slug when learnEnabled + article exists → 200 HTML
+    it('GET /learn/:slug when learnEnabled + article exists returns 200 HTML', async () => {
+      await startLearnServer({
+        learnEnabled: true,
+        articleLoader: makeArticleLoaderStub(),
+      });
+      const res = await httpGet('/learn/test-article');
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('Test Article Title');
+      expect(res.headers['content-type']).toContain('text/html');
+    });
+
+    // 4. GET /learn/:slug when article not found → friendly 404 HTML
+    it('GET /learn/:slug when article not found returns friendly 404 HTML', async () => {
+      await startLearnServer({
+        learnEnabled: true,
+        articleLoader: makeArticleLoaderStub(),
+      });
+      const res = await httpGet('/learn/nonexistent');
+      expect(res.status).toBe(404);
+      expect(res.body).toContain('文章不存在');
+      expect(res.body).toContain('/learn');
+      expect(res.headers['content-type']).toContain('text/html');
+    });
+
+    // 5. GET /learn/:slug when !learnEnabled → 404
+    it('GET /learn/:slug when !learnEnabled returns 404', async () => {
+      await startLearnServer({ learnEnabled: false });
+      const res = await httpGet('/learn/test-article');
+      expect(res.status).toBe(404);
+    });
+
+    // 6. GET /feedback when feedbackEnabled → 200 HTML
+    it('GET /feedback when feedbackEnabled returns 200 HTML', async () => {
+      await startLearnServer({ feedbackEnabled: true });
+      const res = await httpGet('/feedback');
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('留言反馈');
+      expect(res.headers['content-type']).toContain('text/html');
+    });
+
+    // 7. GET /feedback when !feedbackEnabled → 404
+    it('GET /feedback when !feedbackEnabled returns 404', async () => {
+      await startLearnServer({ feedbackEnabled: false });
+      const res = await httpGet('/feedback');
+      expect(res.status).toBe(404);
+    });
+
+    // 8. POST /api/feedback when feedbackEnabled → handled by handleFeedbackApi
+    it('POST /api/feedback when feedbackEnabled is handled by handleFeedbackApi', async () => {
+      await startLearnServer({
+        feedbackEnabled: true,
+        feedbackStorage: makeFeedbackStorageStub(),
+      });
+      const res = await httpPostJson('/api/feedback', {
+        message: 'Great work!',
+        category: 'general',
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(res.body.id).toBeTruthy();
+    });
+
+    // 9. POST /api/feedback when !feedbackEnabled → disabled response
+    it('POST /api/feedback when !feedbackEnabled returns disabled response', async () => {
+      await startLearnServer({ feedbackEnabled: false });
+      const res = await httpPostJson('/api/feedback', {
+        message: 'Great work!',
+        category: 'general',
+      });
+      expect([403, 404, 503]).toContain(res.status);
+    });
+
+    // 10. GET /api/feedback when feedbackEnabled → handled by handleFeedbackApi
+    it('GET /api/feedback when feedbackEnabled is handled by handleFeedbackApi', async () => {
+      await startLearnServer({
+        feedbackEnabled: true,
+        feedbackStorage: makeFeedbackStorageStub(),
+      });
+      const res = await httpGet('/api/feedback', {
+        authorization: `Bearer ${AUTH_TOKEN}`,
+      });
+      expect(res.status).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.ok).toBe(true);
+      expect(body).toHaveProperty('items');
+      expect(body).toHaveProperty('total');
+    });
+
+    // 11. Route order: /api/feedback takes priority over /api/*
+    it('/api/feedback takes priority over /api/* (route order)', async () => {
+      await startLearnServer({
+        withUserStorage: true,
+        feedbackEnabled: true,
+        feedbackStorage: makeFeedbackStorageStub(),
+      });
+      // POST /api/feedback should be handled by handleFeedbackApi (returns { ok: true, id })
+      // not handleAuthApi (which would return 404 { error: 'not found' })
+      const res = await httpPostJson('/api/feedback', {
+        message: 'Route order test',
+        category: 'general',
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(res.body.id).toBeTruthy();
+    });
+
+    // 12. HTML response headers correct
+    it('HTML response headers include Content-Type, Cache-Control, X-Content-Type-Options', async () => {
+      await startLearnServer({
+        learnEnabled: true,
+        feedbackEnabled: true,
+        articleLoader: makeArticleLoaderStub(),
+      });
+      const res = await httpGet('/learn');
+      expect(res.headers['content-type']).toBe('text/html; charset=utf-8');
+      expect(res.headers['cache-control']).toBe('no-cache, no-store, must-revalidate');
+      expect(res.headers['x-content-type-options']).toBe('nosniff');
+
+      const res2 = await httpGet('/feedback');
+      expect(res2.headers['x-content-type-options']).toBe('nosniff');
+    });
+
+    // 13. Existing routes still work (regression)
+    it('existing routes (/, /demo, /api/*) still work (regression)', async () => {
+      await startLearnServer({
+        withUserStorage: true,
+        serveHtml: '<html id="landing">',
+        serveDemoHtml: '<html id="chat">',
+        learnEnabled: true,
+        feedbackEnabled: true,
+        articleLoader: makeArticleLoaderStub(),
+        feedbackStorage: makeFeedbackStorageStub(),
+      });
+      // GET / → landing HTML
+      const resRoot = await httpGet('/');
+      expect(resRoot.status).toBe(200);
+      expect(resRoot.body).toContain('id="landing"');
+      // GET /demo → chat HTML
+      const resDemo = await httpGet('/demo');
+      expect(resDemo.status).toBe(200);
+      expect(resDemo.body).toContain('id="chat"');
+      // POST /api/login → 401 (auth handler active)
+      const resLogin = await httpPostJson('/api/login', { username: 'nobody', password: 'wrong' });
+      expect(resLogin.status).toBe(401);
+    });
+
+    // 14. 404 page for unknown routes
+    it('unknown routes return 404', async () => {
+      await startLearnServer({ learnEnabled: true, feedbackEnabled: true });
+      const res = await httpGet('/unknown-path');
+      expect(res.status).toBe(404);
     });
   });
 });

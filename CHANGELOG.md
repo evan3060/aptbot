@@ -2,6 +2,86 @@
 
 本文件记录 aptbot 各版本变更。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.2.3] - 2026-07-02
+
+aptbot 从"个人 agent 工具"扩展为"边用边学的 agent 学习教材"。新增知识体系（19 篇文章 + 2 Track）+ 用户反馈区（Web 表单 + JSONL 存储 + CLI 管理）。文章以 markdown + frontmatter 存储，运行时 marked 渲染；反馈 append-only JSONL 持久化，CLI `/feedback` 命令列表/详情/resolve/archive/stats。配置项 `learnPage`（默认 false，opt-in）+ `feedbackEnabled`（默认 true）控制启用范围，clone 用户零影响。基于 [docs/superpowers/specs/2026-07-01-0.2.3-learn-system-design.md](./docs/superpowers/specs/2026-07-01-0.2.3-learn-system-design.md) 实施。
+
+### Added
+
+#### 知识体系（learn system）
+- 19 篇结构化文章，两个 Track 独立编号：
+  - Track 1「Agent 体系实践」13 篇（入门 2 + 核心特性深入 8 + 可靠性/UX 1 + 实战 1 + 演进路线 1），围绕 aptbot 项目展开，从 agent 原理到实现到演进路线
+  - Track 2「AI 辅助编码实践」6 篇（开发流程 / 编码准确性 / spec 文档管理 / 长期迭代维护 / 边界与问题 / 方法与持续改进），与具体项目无关的通用方法论
+- 文章存储：`src/learn/articles/*.md` markdown 源 + YAML frontmatter（slug / title / description / track / chapter / order / difficulty / estimatedReadingTime / status / prerequisites / lastUpdated / tags）
+- `src/learn/article-types.ts`：`ArticleMetaSchema`（zod）+ `Article` / `ArticleState` / `ArticleNav` / `TrackMeta` + `TRACKS` 注册表（未来扩展 Track 3 只需追加一项）
+- `src/learn/article-loader.ts`：`ArticleLoader` 类（load / getState / getBySlug / getArticleNav）；gray-matter 解析 + zod 校验 + 唯一性校验；marked@15 渲染 published 文章并缓存 htmlString；planned 跳过渲染；mtimeNs 懒加载热重载（与 v0.2.2 Config 热重载模式对齐）+ per-loader mutex 串行化
+- 校验失败行为：stderr warning（含文件名 + zod 错误详情）+ 跳过该文件，不阻塞启动
+
+#### 文章重写与插图（v0.2.3 最终轮）
+- Track 1 全部 12 篇文章重写：统一使用「方案 A/B/C」代称替代具体工具名，增加概念→方案设计→方案对比→设计特点→发展方向→小结结构，难度降为入门/初学
+- Track 2 全部 6 篇文章重写：同上结构化重写，去除 superpower 专属命名
+- 所有文章增加对比表格，面向对 AI 辅助开发了解甚少的群体
+- 20 张插图图像（1024×1024），使用 AI 文生图生成，存储于 `src/learn/articles/images/`
+- 每张图片配套 prompt 文件（同名 `.md`），便于后续重新生成或调优
+- 图片 CSS 优化：最大 640×640 居中显示，自适应文章宽度
+
+#### 双语文章支持（中/英）
+- 18 篇文章全部翻译为英文（`*.en.md`），slug 与中文版一致
+- `article-types.ts` 新增 `ArticleLang` 类型（`'zh' | 'en'`）
+- `article-loader.ts`：`bySlug` 键名改为 `slug:lang` 复合键；新增 `getBySlugAndLang()`；`getArticleNav()` 支持语言过滤
+- `websocket-server.ts`：新增 `resolveLang(req)` 函数（URL query → cookie → Accept-Language → zh）
+- `learn-page.ts`：列表页/文章页/反馈页全线支持 lang 参数传递；卡片链接自动附加 `?lang=`
+- 语言切换策略：`?lang=en` 查询参数 > `aptbot.lang` cookie > `Accept-Language` header > 默认 zh
+
+#### 知识体系 i18n（界面翻译）
+- 三个学习页面（列表/文章/反馈）全部添加 `data-i18n` 属性 + `LEARN_I18N` 中英双语字典
+- `learnApplyLang()` 函数支持 `data-i18n`、`data-i18n-placeholder`、`data-i18n-title-suffix` 扩展属性
+- `SERVER_LANG` 服务端注入，客户端首次加载与服务端渲染语言一致，随后用 localStorage 偏好覆盖
+- Nav 链接、Footer、章节标题、筛选按钮、反馈表单占位符等全部双语
+
+#### 用户反馈区（v0.2.3 第 2 轮）
+- 访客可在文章页底部或 `/feedback` 通用反馈页提交想法 / bug / feature request
+- `src/infrastructure/feedback-storage.ts`：`FeedbackStorage` 类（append / list / moderate / findById）+ `FeedbackEntry` 接口
+- `src/access/feedback-api.ts`：`handleFeedbackApi` 函数 + per IP 限流
+- `src/access/learn-page.ts`：三个纯字符串 HTML 生成器
+- 首页落地页新增「学习入口」按钮替代「查看 GitHub」
+
+#### /feedback CLI 命令
+- `src/shared/commands/feedback.ts`：注册到 `CommandRegistry`，Ink 表格输出
+- 子命令：list / all / detail / resolve / archive / stats
+
+#### 配置与路由
+- `src/infrastructure/config-types.ts`：`AptbotConfig` 新增 `learnPage` + `feedbackEnabled`（同 v0.2.2 模式）
+- `src/access/websocket-server.ts`：路由分发扩展（/learn / /learn/:slug / /feedback / /api/feedback）
+- `src/access/landing-page.ts`：新增第 6 section「知识」+ nav「知识」链接 + Hero 副标题 + 数据条
+
+### Dependencies
+- 新增 `marked@^15.0.12`：markdown 运行时渲染
+- 新增 `gray-matter@^4.0.3`：markdown frontmatter 解析
+
+### Security
+- 文章源文件由开发者维护（信任边界内），不引入 DOMPurify
+- 反馈区 per IP 限流（10/min + 60/hour）+ message 长度限制 2000 字符
+- 反馈存储复用既有 JSONL 增量流式解析 + 破损行容错
+
+### Test Coverage
+- 新增 7 个测试文件
+- 类型检查 `tsc --noEmit` 0 错误
+- 全量测试 1228 passed / 81 files
+- API 路由测试 32 passed（含语言解析路由回归）
+
+### Release Finalization（封仓收尾）
+- 设计文档 [docs/superpowers/specs/2026-07-01-0.2.3-learn-system-design.md](./docs/superpowers/specs/2026-07-01-0.2.3-learn-system-design.md) 已就位
+- 实施计划 [docs/superpowers/plans/2026-07-01-0.2.3-learn-system.md](./docs/superpowers/plans/2026-07-01-0.2.3-learn-system.md) Task 1-9 全部完成
+- CHANGELOG / README / deployment.md 同步更新
+- `package.json` 版本升至 `0.2.3`
+- 双语文章翻译 18 篇 `.en.md` 文件 + 20 张插图 + 20 个 prompt 文件
+- 首页落地页「学习入口」按钮
+- 知识页面全线 i18n 界面翻译
+- git tag `v0.2.3` + PR to main 已提交
+
+---
+
 ## [0.2.2] - 2026-07-01
 
 aptbot 从"可用"演进为"可靠 + 可扩展 + 体验流畅"。引入 10 项核心能力：多 provider 故障转移、配置热重载、Hook 系统、JSONL 历史持久化、HttpOnly cookie 安全增强、Skills 系统基础、L1 索引 Skill、/session 动态属性、Channel 接口抽象、Session 自动摘要命名。基于 [docs/superpowers/specs/2026-06-30-0.2.2-design.md](./docs/superpowers/specs/2026-06-30-0.2.2-design.md) 实施，为 0.3.0 多 agent 系统建立扩展性基础。

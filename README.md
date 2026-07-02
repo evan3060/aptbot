@@ -3,7 +3,7 @@
     <img src="https://img.shields.io/badge/tests-938%20passed-brightgreen" alt="Tests">
     <img src="https://img.shields.io/badge/TypeScript-strict-blue" alt="TypeScript">
     <img src="https://img.shields.io/badge/node-%3E%3D20-green" alt="Node">
-    <img src="https://img.shields.io/badge/version-0.2.2-blue" alt="Version">
+    <img src="https://img.shields.io/badge/version-0.2.3-blue" alt="Version">
     <img src="https://img.shields.io/badge/license-MIT-yellow" alt="License">
   </p>
   <p>
@@ -22,7 +22,7 @@ It doesn't serve just you. Multi-user isolation lets family members and team mem
 
 **Long-term goal:** Starting from a concise, readable ReAct loop, gradually expand into a highly personalized, omnipotent personal work and life assistant — remembering your preferences, connecting your toolchain, learning your workflows, blending into your daily life. Ultimately, it doesn't just answer questions — it works for you proactively.
 
-> **Status:** v0.2.2 — 74 files / 938 tests passing. Reliability + extensibility + UX (MixinProvider failover, config hot-reload, hook system, Skills L1 index, /session dynamic attrs, Channel abstraction).
+> **Status:** v0.2.3 — 19 structured articles (Track 1: Agent 体系实践 13 + Track 2: AI 辅助编码实践 6) + user feedback system (Web form + JSONL storage + `/feedback` CLI). Learn system is opt-in via `learnPage: true` (requires `landingPage: true`); feedback collection defaults to on (`feedbackEnabled: true`).
 
 ## Start Here
 
@@ -144,6 +144,49 @@ The WebUI is served inline by the WebSocket server — no separate build step. J
 - 6 Lit components: `assistant-message` · `user-message` · `tool-execution` · `working-indicator` · `footer-bar` · `input-box`
 - Auto-reconnect with `resync_required` protocol
 
+## 📖 Learn system (v0.2.3)
+
+aptbot doubles as a learning project — "use it and learn agent from 0 alongside it." The learn system ships 19 structured articles plus a visitor feedback channel. Both are opt-in via config so a clone-and-self-host user sees zero change by default.
+
+### Enable
+
+In `config/aptbot.json` set `landingPage: true` and `learnPage: true`. The learn routes (`/learn`, `/learn/:slug`, `/feedback`) only activate when both are true. `feedbackEnabled` defaults to `true`, so `POST /api/feedback` works even without the landing/learn pages (a self-hoster can collect feedback through their own front-end).
+
+```json
+{
+  "landingPage": true,
+  "learnPage": true,
+  "feedbackEnabled": true
+}
+```
+
+### What it does
+
+- **Knowledge section** — 19 articles in two tracks:
+  - Track 1「Agent 体系实践」(13 articles): what is an agent, aptbot architecture, provider/tool/memory/skills/hook/channel/session/security internals, error/streaming UX, full MVP → 0.2.2 evolution recap, future roadmap
+  - Track 2「AI 辅助编码实践」(6 articles): superpower workflow, TDD + version control + UAT, spec lifecycle, long-term iteration, capability boundaries, continuous improvement
+- **Routes** — `/` landing page renders a 6th "Knowledge" section (article cards grouped by track + chapter); `/learn` lists all 19 articles with track filter + collapsible chapters; `/learn/:slug` is a reading-first article page (max-width 720px) with prev/next nav and an inline feedback form; planned articles show a PLANNED badge + outline placeholder
+- **Feedback channel** — `/feedback` is a general feedback page; every article page has a feedback form at the bottom. Visitors submit thoughts / bugs / feature requests under `general | article | bug | feature`
+
+### Article storage & rendering
+
+Articles live in `src/learn/articles/*.md` as markdown with YAML frontmatter (`slug` / `title` / `description` / `track` / `chapter` / `order` / `difficulty` / `estimatedReadingTime` / `status` / `prerequisites` / `lastUpdated` / `tags`). At runtime `ArticleLoader` parses them with `gray-matter`, validates with `zod`, and renders published articles with `marked@15` (gfm + heading-id slugification + `data-language` on `<pre>`). Rendered HTML is cached in memory; mtime-based lazy hot-reload picks up edits without a server restart. Validation failures emit a stderr warning and skip the file without blocking startup.
+
+### Feedback storage
+
+Feedback is appended to `${dataDir}/feedback.jsonl` (one JSON object per line, append-only, reusing the existing JSONL + per-file mutex primitives). Reads stream-parse tolerantly (corrupt lines are skipped with a warning). `moderate` rewrites the whole file under per-file lock (acceptable given low expected volume). Submission is rate-limited per IP (10/min + 60/hour, in-memory sliding window, resets on restart). Listing and moderation require `APTBOT_AUTH_TOKEN`.
+
+### Manage feedback from the CLI
+
+```
+/feedback                  # list recent 10 open feedback (default)
+/feedback all              # list all statuses (incl. resolved/archived)
+/feedback <id>             # show a single entry's detail (note / moderatedAt)
+/feedback resolve <id> [n] # mark as resolved, optional note
+/feedback archive <id>     # archive
+/feedback stats            # counts by status / category
+```
+
 ## 🏗️ Architecture
 
 aptbot is layered bottom-up: core → bus → infrastructure → access, with `shared/` cross-layer utilities. Dependencies flow strictly downward — the core layer is completely unaware of the access layer's existence.
@@ -201,6 +244,8 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full module map, event flow dia
 | Multi-client sync (v0.2.0) | per-sessionKey message serialization · ring buffer history replay · presence broadcast · `session_changed` control message |
 | Session sidebar (v0.2.0) | Codex-style left panel · relative time · 3-dot menu · inline rename (Enter/Esc) · cross-client `session_renamed` broadcast |
 | Landing page (v0.2.1) | adept.ai-style 5-section landing at `/` (opt-in via `landingPage: true`) · zh/en i18n · `/demo` route for agent page |
+| Knowledge section (v0.2.3) | 19 structured articles (Track 1: Agent 体系实践 13 + Track 2: AI 辅助编码实践 6) at `/learn` + `/learn/:slug` · markdown + frontmatter source · runtime `marked` rendering · opt-in via `learnPage: true` (requires `landingPage: true`) |
+| User feedback (v0.2.3) | `/feedback` page + `POST /api/feedback` (general/article/bug/feature) · JSONL append-only storage · per-IP rate limit (10/min + 60/hour) · `/feedback` CLI (list/all/detail/resolve/archive/stats) · default on via `feedbackEnabled: true` |
 | Reliability (v0.2.2) | per-sessionKey ring buffer sharding + LRU (1000/50000 caps) · JSONL history replay fallback · `turn_busy` queue feedback |
 | Multi-provider failover (v0.2.2) | `MixinProvider` priority-chain failover · `springBackMs` rebound · AggregateError on all-fail · stream-aware no-switch |
 | Config hot-reload (v0.2.2) | mtimeNs lazy-watch · turn isolation (current turn uses old snapshot, next turn uses new) · graceful degrade on invalid |
@@ -227,6 +272,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full module map, event flow dia
 | `/resume <id>` | Switch to a session (short ID prefix matching) |
 | `/continue <id>` | Inherit working memory from an old session |
 | `/label <text>` | Rename the current session (v0.2.0+) · permanently overrides auto-summary (v0.2.2+) |
+| `/feedback [subcmd] [args]` | Manage user feedback (v0.2.3+): blank/`list` recent 10 open · `all` · `<id>` detail · `resolve <id> [note]` · `archive <id>` · `stats` |
 | `/exit` | Exit the application |
 
 ## 📚 Docs
@@ -284,6 +330,7 @@ PRs welcome. The codebase is intentionally small — 70+ source files, ~8000 LOC
 - **L1 ✅ (v0.2.0)** — User system (registration/login), per-browser session isolation, multi-client sync, Codex-style sidebar, session rename
 - **v0.2.1 ✅** — aptbot.de landing page (adept.ai style) + demo page visual migration + mobile adaptation
 - **v0.2.2 ✅** — Reliability + extensibility + UX: MixinProvider failover, config hot-reload, hook system (8 points), Skills system + L1 index, JSONL history replay, HttpOnly cookie, turn_busy, /session dynamic attrs, Channel abstraction, session auto-summary
+- **v0.2.3 ✅** — Learn system: 19 structured articles (Track 1 Agent 体系实践 13 + Track 2 AI 辅助编码实践 6) at `/learn` + `/learn/:slug` · user feedback system (`/feedback` page + `/api/feedback` + JSONL storage + `/feedback` CLI) · config `learnPage` (opt-in) + `feedbackEnabled` (default on) · new deps `marked@15` + `gray-matter@4`
 - **L2** — Reliability (ring buffer sharding, JSONL history persistence, HttpOnly cookie), extensibility (MixinProvider failover, config hot-reload, hook system), UX (CLI overlay/diff, WebUI split to Cloudflare Pages), IM integration (Telegram as first channel)
 - **L3** — FallbackProvider + circuit breaker, OAuth, session branching, cross-session long-term memory, Feishu/DingTalk integration, AgentHarness + subagent management
 - **Multi-modal** — image input/outputs

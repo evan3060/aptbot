@@ -19,5 +19,8 @@
   ],
   "defaultModel": "deepseek-v4-flash",
   "dataDir": "./data",
-  "deploy": "local"
+  "deploy": "local",
+  "landingPage": true,
+  "learnPage": true,
+  "feedbackEnabled": true
 }

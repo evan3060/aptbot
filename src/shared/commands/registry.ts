@@ -1,4 +1,5 @@
 import type { StorageAdapter } from '../../infrastructure/storage/file-storage.js';
+import type { FeedbackStorage } from '../../infrastructure/feedback-storage.js';
 import { inheritWorkingMemory } from '../../core/memory/working-memory.js';
 import {
   handleSessionAttr,
@@ -7,6 +8,7 @@ import {
   listValidAttrNames,
   type SessionAttrHandler,
 } from './session-attrs.js';
+import { feedbackCommand } from './feedback.js';
 
 export interface Command {
   readonly name: string;
@@ -32,6 +34,8 @@ export interface CommandContext {
   sessionAttrs?: SessionAttrHandler;
   /** Task 11: 数据目录，/session 文件逃生口写入 `<dataDir>/session-attrs/<sessionId>/` */
   dataDir?: string;
+  /** Task 12: /feedback 命令使用的反馈存储；未配置（feedbackEnabled:false）时 /feedback 提示未启用 */
+  feedbackStorage?: FeedbackStorage;
 }
 
 export interface CommandRegistry {
@@ -71,6 +75,7 @@ export function createCommandRegistry(): CommandRegistry {
   register(sessionsCommand);
   register(resumeCommand);
   register(labelCommand);
+  register(feedbackCommand);
 
   return {
     register,
@@ -131,6 +136,7 @@ const helpCommand: Command = {
       '  /resume <id>  - Resume a specific session',
       '  /continue <id> - Continue from a previous session',
       '  /label <name> - Set the current session label',
+      '  /feedback [list|all|stats|<id>|resolve <id>|archive <id>] - Manage feedback',
       '  /exit         - Exit the application',
     ];
     return { output: lines.join('\n') };

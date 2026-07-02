@@ -1,0 +1,1 @@
+设计一张现代企业级中文架构图信息图。主题：AI Agent Skills 系统——两层加载与全量注入。整体布局：上下两层结构，上层 workspace 目录（用户自定义），下层 builtin 目录（内置），都连接到中央 SkillRegistry。SkillRegistry 输出到 L1 索引（lastUsed 降序、4K token 预算截断），最后注入到 Agent System Prompt。右侧标注热重载机制（mtimeNs 懒加载）。整体风格：Figma UI 风格，蓝白科技风，扁平化矢量图标，细边框卡片，微阴影，浅灰背景，科技感网格纹理。配色：白色背景，蓝色主色调，紫色代表 workspace，灰色代表 builtin，深蓝文字。上下分层结构，蓝色箭头连接。画面质量：超高分辨率，专业 PPT 级视觉。size: 1024x1024

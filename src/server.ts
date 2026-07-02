@@ -24,6 +24,8 @@ import type { Channel, ChannelCapability, AgentEventEnvelope } from './bus/types
 import { startWebSocketServer, type WebSocketServer } from './access/websocket-server.js';
 import { createChatPageHtml } from './access/chat-page.js';
 import { createLandingPageHtml } from './access/landing-page.js';
+import { ArticleLoader } from './learn/article-loader.js';
+import { FeedbackStorage } from './infrastructure/feedback-storage.js';
 import { readHistoryForReplay } from './core/memory/session-repo.js';
 import {
   installProcessHandlers,
@@ -147,6 +149,56 @@ Important constraints:
   }
 }
 
+/**
+ * Task 11 (0.2.3): learn system 装配决策。
+ *
+ * 根据 config 推导 learnEnabled / feedbackEnabled，并按需实例化 ArticleLoader + FeedbackStorage。
+ * - learnEnabled = config.landingPage === true && config.learnPage === true
+ *   （两者均需显式 true；缺省视为 false，确保 clone 用户零影响）
+ * - feedbackEnabled = config.feedbackEnabled !== false（缺省视为 true）
+ * - ArticleLoader 实例化条件：learnEnabled || feedbackEnabled
+ *   （feedback 校验 category=article 的 articleSlug 依赖 ArticleLoader，故 feedback 启用时也需创建）
+ * - FeedbackStorage 实例化条件：feedbackEnabled
+ * - ArticleLoader 实例化后调用 load() 预加载（articlesDir 不存在时降级为空 state，不抛错）
+ *
+ * 抽出为独立可测函数，避免为装配逻辑启动完整 server。
+ */
+export interface LearnWiringInput {
+  readonly aptbotConfig: AptbotConfig;
+  /** articles 目录绝对路径（src/learn/articles/） */
+  readonly articlesDir: string;
+}
+
+export interface LearnWiringResult {
+  readonly learnEnabled: boolean;
+  readonly feedbackEnabled: boolean;
+  readonly articleLoader?: ArticleLoader;
+  readonly feedbackStorage?: FeedbackStorage;
+}
+
+export async function resolveLearnWiring(input: LearnWiringInput): Promise<LearnWiringResult> {
+  const { aptbotConfig, articlesDir } = input;
+  // === true 严格检查：landingPage/learnPage 可能为 undefined（缺省），防御性处理
+  const learnEnabled = aptbotConfig.landingPage === true && aptbotConfig.learnPage === true;
+  // !== false：feedbackEnabled 缺省视为 true，仅显式 false 才禁用
+  const feedbackEnabled = aptbotConfig.feedbackEnabled !== false;
+
+  let articleLoader: ArticleLoader | undefined;
+  // ArticleLoader 在 learnEnabled 或 feedbackEnabled 任一启用时创建
+  // （feedback 的 category=article 校验依赖 ArticleLoader.getBySlug）
+  if (learnEnabled || feedbackEnabled) {
+    articleLoader = new ArticleLoader(articlesDir);
+    await articleLoader.load();
+  }
+
+  let feedbackStorage: FeedbackStorage | undefined;
+  if (feedbackEnabled) {
+    feedbackStorage = new FeedbackStorage(aptbotConfig.dataDir);
+  }
+
+  return { learnEnabled, feedbackEnabled, articleLoader, feedbackStorage };
+}
+
 export async function startServer(config: ServerConfig): Promise<ServerHandle> {
   log.info('starting server', { port: config.port, deploy: config.deploy });
 
@@ -224,12 +276,22 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
   // Task 5: 根据 config.landingPage 严格等于 true 决定根路径提供落地页还是聊天页
   // landingPage 为 undefined/false 时不启用，保持原有聊天页行为（向后兼容）
   const landingEnabled = aptbotConfig.landingPage === true;
+  // Task 11 (0.2.3): learn system 装配 — 根据 config 实例化 ArticleLoader + FeedbackStorage
+  // articlesDir 解析为 src/learn/articles/（与 server.ts 同目录的 learn/articles/）
+  const articlesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'learn', 'articles');
+  const learnWiring = await resolveLearnWiring({ aptbotConfig, articlesDir });
   const wsServer = await startWebSocketServer({
     port: config.port,
     bus,
     authToken: config.authToken,
     host: config.host,
-    serveHtml: landingEnabled ? createLandingPageHtml() : createChatPageHtml('/ws'),
+    // Task 11: learnEnabled 时向落地页注入 articleState 供知识 section 渲染
+    serveHtml: landingEnabled
+      ? createLandingPageHtml({
+          learnEnabled: learnWiring.learnEnabled,
+          articleState: learnWiring.learnEnabled ? learnWiring.articleLoader?.getState() : undefined,
+        })
+      : createChatPageHtml('/ws'),
     // Task 5: 启用落地页时，/demo 路由提供聊天页作为 CTA 跳转目标；未启用时不提供
     serveDemoHtml: landingEnabled ? createChatPageHtml('/ws') : undefined,
     userStorage,
@@ -254,6 +316,11 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
     // Task 3 (0.2.2): ring buffer 未命中时从 JSONL 兜底回放历史
     // 仅限 wsServer 调用，agent 仍受 data/sessions/ 访问禁令
     readHistoryForReplay: (id, limit) => readHistoryForReplay(storage, id, limit),
+    // Task 11 (0.2.3): learn system 选项注入
+    articleLoader: learnWiring.articleLoader,
+    feedbackStorage: learnWiring.feedbackStorage,
+    learnEnabled: learnWiring.learnEnabled,
+    feedbackEnabled: learnWiring.feedbackEnabled,
   });
 
   // C8 修复：注册 WebSocket Channel 并绑定 sessionKey，使出站事件能路由到 WS 客户端
@@ -292,6 +359,8 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
       // Task 11: /session 动态属性句柄 + 文件逃生口数据目录
       sessionAttrs: session,
       dataDir: aptbotConfig.dataDir,
+      // Task 12: /feedback 命令使用的反馈存储；feedbackEnabled:false 时为 undefined
+      feedbackStorage: learnWiring.feedbackStorage,
     },
   };
 
