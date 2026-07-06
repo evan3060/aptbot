@@ -112,7 +112,7 @@
 
 ### Task 3: default agent 自动创建 + 现有 sessions 迁移
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 0.3.0 升级时自动迁移现有 sessions 到 default agent，保持向后兼容。
 
