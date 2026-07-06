@@ -16,6 +16,8 @@ import type { Provider, Model } from './core/provider/types.js';
 import { createAgentSession } from './core/agent/session.js';
 import { agentLoop, DEFAULT_STOP_REASON } from './core/agent/loop.js';
 import { createTurnId, createMessageId } from './core/agent/events.js';
+import { buildSystemPrompt as buildAgentSystemPrompt } from './core/agent/system-prompt-builder.js';
+import type { AgentProfile } from './core/agent/agent-profile.js';
 import type { CommandRegistry, CommandContext, CommandResult } from './shared/commands/registry.js';
 import { createCommandRegistry } from './shared/commands/registry.js';
 import { InMemoryMessageBus } from './bus/message-bus.js';
@@ -126,19 +128,36 @@ export async function resolveSessionId(storage: StorageAdapter): Promise<string>
 }
 
 /**
+ * §0.3.0 Task 8: 占位 default AgentProfile。
+ *
+ * 当前 server.ts 尚未接入 agentId 上下文（Task 17 装配时接入实际 AgentProfile）。
+ * 此处使用空 personality 的 default agent 占位，使 buildAgentSystemPrompt 输出
+ * 与原固定字符串字节级一致（default + memoryContent=null + 空 personality → 仅 STABLE_PREFIX）。
+ *
+ * Task 17 将替换为从 AgentStorage 加载的真实 AgentProfile + MEMORY.md 内容。
+ */
+const PLACEHOLDER_DEFAULT_AGENT: AgentProfile = {
+  name: '通用助手',
+  description: 'aptbot 通用助手',
+  userId: '00000000-0000-0000-0000-000000000000',
+  type: 'default',
+  slug: 'default',
+  createdAt: 0,
+  updatedAt: 0,
+  personality: '',
+};
+
+/**
  * §4.9 L1 索引：拼装 system prompt = base + skills 索引段。
+ * - §0.3.0 Task 8: base 由 buildAgentSystemPrompt 构造（稳定前部 + Agent Memory + Personality）
  * - skillState 为 undefined（创建失败降级）时仅返回 base
  * - formatSkillsForSystemPrompt 失败时降级到 base（不阻塞 server 启动 / rebuild）
  * - 热重载后调用方传入 reloaded skillState 以拿到最新索引
+ *
+ * 注意：当前使用 PLACEHOLDER_DEFAULT_AGENT + null memoryContent（Task 17 装配实际 agent）。
  */
 function buildSystemPrompt(skillState: SkillState | undefined): string {
-  const base = `You are aptbot, a personal learning and work assistant.
-
-Important constraints:
-- You are running inside a server process. NEVER execute commands that would kill, stop, or restart the server process (e.g., kill, pkill, killall, pnpm kill, shutdown, reboot). If asked to restart/stop the server, explain that you cannot do this and the user should do it manually.
-- NEVER modify the server's own source code or configuration files (under /Users/evan/projects/aptbot/src/, config/, package.json) while the server is running.
-- NEVER read or access files under the data/sessions/ directory. These are internal session storage files. Session history is managed automatically by the system (via /resume, /continue commands). Do not attempt to read, cat, or parse them.
-- When bash command output is long, summarize the key information instead of pasting everything.`;
+  const base = buildAgentSystemPrompt(PLACEHOLDER_DEFAULT_AGENT, null);
   if (!skillState) return base;
   try {
     const skillsSection = formatSkillsForSystemPrompt([...skillState.skills]);
