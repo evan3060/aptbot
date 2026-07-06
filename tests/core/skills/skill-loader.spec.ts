@@ -213,6 +213,60 @@ describe('skill-loader: frontmatter parsing integration', () => {
     expect(result.skills[0].disableModelInvocation).toBeUndefined();
   });
 
+  it('parses template field when present in frontmatter', async () => {
+    const workspaceDir = join(tmpRoot, 'workspace');
+    await writeSkill(
+      workspaceDir,
+      'with-template',
+      'name: with-template\ndescription: desc\ntemplate: Hello {{cursor}} world',
+    );
+    const result = await loadSkills(env, [workspaceDir]);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.skills).toHaveLength(1);
+    expect(result.skills[0].template).toBe('Hello {{cursor}} world');
+  });
+
+  it('defaults template to undefined when frontmatter has no template field', async () => {
+    const workspaceDir = join(tmpRoot, 'workspace');
+    await writeSkill(workspaceDir, 'no-template', 'name: no-template\ndescription: desc');
+    const result = await loadSkills(env, [workspaceDir]);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.skills).toHaveLength(1);
+    expect(result.skills[0].template).toBeUndefined();
+  });
+
+  it('preserves {{cursor}} placeholder verbatim in template (no parse-time processing)', async () => {
+    const workspaceDir = join(tmpRoot, 'workspace');
+    const tmpl = '请帮我完成 {{cursor}} 这个任务';
+    await writeSkill(
+      workspaceDir,
+      'cursor-skill',
+      `name: cursor-skill\ndescription: desc\ntemplate: ${tmpl}`,
+    );
+    const result = await loadSkills(env, [workspaceDir]);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.skills).toHaveLength(1);
+    expect(result.skills[0].template).toBe(tmpl);
+  });
+
+  it('parseFrontmatter exposes template on SkillFrontmatter when present', () => {
+    const raw = `---\nname: fm-template\ndescription: desc\ntemplate: foo {{cursor}} bar\n---\nbody`;
+    const parsed = parseFrontmatter(raw);
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.value.template).toBe('foo {{cursor}} bar');
+    }
+  });
+
+  it('parseFrontmatter returns template undefined when absent', () => {
+    const raw = `---\nname: fm-no-template\ndescription: desc\n---\nbody`;
+    const parsed = parseFrontmatter(raw);
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.value.template).toBeUndefined();
+    }
+  });
+
   it('falls back to parent directory name when frontmatter name is missing', async () => {
     const workspaceDir = join(tmpRoot, 'workspace');
     await writeSkill(workspaceDir, 'fallback-name', 'description: desc only');

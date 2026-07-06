@@ -39,6 +39,11 @@ export interface SkillFrontmatter {
   readonly disableModelInvocation?: boolean;
   /** L1 索引：手写 tags（MVP），格式 `tags: [a, b, c]` */
   readonly tags?: string[];
+  /**
+   * chip 点击后填充输入框的模板字符串。
+   * 可含 `{{cursor}}` 占位符标记光标停留位置；解析时原样保留，运行时处理。
+   */
+  readonly template?: string;
   /** markdown body（frontmatter 之后的内容） */
   readonly content: string;
 }
@@ -61,6 +66,11 @@ export interface Skill {
   readonly contentBytes: number;
   /** L1 索引：手写 tags（来自 frontmatter，自动生成放 L3） */
   readonly tags?: string[];
+  /**
+   * chip 点击后填充输入框的模板字符串（来自 frontmatter）。
+   * 可含 `{{cursor}}` 占位符标记光标停留位置；解析时原样保留，运行时处理。
+   */
+  readonly template?: string;
   /**
    * L1 索引：最近使用时间戳（ms），由 read_file 工具特判维护。
    * 非 readonly：read_file 读取 skill 文件时 mutate 此字段，触发 L1 索引重排序。

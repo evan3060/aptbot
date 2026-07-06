@@ -107,6 +107,7 @@ export function parseFrontmatter(
   let description: string | undefined;
   let disableModelInvocation: boolean | undefined;
   let tags: string[] | undefined;
+  let template: string | undefined;
 
   for (const line of frontmatterText.split(/\r?\n/)) {
     if (line.trim() === '') continue;
@@ -130,12 +131,15 @@ export function parseFrontmatter(
       // §12.5 tags 数组解析（不覆盖已去引号的值，使用原始 value 行）
       const parsedTags = parseTags(line.slice(colonIdx + 1));
       if (parsedTags) tags = parsedTags;
+    } else if (key === 'template') {
+      // template 字段：原样保留（含 {{cursor}} 占位符由运行时处理）
+      template = value;
     }
   }
 
   return {
     ok: true,
-    value: { name, description, disableModelInvocation, tags, content },
+    value: { name, description, disableModelInvocation, tags, template, content },
   };
 }
 
@@ -212,6 +216,7 @@ async function loadSkillFile(
     contentLines: fm.content.split('\n').length,
     contentBytes: Buffer.byteLength(fm.content, 'utf-8'),
     tags: fm.tags,
+    template: fm.template,
   };
   return { skill };
 }
