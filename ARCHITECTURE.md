@@ -1,6 +1,6 @@
 # aptbot 架构
 
-> 自底向上四层架构（core → bus → infrastructure → access）加 shared 跨层共享；依赖方向严格向下，核心层不感知接入层存在。v0.2.3 新增 `src/learn/` 学习内容层（独立于四层架构，承载知识栏目文章源 + 加载器）。
+> 自底向上四层架构（core → bus → infrastructure → access）加 shared 跨层共享；依赖方向严格向下，核心层不感知接入层存在。v0.2.3 新增 `src/learn/` 学习内容层（独立于四层架构，承载知识栏目文章源 + 加载器）。v0.3.0 在 `src/core/agent/` 模块新增 AgentProfile 双轨 agent 抽象（default / professional）+ MEMORY.md 共享记忆 + KV 缓存 systemPrompt + 归档 + 迁移，access 层新增 agent-api + 浮层 HTML 生成器，webui 层新增 8 个 Lit 组件；session 存储路径从 `data/sessions/` 迁移到 `data/users/<userId>/agents/<slug>/sessions/`。
 
 ## 分层总览
 
@@ -81,11 +81,168 @@
 
 ### 2.4 Agent `core/agent/`
 
+#### 2.4.1 ReAct 循环核心（0.1.0 基线）
+
 | 模块 | 职责 |
 |------|------|
 | `events.ts` | `AgentEvent` 联合类型（turn_start/end, message_*, tool_call_*, error 等） |
 | `loop.ts` | ReAct 循环：maxIterations 上限 + AbortSignal 传播 + steering queue |
 | `session.ts` | `AgentSession`：turn 原子性（错误不持久化），`loadHistory()` 懒加载 JSONL 历史 |
+
+#### 2.4.2 AgentProfile 类型与 schema（v0.3.0 Task 1）
+
+`src/core/agent/agent-profile.ts` 定义 AgentProfile 双轨 agent 抽象，作为后续所有 agent 相关模块的类型契约。统一抽象：Mode A（通用）是 Mode B（专业）的退化特例，两者都是 `AgentProfile` 实例。
+
+| 导出 | 职责 |
+|------|------|
+| `AgentType` | `'default' \| 'professional'` 联合类型 |
+| `AgentProfile` 接口 | name / description / userId / type / slug / createdAt / updatedAt / personality（body）/ 可选 LLM 配置字段（model / temperature / maxTokens / reasoningEffort / thinkingType / thinkingBudgetTokens）/ `memoryEnabled`（Task 18） |
+| `AGENT_SLUG_REGEX` | `/^[a-z0-9-]{3,64}$/` 路径遍历防护常量（仅小写字母、数字、连字符；3-64 字符） |
+| `MAX_MEMORY_SIZE` | `8192`（8KB 软上限，read_agent_memory 超限返回 `memory_too_large`） |
+| `MAX_WRITE_CONTENT_SIZE` | `2048`（2KB 单次写入上限） |
+| `MAX_AGENTS_PER_USER` | `50`（软上限，POST /api/agents 超限返回 400） |
+| `AgentProfileSchema` | zod schema：校验 AGENT.md frontmatter 字段类型与格式 |
+| `parseAgentMd(raw)` | 解析 AGENT.md（gray-matter 复用 0.2.3 依赖，无新依赖）+ zod schema 校验；返回 `{ frontmatter, body }` |
+| `generateSlug()` | `agent-<6-hex-chars>` 算法，与 name 解耦（避免 pinyin 依赖；6 位 hex ≈ 1677 万组合，单用户 50 上限冲突概率可忽略，冲突时由 AgentStorage 重试） |
+| `validateSlug(slug)` | 正则校验 |
+
+**AGENT.md 格式：** YAML frontmatter（--- 分隔）+ markdown body（personality）。frontmatter 由 `parseAgentMd` 解析 + `AgentProfileSchema` 校验；userId / createdAt / updatedAt / personality 是运行时元数据，由 AgentStorage 组装（不存盘 frontmatter）。
+
+#### 2.4.3 AgentStorage — AGENT.md 持久化（v0.3.0 Task 2 + Task 19）
+
+`src/core/agent/agent-storage.ts` 提供 AgentProfile 的文件系统持久化能力，封装 AGENT.md 的读写与目录管理。
+
+| 方法 | 职责 |
+|------|------|
+| `getAgentDir(userId, slug)` | 返回 `data/users/<userId>/agents/<slug>/` 绝对路径（路径遍历校验后） |
+| `getAgent(userId, slug)` | 读取 AGENT.md，解析 frontmatter + body；文件不存在返回 null；损坏文件抛错 |
+| `listAgents(userId)` | 列出用户所有 agent，逐个读取 AGENT.md；损坏文件 warn 跳过（与 FileStorage.listSessions 一致） |
+| `saveAgent(profile)` | 原子写入 AGENT.md（write-to-tmp + rename）；自动创建多层目录；per-agentId mutex 串行化 |
+| `deleteAgent(userId, slug)` | 递归删除 agent 目录；幂等（目录不存在不抛错）；在 per-agentId 锁内执行避免与 saveAgent 竞态 |
+| `exists(userId, slug)` | 检查 AGENT.md 是否存在 |
+| `countAgents(userId)` | 统计用户 agent 数量（仅按目录 + AGENT.md 存在性计数，不读取内容） |
+| `findAgentOwner(slug)` | 扫描所有用户目录，返回 slug 对应 agent 的 owner userId（用于跨用户 403 检测）；未找到返回 null |
+| `archiveAgent(userId, slug)` | (Task 19) 专业 agent 归档：复制 → 验证 → 删除原子操作；归档路径 `data/users/<userId>/archived-agents/<slug>-<timestamp>/` |
+
+**关键设计：**
+- **per-agentId mutex**（`withAgentLock` 导出）：5000ms 超时 + ghost acquisition 释放防死锁；write_agent_memory 工具复用此锁保证并发写入串行化
+- **路径遍历防护**：所有路径拼接前校验 `userId`（`USER_ID_REGEX` UUID v4）+ `slug`（`AGENT_SLUG_REGEX`）
+- **原子写**：write-to-tmp + rename，与 0.1.0 edit 工具、0.2.3 FeedbackStorage 一致
+- **归档原子性**（Task 19）：先 `cpSync` 递归复制 → 验证完整性（文件数对比 + AGENT.md 必须存在于归档）→ 验证通过删除原目录；失败清理归档目录 + 抛错拒绝删除；cpSync 失败时清理归档路径防脏数据
+
+#### 2.4.4 MemoryAuditLog — append-only 审计日志（v0.3.0 Task 7）
+
+`src/core/agent/memory-audit-log.ts` 记录所有 write_agent_memory 操作的审计日志。
+
+| 字段 | 职责 |
+|------|------|
+| `MemoryAuditSection` | `'user_profile' \| 'facts' \| 'preferences' \| 'history'`（排除 'all'，因 'all' 不能被写入） |
+| `AuditRecord` | timestamp（ISO 8601）/ sessionId / section / mode（append \| replace）/ contentPreview（前 200 字符）/ contentLength / beforeSize / afterSize |
+| `MemoryAuditLog` 类 | `append(record)` 追加一条记录；`list(limit?)` 默认返回最近 20 条，最新在前（倒序） |
+
+**存储路径：** `data/users/<userId>/agents/<slug>/memory.log.jsonl`，复用既有 `withJsonlLock` 串行化（lockKey = `memory-audit:<userId>/<slug>`）；路径遍历防护同 AgentStorage。
+
+**与 MEMORY.md 的关系：** MEMORY.md 通过 write_agent_memory 工具写入是原子操作（write-to-tmp + rename，已落盘无法回滚）；若审计日志 append 失败，调用方（工具）返回错误给 agent，但 MEMORY.md 写入不回滚。
+
+#### 2.4.5 system-prompt-builder — KV 缓存优化（v0.3.0 Task 8）
+
+`src/core/agent/system-prompt-builder.ts` 替代 server.ts 内联固定 systemPrompt，为 KV 缓存命中优化。
+
+| 导出 | 职责 |
+|------|------|
+| `buildSystemPrompt(agent, memoryContent)` | 构造完整 systemPrompt：固定前部（STABLE_PREFIX 通用约束 + 安全约束）+ 半稳定区（`## Agent Memory` section + `## Personality` section） |
+| `computeSystemPromptCacheKey(agent, memoryContent)` | `sha256(stablePrefix + (memoryContent ?? '') + personality)` → hex（64 字符）；turn 间比较此 key 命中 KV 缓存不重复计费 |
+
+**KV 缓存设计：**
+- 固定前部 turn 间字节级稳定 → KV 缓存命中
+- MEMORY.md 末尾追加（History section）不破坏前部缓存
+- 仅当 MEMORY.md 前部 section 变化或固定前部变化时缓存失效
+- 固定前部参与 hash：aptbot 版本升级（前部约束变化）不会错误命中旧缓存
+
+**注入规则（按优先级）：**
+- `agent.type === 'default'` → 不注入 `## Agent Memory`（即使 memoryContent 非 null 也忽略）
+- `memoryContent === null` → 不注入（专业 agent 未启用记忆，即 `memoryEnabled === false`）
+- `memoryContent === ''` → 注入空 body 的 `## Agent Memory` section（MEMORY.md 文件不存在占位）
+- `memoryContent` 非空字符串 → 注入含该内容的 `## Agent Memory` section
+- `agent.personality` 非空 → 注入 `## Personality` section；为空则跳过
+
+**systemPrompt 安全约束（STABLE_PREFIX 内）：**
+- 禁止执行 kill / pkill / killall / shutdown / reboot 等杀进程命令
+- 禁止修改 `src/` / `config/` / `package.json` 源码
+- 禁止访问 `data/users/*/agents/*/sessions/` 内部存储文件（原 `data/sessions/` 路径变更）
+- 禁止访问 `data/users/*/archived-agents/` 归档文件夹
+- 禁止访问 ui-config.json 文件
+- 允许通过 read_agent_memory / write_agent_memory 工具访问当前 agent 的 MEMORY.md（路径硬编码）
+- 禁止访问其他 agent 的 MEMORY.md（跨 agent 禁止）
+
+#### 2.4.6 agent-migration — legacy session 迁移（v0.3.0 Task 3）
+
+`src/core/agent/agent-migration.ts` 在 0.3.0 升级时一次性扫描 legacy `data/sessions/*.jsonl` + `.meta.json`，按 userId 分组迁移到新数据模型。
+
+| 导出 | 职责 |
+|------|------|
+| `DEFAULT_AGENT_SLUG` | `'default'`（特殊保留值，非 generateSlug 生成） |
+| `DEFAULT_AGENT_NAME` | `'通用助手'` |
+| `DEFAULT_AGENT_DESCRIPTION` | `'aptbot 通用助手'` |
+| `DEFAULT_AGENT_PERSONALITY` | `'你是 aptbot 通用助手'`（占位文本，Task 8 buildSystemPrompt 会动态构建完整 systemPrompt） |
+| `migrateLegacySessions(dataDir, agentStorage)` | 扫描 legacy `data/sessions/*.jsonl` + `.meta.json`，按 userId 分组迁移到 `data/users/<userId>/agents/default/sessions/`；无 userId 的 session 生成伪 UUID；为每个 userId 创建 default agent 的 AGENT.md（若不存在）；更新 .meta.json 添加 `agentId: default`；返回 `MigrationReport` |
+| `ensureDefaultAgent(userId, agentStorage)` | 用户首次访问时若 default agent 不存在则创建（type=default / personality=通用 systemPrompt） |
+| `MigrationReport` | 含 `migratedSessions` / `createdAgents` / `errors` 字段 |
+
+**关键设计：**
+- **幂等性**：已迁移 session（目标 .jsonl 已存在）不重复迁移；已创建 default agent 不重复创建
+- **中断恢复**：atomic write-to-tmp + rename，中断后重新运行可继续
+- **路径遍历防护**：所有路径拼接前校验 userId（UUID）
+- **与 spec 偏离**：实际签名 `(dataDir, agentStorage)` 而非 `(storage, agentStorage)`（StorageAdapter 不暴露文件路径，无法用于文件移动）
+
+#### 2.4.7 ui-config — visibleSkills UI 配置（v0.3.0 Task 10）
+
+`src/core/agent/ui-config.ts` 管理 default agent 的 UI 层展示偏好（visibleSkills），不动 skill 文件，不动 AGENT.md。
+
+| 导出 | 职责 |
+|------|------|
+| `VisibleSkill` | `{ slug; displayName }`（slug 与 Skill.name 一致；displayName 可含中文等） |
+| `UiConfig` | `{ visibleSkills: VisibleSkill[] }`（后续可扩展 collapsed sections / theme 等） |
+| `UiConfigStorage` 类 | `get(userId)` 返回 UiConfig；`update(userId, config)` 原子写入（write-to-tmp + rename） |
+
+**存储路径：** `data/users/<userId>/agents/default/ui-config.json`（仅 default agent，硬编码 "default"）。文件不存在 / 损坏 JSON → 返回空 visibleSkills（graceful 降级）+ console.warn。
+
+**与 AgentStorage 的差异：** 不需要 per-agentId mutex（仅 default agent，文件粒度小，写并发概率低）；不需要 findOwner / listAgents / countAgents（仅 default）；简单 JSON 文件，无 frontmatter / markdown body。
+
+#### 2.4.8 数据模型变更（v0.3.0）
+
+0.3.0 将 session 存储路径从单层 `data/sessions/` 迁移到按用户 + agent 分层的 `data/users/<userId>/agents/<slug>/sessions/`，配合双轨 agent 抽象：
+
+```
+data/
+├── users/
+│   ├── <userId>/
+│   │   ├── agents/
+│   │   │   ├── default/                    # Mode A 通用 agent
+│   │   │   │   ├── AGENT.md               # AgentProfile frontmatter + personality body
+│   │   │   │   ├── ui-config.json         # visibleSkills UI 配置（仅 default）
+│   │   │   │   ├── MEMORY.md              # 不存在（default 不注入记忆）
+│   │   │   │   ├── memory.log.jsonl       # 不存在（default 不写记忆）
+│   │   │   │   └── sessions/
+│   │   │   │       ├── <sessionId>.jsonl  # session 消息历史
+│   │   │   │       └── <sessionId>.meta.json  # SessionMetadata（含 agentId）
+│   │   │   └── agent-<6-hex-chars>/       # Mode B 专业 agent
+│   │   │       ├── AGENT.md
+│   │   │       ├── MEMORY.md              # 跨 session 共享记忆（8KB 软上限）
+│   │   │       ├── memory.log.jsonl       # 审计日志（append-only）
+│   │   │       └── sessions/
+│   │   │           ├── <sessionId>.jsonl
+│   │   │           └── <sessionId>.meta.json
+│   │   └── archived-agents/                # 归档专业 agent（archiveAgent 复制 + 验证 + 删除）
+│   │       └── <slug>-<timestamp>/
+│   │           ├── AGENT.md
+│   │           ├── MEMORY.md
+│   │           ├── sessions/
+│   │           └── memory.log.jsonl
+└── sessions/                                # legacy 0.2.x 路径（迁移源，迁移后空目录）
+```
+
+**SessionMetadata 扩展：** `SessionMetadata` 接口新增 `readonly agentId: string` 必填字段（Task 4），标识 session 归属的 agent slug；FileStorage 路径计算从 `data/sessions/<id>.jsonl` 改为 `data/users/<userId>/agents/<agentId>/sessions/<id>.jsonl`；`claimSession` 新增 agentId 参数写入 .meta.json；SessionRepo.create / open 签名扩展接受 agentId。向后兼容：迁移期间 legacy 路径 fallback 读取。不持久化 `activeSkill`（spec §3.6 确认）。
 
 ## 3. 总线层 `src/bus/`
 

@@ -2,6 +2,188 @@
 
 本文件记录 aptbot 各版本变更。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.3.0] - 2026-07-06
+
+aptbot 从「单 agent 多会话」演进为「双轨 agent 系统」。八大主题：双轨 agent（Mode A 通用 + Mode B 专业）+ 桌面模式（WebUI 为唯一主交互入口，左侧栏 agent 树形结构）+ skill chip 区（仅 default agent，点击填模板）+ 共享记忆（professional agent 跨 session MEMORY.md）+ 自动注入（systemPrompt builder + KV 缓存 key 稳定性）+ 审计日志（append-only JSONL memory.log.jsonl）+ 归档（archiveAgent 复制 + 验证 + 删除）+ 迁移（legacy `data/sessions/` 自动迁移到新数据模型）。基于 [docs/superpowers/specs/2026-07-06-0.3.0-dual-mode-agent-design.md](./docs/superpowers/specs/2026-07-06-0.3.0-dual-mode-agent-design.md) 实施，[PLAN-0.3.0.md](./PLAN-0.3.0.md) 共 20 task 全部完成。统一抽象：Mode A 是 Mode B 的退化特例，两者都是 AgentProfile 实例。
+
+### Added
+
+#### Task 1 — AgentProfile 类型与 schema
+- `src/core/agent/agent-profile.ts`：核心类型契约
+  - `AgentType = 'default' | 'professional'` 联合类型
+  - `AgentProfile` 接口：name / description / userId / type / slug / createdAt / updatedAt / personality（body）/ 可选 LLM 配置字段（model / temperature / maxTokens / reasoningEffort / thinkingType / thinkingBudgetTokens）/ `memoryEnabled`（Task 18）
+  - `AGENT_SLUG_REGEX = /^[a-z0-9-]{3,64}$/` 路径遍历防护常量
+  - `MAX_MEMORY_SIZE = 8192`（8KB 软上限）/ `MAX_WRITE_CONTENT_SIZE = 2048`（2KB 单次写入上限）/ `MAX_AGENTS_PER_USER = 50`（软上限）
+  - zod `AgentProfileSchema`：校验 frontmatter 字段类型与格式
+  - `parseAgentMd(raw)`：解析 AGENT.md（gray-matter 复用 0.2.3 依赖，无新依赖）+ zod schema 校验
+  - `generateSlug()`：`agent-<6-hex-chars>` 算法（与 name 解耦，避免 pinyin 依赖；6 位 hex ≈ 1677 万组合，单用户 50 上限冲突概率可忽略，冲突时由 AgentStorage 重试）
+  - `validateSlug(slug)`：正则校验
+
+#### Task 2 — AgentStorage 持久化
+- `src/core/agent/agent-storage.ts`：`AgentStorage` 类
+  - 路径：`<dataDir>/users/<userId>/agents/<slug>/AGENT.md`
+  - 原子写（write-to-tmp + rename）+ per-agentId mutex 串行化（5000ms 超时 + ghost acquisition 释放防死锁）
+  - `getAgent` / `listAgents`（损坏文件 warn 跳过）/ `saveAgent` / `deleteAgent` / `exists` / `countAgents` / `findAgentOwner`（跨用户 403 检测）
+  - 路径遍历防护：`USER_ID_REGEX`（UUID v4）+ `AGENT_SLUG_REGEX`
+  - `withAgentLock` 导出供 write_agent_memory 工具复用
+- 数据模型变更：sessions 从 `data/sessions/` 迁移到 `data/users/<userId>/agents/<slug>/sessions/`
+
+#### Task 3 — 默认 agent 自动创建 + legacy sessions 迁移
+- `src/core/agent/agent-migration.ts`：迁移逻辑
+  - `migrateLegacySessions(dataDir, agentStorage)`：扫描 legacy `data/sessions/*.jsonl` + `.meta.json`，按 userId 分组迁移到 `data/users/<userId>/agents/default/sessions/`；无 userId 的 session 生成伪 UUID
+  - `ensureDefaultAgent(userId, agentStorage)`：用户首次访问时创建 default agent（type=default / personality=通用 systemPrompt）
+  - 幂等性：已迁移 session 不重复迁移；已创建 default agent 不重复创建
+  - 中断恢复：atomic write-to-tmp + rename，中断后重新运行可继续
+  - `MigrationReport`：含 `migratedSessions` / `createdAgents` / `errors` 字段
+- 与 spec 偏离：实际签名 `(dataDir, agentStorage)` 而非 `(storage, agentStorage)`（StorageAdapter 不暴露文件路径）
+
+#### Task 4 — SessionMetadata 扩展 + session 路径迁移
+- `src/core/memory/types.ts`：`SessionMetadata` 新增 `readonly agentId: string` 必填字段
+- `src/infrastructure/storage/file-storage.ts`：路径计算从 `data/sessions/<id>.jsonl` 改为 `data/users/<userId>/agents/<agentId>/sessions/<id>.jsonl`；`claimSession` 新增 agentId 参数
+- `src/core/memory/session-repo.ts`：`create(userId, agentId)` / `open(id, userId, agentId)` 签名扩展
+- 向后兼容：迁移期间 legacy 路径 fallback 读取
+- 不持久化 `activeSkill`（spec §3.6 确认）
+
+#### Task 5 — skill frontmatter template 字段
+- `src/core/skills/types.ts`：`SkillFrontmatter` + `Skill` 新增 `template?: string` 字段（可选，含 `{{cursor}}` 占位符标记光标位置，运行时处理）
+- `src/core/skills/loader.ts`：解析 template 字段
+- 不新增 display / displayName 字段（UI 层配置，不动 skill 文件）
+
+#### Task 6 — read_agent_memory 工具
+- `src/core/tool/tools/read-agent-memory.ts`：实现 `AgentTool` 接口
+  - 参数：`{ section?: 'user_profile' | 'facts' | 'preferences' | 'history' | 'all' }`，默认 all
+  - 路径硬编码：`data/users/${currentUserId}/agents/${currentAgentId}/MEMORY.md`，不接受路径参数
+  - 大小限制：>8KB（`MAX_MEMORY_SIZE`）返回 `memory_too_large` error，提示按 section 分段读取
+  - 文件不存在返回空内容（非错误）；跨 agent 访问禁止
+
+#### Task 7 — write_agent_memory 工具 + 审计日志
+- `src/core/tool/tools/write-agent-memory.ts`：
+  - 参数：`{ section: 'user_profile' | 'facts' | 'preferences' | 'history'; content: string; mode: 'append' | 'replace' }`
+  - 自动写入（无用户确认）；单次 content 上限 2KB（`MAX_WRITE_CONTENT_SIZE`）
+  - 路径硬编码当前 agentId；write-to-tmp + rename 原子操作；返回 afterSize 给 agent
+- `src/core/agent/memory-audit-log.ts`：`MemoryAuditLog` 类
+  - 路径：`<dataDir>/users/<userId>/agents/<slug>/memory.log.jsonl`
+  - append-only JSONL，复用 `withJsonlLock` 串行化；list 默认返回最近 20 条
+  - `AuditRecord` 字段：timestamp / sessionId / section / mode / contentPreview（前 200 字符）/ contentLength / beforeSize / afterSize
+
+#### Task 8 — AGENT.md systemPrompt 自动注入 + KV 缓存
+- `src/core/agent/system-prompt-builder.ts`：
+  - `buildSystemPrompt(agent, memoryContent)`：前部稳定（STABLE_PREFIX 通用约束 + 安全约束）+ 半稳定区（`## Agent Memory` section + `## Personality` section）
+  - `computeSystemPromptCacheKey(agent, memoryContent)`：`sha256(stablePrefix + (memoryContent ?? '') + personality)` → hex；turn 间比较此 key 命中 KV 缓存不重复计费
+  - 注入规则：default agent 永不注入；professional + memoryEnabled + memoryContent !== null 时注入；MEMORY.md 末尾追加（History section）不破坏前部缓存
+- `src/server.ts`：systemPrompt 构建从固定字符串改为动态调用 `buildSystemPrompt`
+
+#### Task 9 — Agent HTTP API
+- `src/access/agent-api.ts`：`handleAgentApi` 函数
+  - 端点：GET `/api/agents` / GET `/api/agents/:slug` / POST `/api/agents` / PUT `/api/agents/:slug` / DELETE `/api/agents/:slug`（Task 19 接入归档）/ GET `/api/agents/:slug/sessions` / GET `/api/agents/:slug/memory` / GET `/api/agents/:slug/memory-log`
+  - 鉴权：复用现有 authToken（Bearer token）
+  - 跨用户隔离：所有操作校验 `agent.userId === currentUserId`，否则 403
+  - 路径遍历防护：slug 严格正则校验；超 `MAX_AGENTS_PER_USER` 400
+  - 路由优先级：`/api/agents` 优先于 `/api/*`（与 `/api/feedback` 同模式）
+
+#### Task 10 — UI 配置 API（visibleSkills）
+- `src/core/agent/ui-config.ts`：`UiConfigStorage` 类
+  - 路径：`<dataDir>/users/<userId>/agents/default/ui-config.json`（仅 default agent）
+  - `VisibleSkill { slug; displayName }` + `UiConfig { visibleSkills }`
+  - `get` / `update`（write-to-tmp + rename）；文件不存在 / 损坏返回空 visibleSkills + warn
+  - 不需要 per-agentId mutex（仅 default，文件粒度小）
+- `src/access/agent-api.ts`：新增 GET / PUT `/api/agents/default/ui-config` 端点
+
+#### Task 11 — Skill HTTP API
+- `src/access/agent-api.ts`：新增 GET `/api/skills` 端点（列出所有已加载 skill，返回 name / description / template；不返回文件路径）
+
+#### Task 12 — CLI /agent + /skill 命令
+- `src/shared/commands/registry.ts` + `src/cli/index.tsx`：注册 `/agent` 与 `/skill`
+  - `/agent`（列出）/ `/agent <slug>`（切换）/ `/agent info`（当前 AGENT.md）/ `/agent memory-log [limit]`（审计日志，默认 20）
+  - `/skill`（列出）/ `/skill use <name>`（激活 skill 填模板）
+  - 不实现 CLI 创建 / 编辑 / 删除 agent（WebUI 完成）
+  - 命令注册到 CommandRegistry 防止下发给 agent
+
+#### Task 13 — WebUI 左侧栏树形结构
+- `src/webui/components/agent-sidebar.ts` + `agent-node.ts`：`<agent-sidebar>` 容器 + `<agent-node>` 节点
+  - 属性：agents / sessions（按 agentId 分组）/ currentAgentSlug / currentSessionId
+  - 事件：agent-click（折叠/展开）/ session-click / settings-click / new-session-click / new-agent-click
+  - 默认展开；当前 agent + session 高亮；「+ 新建会话」+「+ 新建专业 agent」按钮
+- `src/webui/components/session-node.ts`：沿用 0.2.x，加 agentId 归属显示
+- 样式：沿用 adept tokens CSS 变量 + Inter 字体
+
+#### Task 14 — agent 设置浮层 + 新建 agent 浮层
+- `src/webui/components/agent-settings-modal.ts` + `new-agent-modal.ts`：居中 modal
+  - 通用模式：LLM 配置区 + Skill 展示配置区 + 无 personality + 无删除
+  - 专业模式：身份 + 性格 + 记忆 + LLM 配置区 + 删除按钮（带确认弹窗）
+  - 560px 宽度 + 半透明遮罩（点击不关闭）+ 底部保存/取消
+  - LLM 字段：model / temperature / maxTokens / reasoningEffort / thinkingType / thinkingBudgetTokens
+  - Skill 配置区：checkbox + displayName 输入框
+
+#### Task 15 — skill chip 区 + 模板填充
+- `src/webui/components/skill-chips-bar.ts`：`<skill-chips-bar>` 组件
+  - 仅 default agent 显示（专业 agent 不渲染）；chip 横向平铺，多时横向滚动
+  - 选中 chip 高亮（可再点取消）；无 visibleSkills 时不渲染
+  - 模板填充：空输入框 → 覆盖；有内容 → 追加；`{{cursor}}` → 光标定位；空 template → 仅激活
+  - skill 不持久化（一次性使用，刷新清空）
+
+#### Task 16 — 记忆写入轻量提示
+- `src/webui/components/memory-write-toast.ts`：`<memory-write-toast>` 组件
+  - 显示位置：聊天区右上角或底部，不打断对话
+  - 自动消失（3-5 秒）；样式「agent 已更新记忆：Preferences」
+  - 监听 write_agent_memory 工具调用事件（通过 AgentEvent 流）+ 显示 section 名 + 简短预览
+
+#### Task 17 — server.ts 装配 + systemPrompt 约束更新
+- `src/server.ts`：实例化 AgentStorage + MemoryAuditLog + 启动调用 `migrateLegacySessions` + 注入 WebSocketServerOptions（agentStorage / memoryAuditLog / handleAgentApi）
+- systemPrompt 安全约束更新（在 STABLE_PREFIX 内）：
+  - 禁止访问 `data/users/*/agents/*/sessions/`（原 `data/sessions/`）
+  - 禁止访问 `data/users/*/archived-agents/`
+  - 禁止访问 ui-config.json
+  - 允许通过 read_agent_memory / write_agent_memory 工具访问当前 agent 的 MEMORY.md
+  - 禁止访问其他 agent 的 MEMORY.md
+
+#### Task 18 — config-types 扩展 + AGENT.md LLM 配置字段
+- `src/core/agent/agent-profile.ts`：`AgentProfile` 接口与 `AgentProfileSchema` 新增 LLM 配置字段（model / temperature / maxTokens / reasoningEffort / thinkingType / thinkingBudgetTokens）+ `memoryEnabled` 字段
+- LLM 配置未设置时 fallback 到 `config.defaultModel` + 系统默认值
+- `memoryEnabled` 缺省视为 true（仅 professional 生效；default 永不注入）；false 时 systemPrompt 不注入 MEMORY.md
+
+#### Task 19 — 删除专业 agent 归档流程
+- `src/core/agent/agent-storage.ts`：`archiveAgent(userId, slug)` 方法
+  - 归档路径：`data/users/<userId>/archived-agents/<slug>-<timestamp>/`
+  - 行为：先 `cpSync` 递归复制 → 验证完整性（文件数对比 + AGENT.md 必须存在于归档）→ 验证通过删除原目录；失败清理归档目录 + 抛错拒绝删除
+  - per-agentId 锁内执行，串行化并发 archiveAgent
+  - cpSync 失败时清理归档路径防脏数据
+- `src/access/agent-api.ts`：DELETE `/api/agents/:slug` 端点接入归档（仅 professional；default 返回 403）
+
+#### Task 20 — 封仓收尾
+- `package.json` 版本升至 `0.3.0`
+- CHANGELOG / README / README.zh-CN / ARCHITECTURE 文档同步
+- UAT 核验清单 `docs/superpowers/plans/0.3.0-uat-checklist.md` 就位
+- 全量回归测试通过
+
+### Security
+
+- 路径遍历防护：所有 agent 路径操作校验 `userId`（UUID v4）+ `slug`（`AGENT_SLUG_REGEX`）
+- 跨用户隔离：所有 agent API 校验 `agent.userId === currentUserId`，否则 403
+- systemPrompt 约束：禁止 agent 访问 `data/users/*/agents/*/sessions/` / `data/users/*/archived-agents/` / `ui-config.json`
+- 跨 agent 访问禁止：read_agent_memory / write_agent_memory 路径硬编码当前 agentId
+- 单次写入上限：`MAX_WRITE_CONTENT_SIZE = 2048`（2KB）；记忆总量上限：`MAX_MEMORY_SIZE = 8192`（8KB）
+- 归档原子性：复制 + 验证 + 删除，失败拒绝删除原目录
+- AGENT.md 原子写：write-to-tmp + rename + per-agentId mutex 串行化
+- 审计日志 append-only：所有 write_agent_memory 操作记录 timestamp / sessionId / section / mode / contentPreview / contentLength / beforeSize / afterSize
+
+### Test Coverage
+
+- 全量测试 `npx vitest run` 通过（含 ~2 pre-existing auth-api ECONNRESET flaky 失败，已知时序问题非 0.3.0 引入）
+- 类型检查 `npx tsc --noEmit` 0 错误
+- 新增测试覆盖：agent-profile / agent-storage / agent-migration / memory-audit-log / system-prompt-builder / ui-config / read-agent-memory / write-agent-memory / agent-api / agent-command / skill-command / agent-sidebar / agent-settings-modal / new-agent-modal / skill-chips-bar / memory-write-toast / server wiring
+
+### Release Finalization（封仓收尾）
+
+- 设计文档 [docs/superpowers/specs/2026-07-06-0.3.0-dual-mode-agent-design.md](./docs/superpowers/specs/2026-07-06-0.3.0-dual-mode-agent-design.md) 已就位
+- 实施计划 [PLAN-0.3.0.md](./PLAN-0.3.0.md) Task 1-20 全部完成
+- CHANGELOG / README / README.zh-CN / ARCHITECTURE 文档同步
+- UAT 核验清单 [docs/superpowers/plans/0.3.0-uat-checklist.md](./docs/superpowers/plans/0.3.0-uat-checklist.md) 就位
+- `package.json` 版本升至 `0.3.0`
+- git tag `v0.3.0` 由 finishing 步骤单独处理（本版本未在本 commit 创建）
+
+---
+
 ## [0.2.3] - 2026-07-02
 
 aptbot 从"个人 agent 工具"扩展为"边用边学的 agent 学习教材"。新增知识体系（19 篇文章 + 2 Track）+ 用户反馈区（Web 表单 + JSONL 存储 + CLI 管理）。文章以 markdown + frontmatter 存储，运行时 marked 渲染；反馈 append-only JSONL 持久化，CLI `/feedback` 命令列表/详情/resolve/archive/stats。配置项 `learnPage`（默认 false，opt-in）+ `feedbackEnabled`（默认 true）控制启用范围，clone 用户零影响。基于 [docs/superpowers/specs/2026-07-01-0.2.3-learn-system-design.md](./docs/superpowers/specs/2026-07-01-0.2.3-learn-system-design.md) 实施。

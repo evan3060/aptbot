@@ -1,4 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+vi.mock('node:fs', async (importActual) => {
+  const actual = await importActual<typeof import('node:fs')>();
+  return {
+    ...actual,
+    cpSync: vi.fn(actual.cpSync),
+  };
+});
+
 import {
   mkdtempSync,
   rmSync,
@@ -6,6 +15,7 @@ import {
   mkdirSync,
   writeFileSync,
   readdirSync,
+  cpSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -927,6 +937,40 @@ body`,
       // 原目录已被删除
       const agentDir = storage.getAgentDir(TEST_USER_ID, 'agent-arc6');
       expect(existsSync(agentDir)).toBe(false);
+    });
+
+    it('cpSync 失败时清理 archive path（不残留半成品，原目录保留）', async () => {
+      const { agentDir } = await seedFullAgent(TEST_USER_ID, 'agent-cpfail');
+
+      // 模拟 cpSync 中途失败：先创建归档目录 + 写入半成品文件，然后抛错
+      // （模拟磁盘满 / 权限错误导致 cpSync 抛错，留下半成品归档目录）
+      vi.mocked(cpSync).mockImplementationOnce(
+        (_src, dest) => {
+          const destPath = dest as string;
+          mkdirSync(destPath, { recursive: true });
+          writeFileSync(join(destPath, 'partial.bin'), 'partial');
+          throw new Error('simulated cpSync failure');
+        },
+      );
+
+      // archiveAgent 应抛出原始错误（不被吞掉）
+      await expect(
+        storage.archiveAgent(TEST_USER_ID, 'agent-cpfail'),
+      ).rejects.toThrow(/simulated cpSync failure/);
+
+      // 归档半成品应被清理（fix 的核心：cpSync 失败路径也清理 archivePath）
+      const archivedRoot = join(
+        tmpDataDir,
+        'users',
+        TEST_USER_ID,
+        'archived-agents',
+      );
+      expect(existsSync(archivedRoot)).toBe(true);
+      const entries = readdirSync(archivedRoot);
+      expect(entries.some((e) => e.startsWith('agent-cpfail-'))).toBe(false);
+
+      // 原 agent 目录仍存在（cpSync 失败 → 未进入 delete 阶段）
+      expect(existsSync(agentDir)).toBe(true);
     });
   });
 });

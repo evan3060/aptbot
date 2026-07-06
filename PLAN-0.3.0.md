@@ -44,7 +44,7 @@
 
 ### Task 1: AgentProfile 类型与 schema 定义
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 定义 AgentProfile / AgentType / AgentConfig 等核心类型与 zod schema，作为后续所有 agent 相关模块的类型契约。
 
@@ -77,7 +77,7 @@
 
 ### Task 2: AgentStorage — AGENT.md 持久化与读取
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 提供 AgentProfile 的文件系统持久化能力，封装 AGENT.md 的读写与目录管理。
 
@@ -182,7 +182,7 @@
 
 ### Task 5: skill frontmatter template 字段扩展
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** skill frontmatter 新增 template 字段，支持 chip 点击后智能填充输入框。
 
@@ -210,7 +210,7 @@
 
 ### Task 6: read_agent_memory 工具
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 专业 agent 主动读取 MEMORY.md（用于刷新或分段读取），路径硬编码当前 agentId，禁止跨 agent 访问。
 
@@ -241,7 +241,7 @@
 
 ### Task 7: write_agent_memory 工具 + 审计日志
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** agent 自主写入 MEMORY.md（无用户确认）+ 审计日志记录所有写入操作。
 
@@ -287,7 +287,7 @@
 
 ### Task 8: AGENT.md systemPrompt 自动注入 + KV 缓存
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 专业 agent 的 MEMORY.md 自动注入 systemPrompt，使用 KV 缓存避免每 turn 重复 token 计费。
 
@@ -326,7 +326,7 @@
 
 ### Task 9: Agent HTTP API（/api/agents 系列）
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 提供 agent CRUD + memory + memory-log 的 HTTP API，供 WebUI 调用。
 
@@ -371,7 +371,7 @@
 
 ### Task 10: UI 配置 API（visibleSkills）
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** default agent 的 UI 层配置（visibleSkills）API，不动 skill 文件，不动 AGENT.md。
 
@@ -409,7 +409,7 @@
 
 ### Task 11: Skill HTTP API（/api/skills）
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 列出所有已加载 skill（含 template 字段），供 WebUI skill 配置区显示可选池。
 
@@ -435,7 +435,7 @@
 
 ### Task 12: CLI 命令 /agent + /skill
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** CLI 保留必要管理命令（agent 管理 + skill 使用），WebUI 为主交互入口。
 
@@ -475,7 +475,7 @@
 
 ### Task 13: WebUI — 左侧栏树形结构
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 左侧栏从平铺 session 列表改为 agent 树形结构（通用助手根节点 + 专业 agent 子节点 + session 叶节点）。
 
@@ -519,7 +519,7 @@
 
 ### Task 14: WebUI — agent 设置浮层 + 新建 agent 浮层
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** agent 设置浮层（通用/专业两种模式）+ 新建专业 agent 浮层，居中 modal + 单页分段。
 
@@ -564,7 +564,7 @@
 
 ### Task 15: WebUI — skill chip 区 + 模板填充
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 聊天框上方 skill chip 区（仅 default agent 显示），点击后智能填充模板到输入框。
 
@@ -676,7 +676,7 @@
 
 ### Task 18: config-types 扩展 + AGENT.md LLM 配置字段
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** config-types 支持新字段 + AGENT.md frontmatter LLM 配置字段定义。
 
@@ -704,7 +704,7 @@
 
 ### Task 19: 删除专业 agent 归档流程
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** 删除专业 agent 时归档到 `archived-agents/`，不直接删除，保留恢复可能性。
 
@@ -742,7 +742,7 @@
 
 ### Task 20: 封仓收尾 — CHANGELOG / README / ARCHITECTURE / package.json / UAT 核验清单
 
-- [ ] 完成
+- [x] 完成
 
 **价值：** 封仓收尾，文档同步，版本号升级，UAT 核验清单就位。
 

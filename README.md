@@ -3,12 +3,8 @@
     <img src="https://img.shields.io/badge/tests-1228%20passed-brightgreen" alt="Tests">
     <img src="https://img.shields.io/badge/TypeScript-strict-blue" alt="TypeScript">
     <img src="https://img.shields.io/badge/node-%3E%3D20-green" alt="Node">
-    <img src="https://img.shields.io/badge/version-0.2.3-blue" alt="Version">
+    <img src="https://img.shields.io/badge/version-0.3.0-blue" alt="Version">
     <img src="https://img.shields.io/badge/license-MIT-yellow" alt="License">
-  </p>
-  <p>
-    <a href="./README.md">English</a> |
-    <a href="./README.zh-CN.md">简体中文</a>
   </p>
 </div>
 
@@ -22,7 +18,7 @@ It doesn't serve just you. Multi-user isolation lets family members and team mem
 
 **Long-term goal:** Starting from a concise, readable ReAct loop, gradually expand into a highly personalized, omnipotent personal work and life assistant — remembering your preferences, connecting your toolchain, learning your workflows, blending into your daily life. Ultimately, it doesn't just answer questions — it works for you proactively.
 
-> **Status:** v0.2.3 — 19 structured articles (Track 1: Agent 体系实践 13 + Track 2: AI 辅助编码实践 6) + user feedback system (Web form + JSONL storage + `/feedback` CLI). Learn system is opt-in via `learnPage: true` (requires `landingPage: true`); feedback collection defaults to on (`feedbackEnabled: true`).
+> **Status:** v0.3.0 — 双轨 agent 系统（Mode A 通用 + Mode B 专业）+ 桌面模式（WebUI 左侧栏 agent 树形结构）+ skill chip 区（仅 default agent，点击填模板）+ 共享记忆（professional agent 跨 session MEMORY.md 自动注入 + KV 缓存 key 稳定性 + 审计日志 + 归档）+ legacy `data/sessions/` 自动迁移。20 个 task 全部完成，详 [PLAN-0.3.0.md](./PLAN-0.3.0.md)。
 
 ## Start Here
 
@@ -246,6 +242,10 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full module map, event flow dia
 | Landing page (v0.2.1) | adept.ai-style 5-section landing at `/` (opt-in via `landingPage: true`) · zh/en i18n · `/demo` route for agent page |
 | Knowledge section (v0.2.3) | 19 structured articles (Track 1: Agent 体系实践 13 + Track 2: AI 辅助编码实践 6) at `/learn` + `/learn/:slug` · markdown + frontmatter source · runtime `marked` rendering · opt-in via `learnPage: true` (requires `landingPage: true`) |
 | User feedback (v0.2.3) | `/feedback` page + `POST /api/feedback` (general/article/bug/feature) · JSONL append-only storage · per-IP rate limit (10/min + 60/hour) · `/feedback` CLI (list/all/detail/resolve/archive/stats) · default on via `feedbackEnabled: true` |
+| 双轨 Agent 系统 (v0.3.0) | Mode A 通用 agent（即开即用）+ Mode B 专业 agent（长期积累）· AgentProfile 统一抽象（type='default' \| 'professional'）· AGENT.md frontmatter + body 持久化 · `/api/agents` CRUD + memory + memory-log HTTP API · `/agent` + `/skill` CLI 命令 · 路径遍历防护 + 跨用户隔离 |
+| 桌面模式 (v0.3.0) | WebUI 为唯一主交互入口 · 左侧栏改为 agent 树形结构（`<agent-sidebar>` + `<agent-node>`）· agent 设置浮层（通用 / 专业两种模式）+ 新建 agent 浮层（560px modal）· 归档文件夹管理专业 agent |
+| Skill chip 区 (v0.3.0) | 仅 default agent 显示 · `<skill-chips-bar>` 横向平铺 chip · 点击 chip 填模板到输入框（`{{cursor}}` 光标定位）· `visibleSkills` UI 配置 API（GET/PUT `/api/agents/default/ui-config`）· skill frontmatter `template` 字段 |
+| 共享记忆 (v0.3.0) | professional agent 跨 session MEMORY.md · `read_agent_memory` / `write_agent_memory` 工具（路径硬编码当前 agentId，跨 agent 禁止）· systemPrompt builder 自动注入 + KV 缓存 key 稳定性（`computeSystemPromptCacheKey` sha256）· `memory.log.jsonl` 审计日志（append-only，timestamp / sessionId / section / mode / contentPreview / beforeSize / afterSize）· `archiveAgent` 复制 + 验证 + 删除原子归档 · legacy `data/sessions/` 自动迁移到 `data/users/<userId>/agents/<slug>/sessions/` |
 | Reliability (v0.2.2) | per-sessionKey ring buffer sharding + LRU (1000/50000 caps) · JSONL history replay fallback · `turn_busy` queue feedback |
 | Multi-provider failover (v0.2.2) | `MixinProvider` priority-chain failover · `springBackMs` rebound · AggregateError on all-fail · stream-aware no-switch |
 | Config hot-reload (v0.2.2) | mtimeNs lazy-watch · turn isolation (current turn uses old snapshot, next turn uses new) · graceful degrade on invalid |

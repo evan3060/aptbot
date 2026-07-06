@@ -334,7 +334,14 @@ export class AgentStorage {
       }
 
       // 1. 复制整个 agent 目录到归档路径（recursive copy）
-      cpSync(agentDir, archivePath, { recursive: true });
+      try {
+        cpSync(agentDir, archivePath, { recursive: true });
+      } catch (e) {
+        if (existsSync(archivePath)) {
+          rmSync(archivePath, { recursive: true, force: true });
+        }
+        throw e;
+      }
 
       // 2. 验证完整性：文件数对比 + AGENT.md 必须存在于归档
       const sourceEntries = readdirSync(agentDir);
