@@ -296,6 +296,9 @@ describe('Task 5: WebSocket sessionKey 路由 + session-user 关联', () => {
   describe('session-repo: create(userId) + list(userId)', () => {
     let storage: FileStorage;
     let repo: SessionRepo;
+    // §0.3.0 Task 4: userId 必须匹配 USER_ID_REGEX (UUID v4)，否则触发路径遍历防护
+    const USER_A = '00000000-0000-4000-8000-000000000001';
+    const USER_B = '00000000-0000-4000-8000-000000000002';
 
     beforeEach(() => {
       mkdirSync(join(tmpDir, 'sessions'));
@@ -304,7 +307,7 @@ describe('Task 5: WebSocket sessionKey 路由 + session-user 关联', () => {
     });
 
     it('create(userId) 创建 session 并 claim 到该 user', async () => {
-      const session = await repo.create('user-1');
+      const session = await repo.create(USER_A);
       expect(session.id).toMatch(SESSION_ID_REGEX);
       // 写入一条 entry 触发文件创建
       await session.append({
@@ -313,44 +316,44 @@ describe('Task 5: WebSocket sessionKey 路由 + session-user 关联', () => {
         message: { role: 'user', content: 'hello' } as any,
         timestamp: Date.now(),
       });
-      const user1Sessions = await repo.list('user-1');
+      const user1Sessions = await repo.list(USER_A);
       expect(user1Sessions.some((s) => s.id === session.id)).toBe(true);
     });
 
     it('list(userId) 仅返回该 user 的 sessions', async () => {
-      const s1 = await repo.create('user-1');
-      const s2 = await repo.create('user-2');
+      const s1 = await repo.create(USER_A);
+      const s2 = await repo.create(USER_B);
       await s1.append({ type: 'message', id: 'm1', message: { role: 'user', content: 'a' } as any, timestamp: Date.now() });
       await s2.append({ type: 'message', id: 'm2', message: { role: 'user', content: 'b' } as any, timestamp: Date.now() });
 
-      const user1 = await repo.list('user-1');
-      const user2 = await repo.list('user-2');
+      const user1 = await repo.list(USER_A);
+      const user2 = await repo.list(USER_B);
       expect(user1.some((s) => s.id === s1.id)).toBe(true);
       expect(user1.some((s) => s.id === s2.id)).toBe(false);
       expect(user2.some((s) => s.id === s2.id)).toBe(true);
     });
 
     it('open(id, userId) 对已 claim 到其他 user 的 session 抛 SessionAlreadyClaimedError', async () => {
-      // 先用 user-1 创建
-      const s1 = await repo.create('user-1');
+      // 先用 USER_A 创建
+      const s1 = await repo.create(USER_A);
       await s1.append({ type: 'message', id: 'm1', message: { role: 'user', content: 'a' } as any, timestamp: Date.now() });
 
-      // user-2 open 同一 session — I8 fix 后抛错而非覆盖
-      await expect(repo.open(s1.id, 'user-2')).rejects.toBeInstanceOf(SessionAlreadyClaimedError);
+      // USER_B open 同一 session — I8 fix 后抛错而非覆盖
+      await expect(repo.open(s1.id, USER_B)).rejects.toBeInstanceOf(SessionAlreadyClaimedError);
 
       // 原 owner 仍可访问
-      const user1Sessions = await repo.list('user-1');
+      const user1Sessions = await repo.list(USER_A);
       expect(user1Sessions.some((s) => s.id === s1.id)).toBe(true);
-      const user2Sessions = await repo.list('user-2');
+      const user2Sessions = await repo.list(USER_B);
       expect(user2Sessions.some((s) => s.id === s1.id)).toBe(false);
     });
 
     it('updateLabel 调用 storage.updateSessionLabel', async () => {
-      const s1 = await repo.create('user-1');
+      const s1 = await repo.create(USER_A);
       await s1.append({ type: 'message', id: 'm1', message: { role: 'user', content: 'a' } as any, timestamp: Date.now() });
       await repo.updateLabel(s1.id, '新标签');
 
-      const sessions = await repo.list('user-1');
+      const sessions = await repo.list(USER_A);
       const target = sessions.find((s) => s.id === s1.id);
       expect(target?.label).toBe('新标签');
     });

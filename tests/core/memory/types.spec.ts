@@ -7,6 +7,7 @@ import {
   SESSIONS_DIR,
   MAX_PATH_LENGTH,
   type SessionEntry,
+  type SessionMetadata,
 } from '../../../src/core/memory/types.js';
 
 describe('session types', () => {
@@ -120,6 +121,33 @@ describe('session types', () => {
         timestamp: nowTimestamp(),
       };
       expect(entry.type).toBe('working_memory');
+    });
+  });
+
+  // §0.3.0 Task 4: SessionMetadata.agentId 必填字段
+  describe('SessionMetadata.agentId (Task 4)', () => {
+    it('requires agentId field at compile time', () => {
+      // 此测试主要靠 tsc 编译期检查：若 SessionMetadata 缺 agentId 必填字段，
+      // 下面对象字面量会触发 TS 错误。
+      const meta: SessionMetadata = {
+        id: '550e8400-e29b-41d4-a716-446655440000',
+        createdAt: 1,
+        updatedAt: 2,
+        agentId: 'default',
+      };
+      expect(meta.agentId).toBe('default');
+    });
+
+    it('allows optional userId field alongside required agentId', () => {
+      const meta: SessionMetadata = {
+        id: '550e8400-e29b-41d4-a716-446655440000',
+        createdAt: 1,
+        updatedAt: 2,
+        agentId: 'agent-abc123',
+        userId: '01234567-89ab-cdef-0123-456789abcdef',
+      };
+      expect(meta.agentId).toBe('agent-abc123');
+      expect(meta.userId).toBe('01234567-89ab-cdef-0123-456789abcdef');
     });
   });
 });

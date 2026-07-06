@@ -21,6 +21,7 @@ function makeMockStorage() {
           id,
           createdAt: entries[0]?.timestamp ?? 0,
           updatedAt: last?.timestamp ?? 0,
+          agentId: 'default',
         });
       }
       return metas;
@@ -30,6 +31,13 @@ function makeMockStorage() {
     deleteSession: vi.fn(async (id: string) => {
       sessions.delete(id);
     }),
+    // §0.3.0 Task 4: claimSession / forceClaimSession / updateSessionLabel / hasCustomLabel / getSessionOwner
+    // mock 为 no-op，仅在 create(userId, agentId) 时被 spy 验证调用
+    claimSession: vi.fn(async () => {}),
+    forceClaimSession: vi.fn(async () => {}),
+    updateSessionLabel: vi.fn(async () => {}),
+    hasCustomLabel: vi.fn(async () => false),
+    getSessionOwner: vi.fn(async () => undefined),
   };
   return { storage, sessions };
 }
@@ -133,5 +141,77 @@ describe('SessionRepo', () => {
     expect(storage.appendSession).toHaveBeenCalledWith(session.id, entry);
     const entries = await session.getEntries();
     expect(entries).toHaveLength(1);
+  });
+
+  // §0.3.0 Task 4: create/open 接受 agentId 参数
+  describe('Task 4: create/open with agentId', () => {
+    it('create(userId, agentId) calls claimSession with (id, userId, agentId)', async () => {
+      const { storage } = makeMockStorage();
+      const repo = createSessionRepo(storage);
+
+      const userId = '01234567-89ab-cdef-0123-456789abcdef';
+      const agentId = 'default';
+      const session = await repo.create(userId, agentId);
+
+      expect(storage.claimSession).toHaveBeenCalledWith(session.id, userId, agentId);
+    });
+
+    it('create(userId, agentId) returns session with metadata.agentId set', async () => {
+      const { storage } = makeMockStorage();
+      const repo = createSessionRepo(storage);
+
+      const userId = '01234567-89ab-cdef-0123-456789abcdef';
+      const agentId = 'agent-abc123';
+      const session = await repo.create(userId, agentId);
+
+      expect(session.metadata.agentId).toBe(agentId);
+    });
+
+    it('create() without args defaults agentId to "default"', async () => {
+      const { storage } = makeMockStorage();
+      const repo = createSessionRepo(storage);
+
+      const session = await repo.create();
+
+      // 无 userId 时不调用 claimSession；agentId 仍默认 'default'
+      expect(storage.claimSession).not.toHaveBeenCalled();
+      expect(session.metadata.agentId).toBe('default');
+    });
+
+    it('create(userId) without agentId defaults agentId to "default"', async () => {
+      const { storage } = makeMockStorage();
+      const repo = createSessionRepo(storage);
+
+      const userId = '01234567-89ab-cdef-0123-456789abcdef';
+      const session = await repo.create(userId);
+
+      expect(storage.claimSession).toHaveBeenCalledWith(session.id, userId, 'default');
+      expect(session.metadata.agentId).toBe('default');
+    });
+
+    it('open(id, userId, agentId) calls claimSession with (id, userId, agentId)', async () => {
+      const { storage } = makeMockStorage();
+      const repo = createSessionRepo(storage);
+
+      const id = '01234567-89ab-cdef-0123-456789abcdef';
+      const userId = '11234567-89ab-cdef-0123-456789abcdef';
+      const agentId = 'agent-xyz789';
+      const session = await repo.open(id, userId, agentId);
+
+      expect(session.id).toBe(id);
+      expect(session.metadata.agentId).toBe(agentId);
+      expect(storage.claimSession).toHaveBeenCalledWith(id, userId, agentId);
+    });
+
+    it('open(id) without userId/agentId does not call claimSession; agentId defaults to "default"', async () => {
+      const { storage } = makeMockStorage();
+      const repo = createSessionRepo(storage);
+
+      const id = '01234567-89ab-cdef-0123-456789abcdef';
+      const session = await repo.open(id);
+
+      expect(storage.claimSession).not.toHaveBeenCalled();
+      expect(session.metadata.agentId).toBe('default');
+    });
   });
 });

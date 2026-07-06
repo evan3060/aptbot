@@ -4,10 +4,12 @@ import type { Session, SessionMetadata, SessionEntry } from './types.js';
 import { nowTimestamp } from './types.js';
 
 export interface SessionRepo {
-  /** Task 5: create 新增 userId 参数，触发 storage.claimSession */
-  create(userId?: string): Promise<Session>;
-  /** Task 5: open 新增 userId 参数，触发 storage.claimSession */
-  open(id: string, userId?: string): Promise<Session>;
+  /** Task 5: create 新增 userId 参数，触发 storage.claimSession
+   *  §0.3.0 Task 4: 新增 agentId 参数（缺省 'default'） */
+  create(userId?: string, agentId?: string): Promise<Session>;
+  /** Task 5: open 新增 userId 参数，触发 storage.claimSession
+   *  §0.3.0 Task 4: 新增 agentId 参数（缺省 'default'） */
+  open(id: string, userId?: string, agentId?: string): Promise<Session>;
   /** Task 5: list 新增 userId 过滤 */
   list(userId?: string): Promise<SessionMetadata[]>;
   delete(id: string): Promise<void>;
@@ -77,21 +79,45 @@ export async function readHistoryForReplay(
  * Task 5: create/open 在 session 首次创建时调用 storage.claimSession 关联 userId。
  * 注意：claimSession 仅写入 sidecar .meta.json，不依赖 .jsonl 文件存在。
  */
+/**
+ * §0.3.0 Task 4: DEFAULT_AGENT_ID — SessionRepo 层缺省 agentId。
+ * 与 agent-migration.ts 的 DEFAULT_AGENT_SLUG 保持一致。
+ */
+const DEFAULT_AGENT_ID = 'default';
+
 export function createSessionRepo(storage: StorageAdapter): SessionRepo {
-  function makeSession(id: string, createdAt: number): Session {
+  /**
+   * §0.3.0 Task 4: makeSession 携带 userId（可选）+ agentId。
+   * - userId 提供时：append/getEntries 使用新路径 API（agent-scoped path）
+   * - userId 缺省时：使用 legacy API（向后兼容，与未迁移调用方一致）
+   */
+  function makeSession(
+    id: string,
+    createdAt: number,
+    userId: string | undefined,
+    agentId: string = DEFAULT_AGENT_ID,
+  ): Session {
     const metadata: SessionMetadata = {
       id,
       createdAt,
       updatedAt: createdAt,
+      agentId,
+      ...(userId !== undefined && { userId }),
     };
     return {
       id,
       metadata,
       async getEntries() {
-        return storage.readSession(id);
+        return userId !== undefined
+          ? storage.readSession(id, userId, agentId)
+          : storage.readSession(id);
       },
       async append(entry: SessionEntry) {
-        await storage.appendSession(id, entry);
+        if (userId !== undefined) {
+          await storage.appendSession(id, userId, agentId, entry);
+        } else {
+          await storage.appendSession(id, entry);
+        }
       },
       async updateMetadata(_patch: Partial<SessionMetadata>) {
         // MVP: metadata derived from storage file stats; label/compaction entries handled at storage layer
@@ -100,27 +126,34 @@ export function createSessionRepo(storage: StorageAdapter): SessionRepo {
   }
 
   return {
-    async create(userId?: string): Promise<Session> {
+    async create(userId?: string, agentId?: string): Promise<Session> {
       const id = randomUUID();
       const now = nowTimestamp();
+      const effectiveAgentId = agentId ?? DEFAULT_AGENT_ID;
       // Task 5: 若提供 userId，立即 claim（写 sidecar，不依赖 .jsonl 存在）
+      // §0.3.0 Task 4: claimSession 接受 agentId，写入 .meta.json
       if (userId) {
-        await storage.claimSession(id, userId);
+        await storage.claimSession(id, userId, effectiveAgentId);
       }
-      return makeSession(id, now);
+      return makeSession(id, now, userId, effectiveAgentId);
     },
 
-    async open(id: string, userId?: string): Promise<Session> {
+    async open(id: string, userId?: string, agentId?: string): Promise<Session> {
       const now = nowTimestamp();
+      const effectiveAgentId = agentId ?? DEFAULT_AGENT_ID;
       // Task 5: 若提供 userId，立即 claim（覆盖语义，幂等）
+      // §0.3.0 Task 4: claimSession 接受 agentId
       if (userId) {
-        await storage.claimSession(id, userId);
+        await storage.claimSession(id, userId, effectiveAgentId);
       }
-      return makeSession(id, now);
+      return makeSession(id, now, userId, effectiveAgentId);
     },
 
     async list(userId?: string): Promise<SessionMetadata[]> {
-      return storage.listSessions(userId);
+      // §0.3.0 Task 4: listSessions 重载不接受 undefined，需条件分发
+      return userId !== undefined
+        ? storage.listSessions(userId)
+        : storage.listSessions();
     },
 
     async delete(id: string): Promise<void> {

@@ -21,6 +21,9 @@ export interface SessionMetadata {
   readonly passedSessions?: number;
   /** Task 5: session 所属用户（未 claim 时为 undefined） */
   readonly userId?: string;
+  /** §0.3.0 Task 4: session 所属 agent（必填，default agent slug 为 'default'）。
+   *  路径遍历防护：必须匹配 AGENT_SLUG_REGEX（[a-z0-9-]{3,64}）。 */
+  readonly agentId: string;
   /** 首条用户消息摘要（无 label 时用于侧边栏默认显示） */
   readonly preview?: string;
 }
