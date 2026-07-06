@@ -14,7 +14,7 @@ import { DEFAULT_AGENT_SLUG } from '../../../src/core/agent/agent-migration.js';
  *   - /agent 列出所有 agents（标记 current）
  *   - /agent <slug> 切换 agent（返回 action=switch_agent）
  *   - /agent info 显示当前 agent 的 personality
- *   - /agent info 默认 agent 提示无 personality
+ *   - /agent info 默认 agent 显示 personality body（与其他 agent 一致）
  *   - /agent memory-log 列出最近 N 条审计日志
  *   - /agent memory-log [limit] 自定义 limit
  *   - /agent <unknown-slug> 返回错误 + 列出可用 agents
@@ -236,14 +236,15 @@ describe('/agent command', () => {
     expect(result.output).toContain('elite coder');
   });
 
-  it('/agent info on default agent shows note about no AGENT.md personality', async () => {
+  it('/agent info on default agent shows the default personality body (same as any other agent)', async () => {
     const reg = createCommandRegistry();
+    const defaultPersonality = '你是 aptbot 通用助手';
     const agentStorage = makeMockAgentStorage([
       makeAgentProfile({
         name: 'Default Helper',
         slug: DEFAULT_AGENT_SLUG,
         type: 'default',
-        personality: '',
+        personality: defaultPersonality,
       }),
     ]);
     const result = await exec(reg, '/agent info', makeCtx({
@@ -252,8 +253,10 @@ describe('/agent command', () => {
     }));
     expect(result.output).toBeDefined();
     expect(result.output).toContain(DEFAULT_AGENT_SLUG);
-    // 默认 agent 应提示无 personality
-    expect(result.output).toMatch(/default|no.*personality|通用/i);
+    // 默认 agent 走正常路径，显示真实 personality body（与其他 agent 一致）
+    expect(result.output).toContain(defaultPersonality);
+    // 不应再出现特判提示文本
+    expect(result.output).not.toMatch(/no AGENT\.md personality body to display/);
   });
 
   it('/agent memory-log lists recent audit records with timestamp/section/mode/preview', async () => {

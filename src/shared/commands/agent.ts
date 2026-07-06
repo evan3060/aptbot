@@ -1,7 +1,6 @@
 import type { Command } from './registry.js';
 import type { AgentStorage } from '../../core/agent/agent-storage.js';
 import type { MemoryAuditLog } from '../../core/agent/memory-audit-log.js';
-import { DEFAULT_AGENT_SLUG } from '../../core/agent/agent-migration.js';
 
 /**
  * Task 12: /agent CLI 命令
@@ -19,7 +18,7 @@ import { DEFAULT_AGENT_SLUG } from '../../core/agent/agent-migration.js';
  * - 无 agentStorage → 提示 "agent storage 未启用"
  * - 无 userId → 提示 "未设置 userId"
  * - 切换不存在的 slug → 错误信息 + 列出可用 agents
- * - /agent info 默认 agent → 提示 default 无 AGENT.md personality body
+ * - /agent info 默认 agent → 显示 default agent 的 personality body（与其他 agent 一致）
  * - /agent memory-log 无 memoryAuditLogFactory → 提示 "memory audit log 未启用"
  */
 
@@ -93,11 +92,6 @@ export const agentCommand: Command = {
       const currentSlug = ctx.currentAgentSlug;
       if (!currentSlug) {
         return { output: 'No current agent set.' };
-      }
-      if (currentSlug === DEFAULT_AGENT_SLUG) {
-        return {
-          output: `Current agent: ${currentSlug}\n(default agent has no AGENT.md personality body to display.)`,
-        };
       }
       const agent = await storage.getAgent(userId, currentSlug);
       if (!agent) {
