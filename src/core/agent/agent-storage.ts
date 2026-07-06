@@ -268,12 +268,21 @@ export class AgentStorage {
   /**
    * §0.3.0 deleteAgent: 递归删除 agent 目录。
    * 幂等：目录不存在不抛错。
+   *
+   * 在 per-agentId 锁内执行，避免与 saveAgent 并发时产生竞态：
+   * 否则 saveAgent 的 write-to-tmp 文件可能被 rmSync 删除，
+   * 导致随后的 renameSync 抛 ENOENT 并破坏状态一致性。
    */
   async deleteAgent(userId: string, slug: string): Promise<void> {
-    const agentDir = this.getAgentDir(userId, slug);
-    if (existsSync(agentDir)) {
-      rmSync(agentDir, { recursive: true, force: true });
-    }
+    // 路径遍历防护（在锁外也需校验，避免构造非法 lockKey）
+    this.validatePathParams(userId, slug);
+
+    await withAgentLock(this.lockKey(userId, slug), async () => {
+      const agentDir = this.getAgentDir(userId, slug);
+      if (existsSync(agentDir)) {
+        rmSync(agentDir, { recursive: true, force: true });
+      }
+    });
   }
 
   /**

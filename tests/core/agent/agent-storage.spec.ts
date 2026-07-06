@@ -580,6 +580,95 @@ describe('agent-storage', () => {
     });
   });
 
+  describe('并发 save + delete 同一 agent', () => {
+    it('并发 save + delete 不抛 ENOENT，无残留 tmp，最终状态一致', async () => {
+      const slug = 'agent-sd1';
+      const baseProfile: AgentProfile = {
+        name: 'SaveDelete',
+        description: 'desc',
+        userId: TEST_USER_ID,
+        type: 'default',
+        slug,
+        createdAt: 0,
+        updatedAt: 0,
+        personality: 'initial',
+      };
+
+      // 初始创建 agent，确保后续 delete 有目标
+      await storage.saveAgent(baseProfile);
+
+      // 并发：10 次 save + 10 次 delete 交替发起
+      // 无锁时会出现 saveAgent 的 renameSync(tmpPath, mdPath) 抛 ENOENT：
+      //   - Thread A (save): writeFileSync(tmpPath) → 锁外被 Thread B 删目录
+      //   - Thread B (delete): rmSync(agentDir, recursive) 删掉 tmpPath
+      //   - Thread A (save): renameSync(tmpPath, mdPath) → ENOENT
+      // 加锁后 save 和 delete 串行化，此竞态不可能发生。
+      const ops: Promise<unknown>[] = [];
+      for (let i = 0; i < 10; i++) {
+        ops.push(
+          storage.saveAgent({ ...baseProfile, personality: `save-${i}` }),
+        );
+        ops.push(storage.deleteAgent(TEST_USER_ID, slug));
+      }
+
+      // 不应抛 ENOENT 或任何错误
+      await expect(Promise.all(ops)).resolves.toBeDefined();
+
+      const mdPath = join(
+        tmpDataDir,
+        'users',
+        TEST_USER_ID,
+        'agents',
+        slug,
+        'AGENT.md',
+      );
+      // 无残留 tmp 文件（saveAgent 完整完成的标志）
+      expect(existsSync(`${mdPath}.tmp`)).toBe(false);
+
+      // 最终状态一致：若 AGENT.md 仍存在，必须可正常解析（无半写损坏）
+      if (existsSync(mdPath)) {
+        const read = await storage.getAgent(TEST_USER_ID, slug);
+        expect(read).not.toBeNull();
+        expect(read!.name).toBe('SaveDelete');
+        expect(read!.slug).toBe(slug);
+        // personality 应为某次 save 写入的完整值（非半写）
+        expect(read!.personality).toMatch(/^save-\d+$/);
+      }
+      // 若目录已被最后一个 delete 删除，也是合法终态（save 在 delete 之前完成）
+    });
+
+    it('多轮 save+delete 循环后状态自洽（回归测试）', async () => {
+      const slug = 'agent-sd2';
+      const profile: AgentProfile = {
+        name: 'SaveDelete2',
+        description: 'desc',
+        userId: TEST_USER_ID,
+        type: 'default',
+        slug,
+        createdAt: 0,
+        updatedAt: 0,
+        personality: 'body',
+      };
+
+      // 5 轮：每轮先 save 再 delete，但全部并发发起（不 await）
+      const ops: Promise<unknown>[] = [];
+      for (let round = 0; round < 5; round++) {
+        ops.push(
+          storage.saveAgent({ ...profile, personality: `round-${round}` }),
+        );
+        ops.push(storage.deleteAgent(TEST_USER_ID, slug));
+      }
+
+      await expect(Promise.all(ops)).resolves.toBeDefined();
+
+      // 最终再 save 一次，验证 storage 仍可用（锁未死、目录可重建）
+      await storage.saveAgent(profile);
+      const read = await storage.getAgent(TEST_USER_ID, slug);
+      expect(read).not.toBeNull();
+      expect(read!.personality).toBe('body');
+    });
+  });
+
   describe('getAgent 损坏文件抛错', () => {
     it('损坏的 AGENT.md 抛错（不返回 null）', async () => {
       const corruptDir = join(
