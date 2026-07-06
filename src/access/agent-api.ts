@@ -26,7 +26,7 @@ import type { SkillState } from '../core/skills/loader.js';
  * - GET    /api/agents/:slug                 获取 agent 详情
  * - POST   /api/agents                       创建新 agent（专业 agent，slug 自动生成）
  * - PUT    /api/agents/:slug                 更新 agent 配置（personality / LLM / 记忆开关）
- * - DELETE /api/agents/:slug                 路由注册 + 403 default 不可删 + 501 专业 agent 占位
+ * - DELETE /api/agents/:slug                 归档删除（403 default 不可删 + Task 19 archiveAgent 接入）
  * - GET    /api/agents/:slug/sessions       列出该 agent 的 sessions
  * - GET    /api/agents/:slug/memory          获取 MEMORY.md 内容
  * - GET    /api/agents/:slug/memory-log      获取写入审计日志（默认 20 条，query limit 可调）
@@ -38,8 +38,8 @@ import type { SkillState } from '../core/skills/loader.js';
  * 路由优先级：`/api/agents/default/ui-config` 必须在 `/api/agents/:slug` 之前匹配，
  * 否则 "default" 会被 slugMatch 捕获为 :slug 参数。
  *
- * 重要约束：DELETE 端点本 task 仅注册路由 + 403 default + 501 占位。
- * 真正的归档逻辑由 Task 19 实现 archiveAgent 后接入。
+ * DELETE 端点：Task 19 已接入 archiveAgent，归档到 archived-agents/<slug>-<timestamp>/。
+ * 归档失败时（验证失败 / 源目录不存在）原 agent 不被删除，返回 500。
  */
 
 const log = createLogger('agent-api');
@@ -429,14 +429,30 @@ export async function handleAgentApi(
           return;
         }
 
-        // DELETE /api/agents/:slug — 删除（仅注册路由 + 403 default + 501 占位）
+        // DELETE /api/agents/:slug — 归档删除（default 不可删，专业 agent 走 archiveAgent）
         if (req.method === 'DELETE') {
           if (slug === DEFAULT_AGENT_SLUG) {
             sendJson(403, { ok: false, error: 'default agent cannot be deleted' });
             return;
           }
-          // 专业 agent 归档逻辑由 Task 19 实现，此处返回 501 Not Implemented
-          sendJson(501, { ok: false, error: 'archiving not implemented yet' });
+          // 存在性 + 跨用户检测：agent 不属于当前用户 → 403 / 404
+          const existing = await agentStorage.getAgent(currentUserId, slug);
+          if (!existing) {
+            const owner = await agentStorage.findAgentOwner(slug);
+            if (owner !== null) {
+              sendJson(403, { ok: false, error: 'forbidden' });
+            } else {
+              sendJson(404, { ok: false, error: 'agent not found' });
+            }
+            return;
+          }
+          try {
+            const archivePath = await agentStorage.archiveAgent(currentUserId, slug);
+            log.info('agent archived via API', { userId: currentUserId, slug, archivePath });
+            sendJson(200, { ok: true, archivedPath: archivePath });
+          } catch (e) {
+            sendJson(500, { ok: false, error: 'archive failed', message: String(e) });
+          }
           return;
         }
 

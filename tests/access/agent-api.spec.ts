@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createServer, type Server } from 'node:http';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -30,7 +30,7 @@ import type { SkillState } from '../../src/core/skills/loader.js';
  * 4. 400 on >50 agents (POST /api/agents)
  * 5. 200 update (PUT /api/agents/:slug)
  * 6. 403 delete default (DELETE /api/agents/default)
- * 7. 501 delete professional (DELETE /api/agents/:slug)
+ * 7. 200 + archivedPath delete professional (DELETE /api/agents/:slug, Task 19)
  * 8. 403 cross-user access
  * 9. 400 invalid slug (path traversal)
  * 10. memory-log default 20
@@ -342,7 +342,7 @@ describe('Task 9: Agent HTTP API', () => {
     });
   });
 
-  describe('DELETE /api/agents/:slug — 删除', () => {
+  describe('DELETE /api/agents/:slug — 归档删除（Task 19）', () => {
     it('6. DELETE /api/agents/default → 403（不可删）', async () => {
       await startServer();
       const res = await request('DELETE', '/api/agents/default', undefined, {
@@ -351,13 +351,57 @@ describe('Task 9: Agent HTTP API', () => {
       expect(res.status).toBe(403);
     });
 
-    it('7. DELETE /api/agents/:slug 专业 agent → 501 Not Implemented', async () => {
+    it('DELETE 不存在的专业 agent → 404', async () => {
+      await startServer();
+      const res = await request('DELETE', '/api/agents/agent-nonexist', undefined, {
+        authorization: `Bearer ${aliceToken}`,
+      });
+      expect(res.status).toBe(404);
+    });
+
+    it('7. DELETE 专业 agent → 200 + 返回归档路径', async () => {
       await startServer();
       const agent = await createAgentDirectly(aliceUserId);
       const res = await request('DELETE', `/api/agents/${agent.slug}`, undefined, {
         authorization: `Bearer ${aliceToken}`,
       });
-      expect(res.status).toBe(501);
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(typeof res.body.archivedPath).toBe('string');
+      expect(res.body.archivedPath.length).toBeGreaterThan(0);
+      // 归档路径形如 .../archived-agents/<slug>-<timestamp>
+      expect(res.body.archivedPath).toMatch(/archived-agents[\\/].+-\d+$/);
+    });
+
+    it('DELETE 专业 agent → 原 agent 目录已不存在', async () => {
+      await startServer();
+      const agent = await createAgentDirectly(aliceUserId);
+      const agentDir = agentStorage.getAgentDir(aliceUserId, agent.slug);
+      expect(existsSync(agentDir)).toBe(true);
+
+      const res = await request('DELETE', `/api/agents/${agent.slug}`, undefined, {
+        authorization: `Bearer ${aliceToken}`,
+      });
+      expect(res.status).toBe(200);
+
+      // 原 agent 目录已删除
+      expect(existsSync(agentDir)).toBe(false);
+      // getAgent 返回 null（active agent 列表中已移除）
+      const read = await agentStorage.getAgent(aliceUserId, agent.slug);
+      expect(read).toBeNull();
+    });
+
+    it('8. 跨用户 DELETE → 403（agent 属于其他用户）', async () => {
+      await startServer();
+      // alice 创建 agent，bob 尝试删除
+      const agent = await createAgentDirectly(aliceUserId);
+      const res = await request('DELETE', `/api/agents/${agent.slug}`, undefined, {
+        authorization: `Bearer ${bobToken}`,
+      });
+      expect(res.status).toBe(403);
+      // alice 仍可访问该 agent（未被归档）
+      const read = await agentStorage.getAgent(aliceUserId, agent.slug);
+      expect(read).not.toBeNull();
     });
   });
 

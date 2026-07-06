@@ -7,6 +7,7 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  cpSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import matter from 'gray-matter';
@@ -287,6 +288,72 @@ export class AgentStorage {
       if (existsSync(agentDir)) {
         rmSync(agentDir, { recursive: true, force: true });
       }
+    });
+  }
+
+  /**
+   * §0.3.0 Task 19: archiveAgent — 专业 agent 归档（copy + verify + delete）。
+   *
+   * 行为契约（brief 强制）：
+   * 1. 复制整个 agent 目录到归档路径（递归）
+   * 2. 验证完整性（文件数对比 + AGENT.md 必须存在于归档）
+   * 3. 仅当验证通过 → 删除原目录
+   * 4. 验证失败 → 清理归档目录 + 抛错（拒绝删除）
+   *
+   * 归档路径：`data/users/<userId>/archived-agents/<slug>-<timestamp>/`
+   *   timestamp = Date.now()（ms 精度，与 brief 一致）
+   *
+   * 在 per-agentId 锁内执行：
+   * - 防止归档期间与 saveAgent / deleteAgent 产生写竞态
+   * - 串行化并发 archiveAgent 调用（第二次会因源目录已删除而抛错）
+   *
+   * @returns 归档目录绝对路径
+   * @throws  源目录不存在 / 验证失败 / 路径遍历校验失败
+   */
+  async archiveAgent(userId: string, slug: string): Promise<string> {
+    // 路径遍历防护（在锁外也需校验，避免构造非法 lockKey）
+    this.validatePathParams(userId, slug);
+
+    return withAgentLock(this.lockKey(userId, slug), async () => {
+      const agentDir = this.getAgentDir(userId, slug);
+      if (!existsSync(agentDir)) {
+        throw new Error(`agent not found: ${slug}`);
+      }
+
+      const archivedAgentsDir = join(
+        this.usersDir,
+        userId,
+        'archived-agents',
+      );
+      const timestamp = Date.now();
+      const archivePath = join(archivedAgentsDir, `${slug}-${timestamp}`);
+
+      // 确保 archived-agents 父目录存在
+      if (!existsSync(archivedAgentsDir)) {
+        mkdirSync(archivedAgentsDir, { recursive: true });
+      }
+
+      // 1. 复制整个 agent 目录到归档路径（recursive copy）
+      cpSync(agentDir, archivePath, { recursive: true });
+
+      // 2. 验证完整性：文件数对比 + AGENT.md 必须存在于归档
+      const sourceEntries = readdirSync(agentDir);
+      const archiveEntries = readdirSync(archivePath);
+      const agentMdInArchive = existsSync(join(archivePath, 'AGENT.md'));
+
+      if (sourceEntries.length !== archiveEntries.length || !agentMdInArchive) {
+        // 验证失败：清理归档目录 + 拒绝删除原目录
+        rmSync(archivePath, { recursive: true, force: true });
+        throw new Error(
+          `archive verification failed for agent: ${slug}`,
+        );
+      }
+
+      // 3. 验证通过：删除原 agent 目录
+      rmSync(agentDir, { recursive: true, force: true });
+
+      log.info('agent archived', { userId, slug, archivePath });
+      return archivePath;
     });
   }
 

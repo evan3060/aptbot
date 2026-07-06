@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   writeFileSync,
+  readdirSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -769,6 +770,163 @@ body`,
       await expect(
         storage.getAgent(TEST_USER_ID, 'agent-corrupt2'),
       ).rejects.toThrow();
+    });
+  });
+
+  // §0.3.0 Task 19: archiveAgent — 专业 agent 归档（copy + verify + delete）
+  describe('Task 19: archiveAgent', () => {
+    /** 创建带全套文件的 agent 目录（AGENT.md + MEMORY.md + sessions/ + memory.log.jsonl） */
+    async function seedFullAgent(
+      userId: string,
+      slug: string,
+    ): Promise<{ agentDir: string }> {
+      const profile: AgentProfile = {
+        name: 'Archive Target',
+        description: 'to be archived',
+        userId,
+        type: 'professional',
+        slug,
+        createdAt: 0,
+        updatedAt: 0,
+        personality: 'You will be archived.',
+      };
+      await storage.saveAgent(profile);
+
+      const agentDir = storage.getAgentDir(userId, slug);
+      // 补齐 MEMORY.md / sessions/ / memory.log.jsonl
+      writeFileSync(join(agentDir, 'MEMORY.md'), '# Memory\nlikes coffee\n', 'utf-8');
+      mkdirSync(join(agentDir, 'sessions'), { recursive: true });
+      writeFileSync(join(agentDir, 'sessions', 's1.jsonl'), '{"id":"s1"}\n', 'utf-8');
+      writeFileSync(join(agentDir, 'memory.log.jsonl'), '{"ts":1}\n', 'utf-8');
+
+      return { agentDir };
+    }
+
+    it('归档后 agent 目录移动到 archived-agents/<slug>-<timestamp>/', async () => {
+      const { agentDir } = await seedFullAgent(TEST_USER_ID, 'agent-arc1');
+
+      const before = Date.now();
+      const archivePath = await storage.archiveAgent(TEST_USER_ID, 'agent-arc1');
+      const after = Date.now();
+
+      // 原目录已删除
+      expect(existsSync(agentDir)).toBe(false);
+      // 归档路径正确格式
+      const archivedRoot = join(
+        tmpDataDir,
+        'users',
+        TEST_USER_ID,
+        'archived-agents',
+      );
+      expect(archivePath.startsWith(archivedRoot)).toBe(true);
+      // 归档目录名形如 agent-arc1-<timestamp>
+      const dirName = archivePath.split(/[\\/]/).pop()!;
+      expect(dirName).toMatch(/^agent-arc1-\d+$/);
+      // timestamp 在合理范围内
+      const ts = Number(dirName.slice('agent-arc1-'.length));
+      expect(ts).toBeGreaterThanOrEqual(before);
+      expect(ts).toBeLessThanOrEqual(after);
+      expect(existsSync(archivePath)).toBe(true);
+    });
+
+    it('归档内容包含 AGENT.md + MEMORY.md + sessions/ + memory.log.jsonl', async () => {
+      await seedFullAgent(TEST_USER_ID, 'agent-arc2');
+      const archivePath = await storage.archiveAgent(TEST_USER_ID, 'agent-arc2');
+
+      expect(existsSync(join(archivePath, 'AGENT.md'))).toBe(true);
+      expect(existsSync(join(archivePath, 'MEMORY.md'))).toBe(true);
+      expect(existsSync(join(archivePath, 'sessions'))).toBe(true);
+      expect(existsSync(join(archivePath, 'sessions', 's1.jsonl'))).toBe(true);
+      expect(existsSync(join(archivePath, 'memory.log.jsonl'))).toBe(true);
+    });
+
+    it('归档后原 agent 目录不再存在', async () => {
+      const { agentDir } = await seedFullAgent(TEST_USER_ID, 'agent-arc3');
+      expect(existsSync(agentDir)).toBe(true);
+      await storage.archiveAgent(TEST_USER_ID, 'agent-arc3');
+      expect(existsSync(agentDir)).toBe(false);
+    });
+
+    it('归档失败时（源目录已被外部删除 AGENT.md）不删除原目录 + 清理归档', async () => {
+      const { agentDir } = await seedFullAgent(TEST_USER_ID, 'agent-arc4');
+      // 模拟验证失败：手工删除 AGENT.md（导致归档中无 AGENT.md，验证失败）
+      rmSync(join(agentDir, 'AGENT.md'), { force: true });
+
+      const archivedRoot = join(
+        tmpDataDir,
+        'users',
+        TEST_USER_ID,
+        'archived-agents',
+      );
+
+      await expect(
+        storage.archiveAgent(TEST_USER_ID, 'agent-arc4'),
+      ).rejects.toThrow();
+
+      // 原 agent 目录仍存在（拒绝删除）
+      expect(existsSync(agentDir)).toBe(true);
+      // 归档目录已清理（验证失败 → 删除半成品）
+      if (existsSync(archivedRoot)) {
+        const entries = readdirSync(archivedRoot);
+        expect(entries.some((e) => e.startsWith('agent-arc4-'))).toBe(false);
+      }
+    });
+
+    it('归档不存在的 agent 抛错（不创建归档目录）', async () => {
+      const archivedRoot = join(
+        tmpDataDir,
+        'users',
+        TEST_USER_ID,
+        'archived-agents',
+      );
+
+      await expect(
+        storage.archiveAgent(TEST_USER_ID, 'agent-no-such'),
+      ).rejects.toThrow();
+
+      // 未创建任何归档目录
+      if (existsSync(archivedRoot)) {
+        const entries = readdirSync(archivedRoot);
+        expect(entries.some((e) => e.startsWith('agent-no-such-'))).toBe(false);
+      }
+    });
+
+    it('非法 slug 抛错（路径遍历防护）', async () => {
+      await expect(storage.archiveAgent(TEST_USER_ID, '../etc')).rejects.toThrow(
+        /slug/,
+      );
+    });
+
+    it('非法 userId 抛错', async () => {
+      await expect(
+        storage.archiveAgent('../etc', 'agent-arc5'),
+      ).rejects.toThrow(/userId/);
+    });
+
+    it('并发 archiveAgent 串行化：一次成功 + 另一次抛错，无归档损坏', async () => {
+      await seedFullAgent(TEST_USER_ID, 'agent-arc6');
+
+      // 并发发起 2 次归档
+      const results = await Promise.allSettled([
+        storage.archiveAgent(TEST_USER_ID, 'agent-arc6'),
+        storage.archiveAgent(TEST_USER_ID, 'agent-arc6'),
+      ]);
+
+      // 一胜一败（第二次因源目录已被首次归档删除而抛错）
+      const fulfilled = results.filter((r) => r.status === 'fulfilled');
+      const rejected = results.filter((r) => r.status === 'rejected');
+      expect(fulfilled.length).toBe(1);
+      expect(rejected.length).toBe(1);
+
+      // 成功那次返回的归档路径存在
+      const archivePath = (fulfilled[0] as PromiseFulfilledResult<string>).value;
+      expect(existsSync(archivePath)).toBe(true);
+      // 归档内容完整（含 AGENT.md）
+      expect(existsSync(join(archivePath, 'AGENT.md'))).toBe(true);
+
+      // 原目录已被删除
+      const agentDir = storage.getAgentDir(TEST_USER_ID, 'agent-arc6');
+      expect(existsSync(agentDir)).toBe(false);
     });
   });
 });
