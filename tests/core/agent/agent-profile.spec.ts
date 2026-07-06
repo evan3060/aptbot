@@ -237,6 +237,53 @@ describe('agent-profile', () => {
         expect(result.data.thinkingBudgetTokens).toBeUndefined();
       }
     });
+
+    // §0.3.0 Task 18: memoryEnabled 字段（仅 professional；缺省视为 true）
+    it('接受 memoryEnabled: true', () => {
+      const result = AgentProfileSchema.safeParse({
+        ...validFrontmatter,
+        memoryEnabled: true,
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.memoryEnabled).toBe(true);
+      }
+    });
+
+    it('接受 memoryEnabled: false', () => {
+      const result = AgentProfileSchema.safeParse({
+        ...validFrontmatter,
+        memoryEnabled: false,
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.memoryEnabled).toBe(false);
+      }
+    });
+
+    it('接受缺省 memoryEnabled（undefined，视为启用）', () => {
+      const result = AgentProfileSchema.safeParse(validFrontmatter);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.memoryEnabled).toBeUndefined();
+      }
+    });
+
+    it('拒绝非 boolean 的 memoryEnabled（字符串）', () => {
+      const result = AgentProfileSchema.safeParse({
+        ...validFrontmatter,
+        memoryEnabled: 'true',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('拒绝非 boolean 的 memoryEnabled（数字）', () => {
+      const result = AgentProfileSchema.safeParse({
+        ...validFrontmatter,
+        memoryEnabled: 1,
+      });
+      expect(result.success).toBe(false);
+    });
   });
 
   describe('parseAgentMd', () => {
@@ -367,6 +414,61 @@ Line 2
       expect(result.body).toContain('- Bullet 1');
       expect(result.body).toContain('- Bullet 2');
     });
+
+    // §0.3.0 Task 18: parseAgentMd 解析 memoryEnabled frontmatter 字段
+    it('解析 memoryEnabled: true frontmatter', () => {
+      const raw = `---
+name: Pro Agent
+description: desc
+type: professional
+slug: agent-mem-01
+memoryEnabled: true
+---
+
+body`;
+      const result = parseAgentMd(raw);
+      expect(result.frontmatter.memoryEnabled).toBe(true);
+    });
+
+    it('解析 memoryEnabled: false frontmatter', () => {
+      const raw = `---
+name: Pro Agent
+description: desc
+type: professional
+slug: agent-mem-02
+memoryEnabled: false
+---
+
+body`;
+      const result = parseAgentMd(raw);
+      expect(result.frontmatter.memoryEnabled).toBe(false);
+    });
+
+    it('frontmatter 无 memoryEnabled 时返回 undefined', () => {
+      const raw = `---
+name: Pro Agent
+description: desc
+type: professional
+slug: agent-mem-03
+---
+
+body`;
+      const result = parseAgentMd(raw);
+      expect(result.frontmatter.memoryEnabled).toBeUndefined();
+    });
+
+    it('memoryEnabled 类型错误时抛错（字符串）', () => {
+      const raw = `---
+name: Pro Agent
+description: desc
+type: professional
+slug: agent-mem-04
+memoryEnabled: "yes"
+---
+
+body`;
+      expect(() => parseAgentMd(raw)).toThrow();
+    });
   });
 
   describe('AgentProfile 接口（类型层面的契约）', () => {
@@ -402,6 +504,34 @@ Line 2
         thinkingBudgetTokens: 1024,
       };
       expect(profile.model).toBe('gpt-4');
+    });
+
+    // §0.3.0 Task 18: memoryEnabled 字段类型契约
+    it('编译期校验：AgentProfile 接受可选 memoryEnabled?: boolean', () => {
+      const profileTrue: AgentProfile = {
+        name: 'Pro Agent',
+        description: 'desc',
+        userId: 'user-1',
+        type: 'professional',
+        slug: 'agent-a1b2c3',
+        createdAt: 1000,
+        updatedAt: 2000,
+        personality: 'You are helpful.',
+        memoryEnabled: true,
+      };
+      const profileFalse: AgentProfile = {
+        name: 'Pro Agent',
+        description: 'desc',
+        userId: 'user-1',
+        type: 'professional',
+        slug: 'agent-a1b2c3',
+        createdAt: 1000,
+        updatedAt: 2000,
+        personality: 'You are helpful.',
+        memoryEnabled: false,
+      };
+      expect(profileTrue.memoryEnabled).toBe(true);
+      expect(profileFalse.memoryEnabled).toBe(false);
     });
 
     it('AgentType 联合类型为 default | professional', () => {

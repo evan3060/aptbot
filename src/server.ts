@@ -251,7 +251,7 @@ export async function resolveLearnWiring(input: LearnWiringInput): Promise<Learn
  * @param agentStorage AgentStorage 实例
  * @param dataDir 数据目录绝对路径（用于构造 MEMORY.md 路径）
  */
-async function resolveAgentForPrompt(
+export async function resolveAgentForPrompt(
   userId: string | undefined,
   slug: string,
   agentStorage: AgentStorage,
@@ -272,8 +272,8 @@ async function resolveAgentForPrompt(
         return { agent: PLACEHOLDER_DEFAULT_AGENT, memoryContent: null };
       }
     }
-    // default agent 永不注入 MEMORY.md（per Task 8 契约）
-    if (agent.type !== 'professional') {
+    // default agent 永不注入 MEMORY.md；professional agent 可通过 memoryEnabled=false 显式禁用
+    if (agent.type !== 'professional' || agent.memoryEnabled === false) {
       return { agent, memoryContent: null };
     }
     // professional agent → 读 MEMORY.md（不存在返回 null）

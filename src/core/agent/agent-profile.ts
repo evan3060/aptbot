@@ -70,6 +70,8 @@ export const AgentProfileSchema = z.object({
   reasoningEffort: z.enum(REASONING_EFFORT_VALUES).optional(),
   thinkingType: z.enum(THINKING_TYPE_VALUES).optional(),
   thinkingBudgetTokens: z.number().int().positive().optional(),
+  // §0.3.0 Task 18: 是否注入 MEMORY.md（缺省视为 true 即启用；false 时不注入）
+  memoryEnabled: z.boolean().optional(),
 });
 
 /** AgentProfileFrontmatter: Schema 推断的 frontmatter 类型（AGENT.md 中的字段） */
@@ -104,6 +106,8 @@ export interface AgentProfile {
   readonly reasoningEffort?: (typeof REASONING_EFFORT_VALUES)[number];
   readonly thinkingType?: (typeof THINKING_TYPE_VALUES)[number];
   readonly thinkingBudgetTokens?: number;
+  /** §0.3.0 Task 18: 是否启用 MEMORY.md 注入（仅 professional；default agent 永不注入；缺省 true） */
+  readonly memoryEnabled?: boolean;
 }
 
 /** parseAgentMd 返回类型 */

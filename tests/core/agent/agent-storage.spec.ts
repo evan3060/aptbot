@@ -211,6 +211,60 @@ describe('agent-storage', () => {
       const read = await storage.getAgent(TEST_USER_ID, 'agent-over1');
       expect(read!.personality).toBe('updated');
     });
+
+    // §0.3.0 Task 18: memoryEnabled round-trip
+    it('memoryEnabled: false → 写入 frontmatter 后读取保留 false', async () => {
+      const profile: AgentProfile = {
+        name: 'Pro Agent No Mem',
+        description: 'desc',
+        userId: TEST_USER_ID,
+        type: 'professional',
+        slug: 'agent-nmem01',
+        createdAt: 0,
+        updatedAt: 0,
+        personality: 'body',
+        memoryEnabled: false,
+      };
+      await storage.saveAgent(profile);
+      const read = await storage.getAgent(TEST_USER_ID, 'agent-nmem01');
+      expect(read).not.toBeNull();
+      expect(read!.memoryEnabled).toBe(false);
+    });
+
+    it('memoryEnabled: true → 写入 frontmatter 后读取保留 true', async () => {
+      const profile: AgentProfile = {
+        name: 'Pro Agent With Mem',
+        description: 'desc',
+        userId: TEST_USER_ID,
+        type: 'professional',
+        slug: 'agent-nmem02',
+        createdAt: 0,
+        updatedAt: 0,
+        personality: 'body',
+        memoryEnabled: true,
+      };
+      await storage.saveAgent(profile);
+      const read = await storage.getAgent(TEST_USER_ID, 'agent-nmem02');
+      expect(read).not.toBeNull();
+      expect(read!.memoryEnabled).toBe(true);
+    });
+
+    it('memoryEnabled 未设置 → frontmatter 不含该字段，读取返回 undefined', async () => {
+      const profile: AgentProfile = {
+        name: 'Pro Agent Default',
+        description: 'desc',
+        userId: TEST_USER_ID,
+        type: 'professional',
+        slug: 'agent-nmem03',
+        createdAt: 0,
+        updatedAt: 0,
+        personality: 'body',
+      };
+      await storage.saveAgent(profile);
+      const read = await storage.getAgent(TEST_USER_ID, 'agent-nmem03');
+      expect(read).not.toBeNull();
+      expect(read!.memoryEnabled).toBeUndefined();
+    });
   });
 
   describe('saveAgent 路径遍历防护', () => {

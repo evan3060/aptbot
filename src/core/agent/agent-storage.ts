@@ -257,6 +257,8 @@ export class AgentStorage {
         frontmatter.thinkingType = profile.thinkingType;
       if (profile.thinkingBudgetTokens !== undefined)
         frontmatter.thinkingBudgetTokens = profile.thinkingBudgetTokens;
+      if (profile.memoryEnabled !== undefined)
+        frontmatter.memoryEnabled = profile.memoryEnabled;
 
       // gray-matter stringify: frontmatter + body
       const content = matter.stringify(profile.personality, frontmatter);
@@ -379,6 +381,9 @@ export class AgentStorage {
       }),
       ...(frontmatter.thinkingBudgetTokens !== undefined && {
         thinkingBudgetTokens: frontmatter.thinkingBudgetTokens,
+      }),
+      ...(frontmatter.memoryEnabled !== undefined && {
+        memoryEnabled: frontmatter.memoryEnabled,
       }),
     };
   }

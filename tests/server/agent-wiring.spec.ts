@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
-import { startServer, type ServerHandle, buildSessionSystemPrompt } from '../../src/server.js';
+import { startServer, type ServerHandle, buildSessionSystemPrompt, resolveAgentForPrompt } from '../../src/server.js';
 import { AgentStorage } from '../../src/core/agent/agent-storage.js';
 import { ensureDefaultAgent, DEFAULT_AGENT_SLUG } from '../../src/core/agent/agent-migration.js';
 import type { AgentProfile } from '../../src/core/agent/agent-profile.js';
@@ -446,5 +446,126 @@ describe('Task 17: buildSessionSystemPrompt 动态构建（纯函数）', () => 
     const stablePrefix = pPro.slice(0, stableEndPro);
     // pDefault 不含 ## Agent Memory，但应包含完整 STABLE_PREFIX
     expect(pDefault).toContain(stablePrefix);
+  });
+});
+
+/**
+ * §0.3.0 Task 18: resolveAgentForPrompt 遵守 memoryEnabled 契约
+ *
+ * 行为契约：
+ * - professional agent + memoryEnabled === false → memoryContent = null（不读 MEMORY.md）
+ * - professional agent + memoryEnabled === true → 读 MEMORY.md（存在则注入）
+ * - professional agent + memoryEnabled === undefined → 读 MEMORY.md（缺省视为启用）
+ * - default agent → memoryContent = null（default agent 永不注入）
+ *
+ * 直接单元测试导出的 resolveAgentForPrompt，使用真实 AgentStorage + 临时 dataDir。
+ */
+describe('Task 18: resolveAgentForPrompt 遵守 memoryEnabled', () => {
+  let tempDir: string;
+  let storage: AgentStorage;
+  const TEST_USER_ID = 'a1b2c3d4-e5f6-7890-1234-567890abcdef';
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'aptbot-task18-resolve-'));
+    storage = new AgentStorage(tempDir);
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('professional agent + memoryEnabled: false → memoryContent 为 null（即使 MEMORY.md 存在）', async () => {
+    const slug = 'agent-memoff1';
+    const profile: AgentProfile = {
+      name: 'Pro No Mem',
+      description: 'desc',
+      userId: TEST_USER_ID,
+      type: 'professional',
+      slug,
+      createdAt: 0,
+      updatedAt: 0,
+      personality: 'body',
+      memoryEnabled: false,
+    };
+    await storage.saveAgent(profile);
+
+    // 写入 MEMORY.md（应被忽略）
+    const memoryDir = join(tempDir, 'users', TEST_USER_ID, 'agents', slug);
+    const memoryPath = join(memoryDir, 'MEMORY.md');
+    writeFileSync(memoryPath, '# should be ignored', 'utf-8');
+
+    const { agent, memoryContent } = await resolveAgentForPrompt(
+      TEST_USER_ID,
+      slug,
+      storage,
+      tempDir,
+    );
+    expect(agent.slug).toBe(slug);
+    expect(agent.memoryEnabled).toBe(false);
+    // 关键契约：memoryEnabled=false 时 memoryContent 必须为 null（不读文件）
+    expect(memoryContent).toBeNull();
+  });
+
+  it('professional agent + memoryEnabled: true → 读 MEMORY.md 并注入', async () => {
+    const slug = 'agent-memon1';
+    const profile: AgentProfile = {
+      name: 'Pro With Mem',
+      description: 'desc',
+      userId: TEST_USER_ID,
+      type: 'professional',
+      slug,
+      createdAt: 0,
+      updatedAt: 0,
+      personality: 'body',
+      memoryEnabled: true,
+    };
+    await storage.saveAgent(profile);
+
+    const memoryDir = join(tempDir, 'users', TEST_USER_ID, 'agents', slug);
+    const memoryPath = join(memoryDir, 'MEMORY.md');
+    const memoryText = '# User Profile\n\n喜欢咖啡';
+    writeFileSync(memoryPath, memoryText, 'utf-8');
+
+    const { agent, memoryContent } = await resolveAgentForPrompt(
+      TEST_USER_ID,
+      slug,
+      storage,
+      tempDir,
+    );
+    expect(agent.slug).toBe(slug);
+    expect(agent.memoryEnabled).toBe(true);
+    expect(memoryContent).toBe(memoryText);
+  });
+
+  it('professional agent + memoryEnabled 缺省（undefined）→ 读 MEMORY.md（视为启用）', async () => {
+    const slug = 'agent-memdef1';
+    const profile: AgentProfile = {
+      name: 'Pro Default Mem',
+      description: 'desc',
+      userId: TEST_USER_ID,
+      type: 'professional',
+      slug,
+      createdAt: 0,
+      updatedAt: 0,
+      personality: 'body',
+      // memoryEnabled 未设置
+    };
+    await storage.saveAgent(profile);
+
+    const memoryDir = join(tempDir, 'users', TEST_USER_ID, 'agents', slug);
+    const memoryPath = join(memoryDir, 'MEMORY.md');
+    const memoryText = 'default memory content';
+    writeFileSync(memoryPath, memoryText, 'utf-8');
+
+    const { agent, memoryContent } = await resolveAgentForPrompt(
+      TEST_USER_ID,
+      slug,
+      storage,
+      tempDir,
+    );
+    expect(agent.slug).toBe(slug);
+    expect(agent.memoryEnabled).toBeUndefined();
+    // 缺省视为启用
+    expect(memoryContent).toBe(memoryText);
   });
 });
