@@ -7,6 +7,7 @@ import {
   writeFileSync,
   readdirSync,
   readFileSync,
+  symlinkSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -462,6 +463,52 @@ describe('agent-migration', () => {
       expect(existsSync(join(legacySessionsDir, `${sessionId}.meta.json`))).toBe(false);
       // 新路径仍在
       expect(existsSync(newJsonl)).toBe(true);
+    });
+
+    it('legacy .jsonl 缺失时不留孤儿 newMetaPath 且重新运行幂等', async () => {
+      // Important #1 回归：legacy jsonl 缺失时，不应写入新 meta（否则产生孤儿）
+      // 使用 broken symlink 模拟「readdirSync 看到条目但 existsSync 返回 false」的异常状态：
+      // readdirSync 列出目录项名称（含符号链接），existsSync 跟随链接发现目标不存在 → false
+      const sessionId = validSessionId();
+      const legacyJsonlPath = join(legacySessionsDir, `${sessionId}.jsonl`);
+      const legacyMetaPath = join(legacySessionsDir, `${sessionId}.meta.json`);
+
+      // 创建 broken symlink：sessionId.jsonl -> /nonexistent
+      symlinkSync('/nonexistent/aptbot-target', legacyJsonlPath, 'file');
+      // 写 legacy .meta.json（合法内容，能解析出 userId）
+      writeFileSync(
+        legacyMetaPath,
+        JSON.stringify({ userId: TEST_USER_ID }, null, 2),
+        'utf-8',
+      );
+
+      // 第一次运行：应失败并加入 errors，且不写新 meta
+      const report1 = await migrateLegacySessions(tmpDataDir, agentStorage);
+
+      expect(report1.migratedSessions).toBe(0);
+      expect(report1.errors).toHaveLength(1);
+      expect(report1.errors[0].sessionId).toBe(sessionId);
+      expect(report1.errors[0].error).toMatch(/legacy .jsonl missing/);
+
+      // 关键断言：新 meta 未被写入（无孤儿 newMetaPath）
+      const newMeta = newMetaPath(TEST_USER_ID, DEFAULT_AGENT_SLUG, sessionId);
+      const newJsonl = newSessionPath(TEST_USER_ID, DEFAULT_AGENT_SLUG, sessionId);
+      expect(existsSync(newMeta)).toBe(false);
+      expect(existsSync(newJsonl)).toBe(false);
+
+      // 重新运行：状态应与第一次一致（不积累孤儿、可重复触发同一错误）
+      const report2 = await migrateLegacySessions(tmpDataDir, agentStorage);
+
+      expect(report2.migratedSessions).toBe(0);
+      expect(report2.errors).toHaveLength(1);
+      expect(report2.errors[0].sessionId).toBe(sessionId);
+      expect(report2.errors[0].error).toMatch(/legacy .jsonl missing/);
+      // 仍无孤儿
+      expect(existsSync(newMeta)).toBe(false);
+      expect(existsSync(newJsonl)).toBe(false);
+
+      // legacy .meta.json 仍保留（未删除，便于排查）
+      expect(existsSync(legacyMetaPath)).toBe(true);
     });
   });
 

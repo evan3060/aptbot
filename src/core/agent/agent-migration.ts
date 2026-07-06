@@ -246,7 +246,20 @@ export async function migrateLegacySessions(
         mkdirSync(newSessionsDir, { recursive: true });
       }
 
+      // 移动 .jsonl（rename 原子操作，源文件被移走）
+      // 必须在写新 meta 之前进行：legacy .jsonl 是幂等检查锚点
+      // （newJsonlPath 不存在 + legacyJsonlPath 不存在 = 异常状态，不应写 meta）
+      // 否则异常状态下会留下孤儿 newMetaPath，且无法通过幂等检查恢复
+      if (!existsSync(legacyJsonlPath)) {
+        // legacy .jsonl 不存在但 newJsonlPath 也不存在 → 异常状态
+        throw new Error(
+          `legacy .jsonl missing for session ${sessionId} (cannot migrate)`,
+        );
+      }
+      renameSync(legacyJsonlPath, newJsonlPath);
+
       // 写新 .meta.json（含 agentId 字段，原子 write-to-tmp + rename）
+      // 此时 .jsonl 已成功移动到新路径，写 meta 不会产生孤儿
       const updatedMeta: LegacySessionMeta = {
         ...meta,
         userId,
@@ -256,15 +269,6 @@ export async function migrateLegacySessions(
       const metaTmpPath = `${newMetaPath}.tmp`;
       writeFileSync(metaTmpPath, metaContent, 'utf-8');
       renameSync(metaTmpPath, newMetaPath);
-
-      // 移动 .jsonl（rename 原子操作，源文件被移走）
-      if (!existsSync(legacyJsonlPath)) {
-        // legacy .jsonl 不存在但 newJsonlPath 也不存在 → 异常状态
-        throw new Error(
-          `legacy .jsonl missing for session ${sessionId} (cannot migrate)`,
-        );
-      }
-      renameSync(legacyJsonlPath, newJsonlPath);
 
       // 清理 legacy .meta.json（.jsonl 已通过 rename 移走）
       if (existsSync(legacyMetaPath)) {

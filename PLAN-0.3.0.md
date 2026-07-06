@@ -122,7 +122,7 @@
 - Test: `tests/core/agent/agent-migration.spec.ts`
 
 **行为契约：**
-- 导出 `migrateLegacySessions(storage: StorageAdapter, agentStorage: AgentStorage): Promise<MigrationReport>` 函数
+- 导出 `migrateLegacySessions(dataDir: string, agentStorage: AgentStorage): Promise<MigrationReport>` 函数（注：StorageAdapter 不暴露文件路径，实际签名改用 dataDir 直传；详见 task-3-report.md Concerns §1）
 - 迁移逻辑：
   - 扫描 `data/sessions/*.jsonl` + `.meta.json`
   - 按 userId 分组：有 userId 的 → 迁移到 `data/users/<userId>/agents/default/sessions/`；无 userId 的 → 生成伪 userId
