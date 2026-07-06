@@ -18,6 +18,8 @@ import { agentLoop, DEFAULT_STOP_REASON } from './core/agent/loop.js';
 import { createTurnId, createMessageId } from './core/agent/events.js';
 import { buildSystemPrompt as buildAgentSystemPrompt } from './core/agent/system-prompt-builder.js';
 import type { AgentProfile } from './core/agent/agent-profile.js';
+import { AgentStorage } from './core/agent/agent-storage.js';
+import { MemoryAuditLog } from './core/agent/memory-audit-log.js';
 import type { CommandRegistry, CommandContext, CommandResult } from './shared/commands/registry.js';
 import { createCommandRegistry } from './shared/commands/registry.js';
 import { InMemoryMessageBus } from './bus/message-bus.js';
@@ -232,6 +234,11 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
   const storage = new FileStorage(sessionsDir);
   // Task 5: 用户存储 — 始终创建，供 /api/register /api/login /api/me 与 WS 认证使用
   const userStorage: UserStorage = createUserStorage(aptbotConfig.dataDir);
+  // §0.3.0 Task 9: AgentStorage + MemoryAuditLog 工厂 — /api/agents 系列端点使用
+  // AgentStorage 与 userStorage 共享同一 dataDir，agent 数据存于 data/users/<userId>/agents/<slug>/
+  const agentStorage = new AgentStorage(aptbotConfig.dataDir);
+  const memoryAuditLogFactory = (userId: string, slug: string) =>
+    new MemoryAuditLog(userId, slug, aptbotConfig.dataDir);
 
   // §4.8 Skills 系统：workspace (~/.aptbot/skills/) + builtin (src/skills/) 双层加载
   // workspace 优先级高（覆盖 builtin 同名），builtin 兜底
@@ -344,6 +351,9 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
     feedbackStorage: learnWiring.feedbackStorage,
     learnEnabled: learnWiring.learnEnabled,
     feedbackEnabled: learnWiring.feedbackEnabled,
+    // §0.3.0 Task 9: agent API 注入 — /api/agents 系列端点
+    agentStorage,
+    memoryAuditLogFactory,
   });
 
   // C8 修复：注册 WebSocket Channel 并绑定 sessionKey，使出站事件能路由到 WS 客户端

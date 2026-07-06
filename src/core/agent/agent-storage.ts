@@ -316,6 +316,32 @@ export class AgentStorage {
   }
 
   /**
+   * §0.3.0 Task 9: findAgentOwner — 扫描所有用户目录，返回 slug 对应 agent 的 owner userId。
+   *
+   * 用于 /api/agents/:slug 跨用户 403 检测：getAgent(currentUserId, slug) 返回 null 时，
+   * 调用此方法判断 agent 是否属于其他用户（→ 403）还是不存在（→ 404）。
+   *
+   * 设计要点：
+   * - slug 严格正则校验（路径遍历防护）
+   * - 仅扫描 usersDir 下一层目录，按 USER_ID_REGEX 过滤
+   * - 返回首个匹配的 owner userId，不读取 AGENT.md 内容
+   * - 未找到返回 null
+   */
+  async findAgentOwner(slug: string): Promise<string | null> {
+    if (!AGENT_SLUG_REGEX.test(slug)) return null;
+    if (!existsSync(this.usersDir)) return null;
+
+    const userEntries = readdirSync(this.usersDir, { withFileTypes: true });
+    for (const entry of userEntries) {
+      if (!entry.isDirectory()) continue;
+      if (!USER_ID_REGEX.test(entry.name)) continue;
+      const mdPath = join(this.usersDir, entry.name, 'agents', slug, 'AGENT.md');
+      if (existsSync(mdPath)) return entry.name;
+    }
+    return null;
+  }
+
+  /**
    * §0.3.0 assembleProfile: 组装完整 AgentProfile。
    * = frontmatter 字段（来自 AGENT.md）+ 运行时元数据（userId / 时间戳）+ personality（body）
    *
