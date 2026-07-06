@@ -1,5 +1,8 @@
 import type { StorageAdapter } from '../../infrastructure/storage/file-storage.js';
 import type { FeedbackStorage } from '../../infrastructure/feedback-storage.js';
+import type { AgentStorage } from '../../core/agent/agent-storage.js';
+import type { MemoryAuditLog } from '../../core/agent/memory-audit-log.js';
+import type { SkillState } from '../../core/skills/loader.js';
 import { inheritWorkingMemory } from '../../core/memory/working-memory.js';
 import {
   handleSessionAttr,
@@ -9,6 +12,8 @@ import {
   type SessionAttrHandler,
 } from './session-attrs.js';
 import { feedbackCommand } from './feedback.js';
+import { agentCommand } from './agent.js';
+import { skillCommand } from './skill.js';
 
 export interface Command {
   readonly name: string;
@@ -19,9 +24,13 @@ export interface Command {
 
 export interface CommandResult {
   output?: string;
-  action?: 'exit' | 'new_session' | 'clear' | 'continue';
+  action?: 'exit' | 'new_session' | 'clear' | 'continue' | 'switch_agent';
   continueSessionId?: string;
   resumeFromArg?: boolean;
+  /** Task 12: /agent <slug> 切换 agent 后传递新 slug 给调用方（与 action='switch_agent' 配套） */
+  agentSlug?: string;
+  /** Task 12: /skill use <name> 返回的模板（一次性激活，由 CLI 调用方决定是否预填输入框） */
+  fillInput?: string;
 }
 
 export interface CommandContext {
@@ -36,6 +45,14 @@ export interface CommandContext {
   dataDir?: string;
   /** Task 12: /feedback 命令使用的反馈存储；未配置（feedbackEnabled:false）时 /feedback 提示未启用 */
   feedbackStorage?: FeedbackStorage;
+  /** Task 12: /agent 命令使用的 AgentStorage，列出/查询 agent；未注入时 /agent 提示未启用 */
+  agentStorage?: AgentStorage;
+  /** Task 12: 当前 session 的 agent slug，用于 /agent (current) 标记 + /agent info */
+  currentAgentSlug?: string;
+  /** Task 12: MemoryAuditLog 工厂，按 (userId, slug) 创建实例以查询审计日志 */
+  memoryAuditLogFactory?: (userId: string, slug: string) => MemoryAuditLog;
+  /** Task 12: /skill 命令使用的 SkillState（已加载的 skills 列表）；未注入时 /skill 提示未加载 */
+  skillState?: SkillState;
 }
 
 export interface CommandRegistry {
@@ -76,6 +93,8 @@ export function createCommandRegistry(): CommandRegistry {
   register(resumeCommand);
   register(labelCommand);
   register(feedbackCommand);
+  register(agentCommand);
+  register(skillCommand);
 
   return {
     register,
@@ -137,6 +156,8 @@ const helpCommand: Command = {
       '  /continue <id> - Continue from a previous session',
       '  /label <name> - Set the current session label',
       '  /feedback [list|all|stats|<id>|resolve <id>|archive <id>] - Manage feedback',
+      '  /agent [info|memory-log [limit]|<slug>] - List, switch, and inspect agents',
+      '  /skill [use <name>] - List loaded skills and activate one for the current session',
       '  /exit         - Exit the application',
     ];
     return { output: lines.join('\n') };

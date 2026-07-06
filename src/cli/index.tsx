@@ -4,6 +4,9 @@ import type { Channel, MessageBus } from '../bus/types.js';
 import type { CommandRegistry } from '../shared/commands/registry.js';
 import type { StorageAdapter } from '../infrastructure/storage/file-storage.js';
 import type { FeedbackStorage } from '../infrastructure/feedback-storage.js';
+import type { AgentStorage } from '../core/agent/agent-storage.js';
+import type { MemoryAuditLog } from '../core/agent/memory-audit-log.js';
+import type { SkillState } from '../core/skills/loader.js';
 import { coreReducer, initialUIState, type UIState } from '../shared/ui-state/reducer.js';
 import { AssistantMessage } from './components/assistant-message.js';
 import { UserMessage } from './components/user-message.js';
@@ -26,6 +29,16 @@ export interface CLIAppConfig {
   sessionId: string;
   // Task 12: 可选 FeedbackStorage，feedbackEnabled:false 时不传入，/feedback 提示未启用
   feedbackStorage?: FeedbackStorage;
+  /** Task 12: /agent 命令使用的 AgentStorage；未注入时 /agent 提示未启用 */
+  agentStorage?: AgentStorage;
+  /** Task 12: 当前 session 的 agent slug；/agent 用于 (current) 标记 + /agent info */
+  currentAgentSlug?: string;
+  /** Task 12: MemoryAuditLog 工厂，按 (userId, slug) 创建实例以查询审计日志 */
+  memoryAuditLogFactory?: (userId: string, slug: string) => MemoryAuditLog;
+  /** Task 12: /skill 命令使用的 SkillState；未注入时 /skill 提示未加载 */
+  skillState?: SkillState;
+  /** Task 6: 当前用户 ID，用于 /agent 列出该用户的 agents */
+  userId?: string;
 }
 
 /**
@@ -33,7 +46,11 @@ export interface CLIAppConfig {
  * Ink + Yoga 渲染，reducer 驱动 UIState，斜杠命令通过 CommandRegistry 分发。
  */
 export function createCLIApp(config: CLIAppConfig): CLIApp {
-  const { channel, registry, model, bus, storage, sessionId, feedbackStorage } = config;
+  const {
+    channel, registry, model, bus, storage, sessionId,
+    feedbackStorage, agentStorage, currentAgentSlug,
+    memoryAuditLogFactory, skillState, userId,
+  } = config;
 
   return {
     async start(): Promise<void> {
@@ -47,6 +64,11 @@ export function createCLIApp(config: CLIAppConfig): CLIApp {
           storage={storage}
           sessionId={sessionId}
           feedbackStorage={feedbackStorage}
+          agentStorage={agentStorage}
+          initialAgentSlug={currentAgentSlug}
+          memoryAuditLogFactory={memoryAuditLogFactory}
+          skillState={skillState}
+          userId={userId}
         />,
       );
       await waitUntilExit();
@@ -57,6 +79,9 @@ export function createCLIApp(config: CLIAppConfig): CLIApp {
 /**
  * I7+I8 修复：导出 CLIAppRoot 供组件级测试使用。
  * handleSubmit 使用注入的 storage/sessionId，并渲染命令输出。
+ *
+ * Task 12: 新增 agentStorage / currentAgentSlug / memoryAuditLogFactory / skillState / userId
+ * 注入；handleSubmit 处理 action='switch_agent' 时更新 currentAgentSlug state。
  */
 export function CLIAppRoot({
   registry,
@@ -65,6 +90,11 @@ export function CLIAppRoot({
   storage,
   sessionId,
   feedbackStorage,
+  agentStorage,
+  initialAgentSlug,
+  memoryAuditLogFactory,
+  skillState,
+  userId,
 }: {
   registry: CommandRegistry;
   model: string;
@@ -72,8 +102,15 @@ export function CLIAppRoot({
   storage: StorageAdapter;
   sessionId: string;
   feedbackStorage?: FeedbackStorage;
+  agentStorage?: AgentStorage;
+  initialAgentSlug?: string;
+  memoryAuditLogFactory?: (userId: string, slug: string) => MemoryAuditLog;
+  skillState?: SkillState;
+  userId?: string;
 }): React.ReactElement {
   const [state, setState] = useState<UIState>(initialUIState);
+  // Task 12: 当前 session 的 agent slug 状态（由 /agent <slug> 切换更新）
+  const [currentAgentSlug, setCurrentAgentSlug] = useState<string | undefined>(initialAgentSlug);
 
   useEffect(() => {
     let active = true;
@@ -116,7 +153,16 @@ export function CLIAppRoot({
           model,
           storage,
           feedbackStorage,
+          agentStorage,
+          currentAgentSlug,
+          memoryAuditLogFactory,
+          skillState,
+          userId,
         });
+        // Task 12: /agent <slug> 切换 agent — 更新 currentAgentSlug state
+        if (result.action === 'switch_agent' && result.agentSlug) {
+          setCurrentAgentSlug(result.agentSlug);
+        }
         // I8 修复：渲染命令输出到 UI
         if (result.output) {
           const output = result.output;

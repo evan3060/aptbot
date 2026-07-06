@@ -144,12 +144,12 @@ describe('CommandRegistry', () => {
     expect(result.output).toContain('gpt-4');
   });
 
-  it('list returns all 12 commands', () => {
+  it('list returns all 14 commands', () => {
     const reg = createCommandRegistry();
     const commands = reg.list();
-    expect(commands.length).toBe(12);
+    expect(commands.length).toBe(14);
     const names = commands.map((c) => c.name).sort();
-    expect(names).toEqual(['clear', 'continue', 'exit', 'feedback', 'help', 'label', 'model', 'new', 'resume', 'session', 'session.reset', 'sessions']);
+    expect(names).toEqual(['agent', 'clear', 'continue', 'exit', 'feedback', 'help', 'label', 'model', 'new', 'resume', 'session', 'session.reset', 'sessions', 'skill']);
   });
 
   it('has and get work correctly', () => {
