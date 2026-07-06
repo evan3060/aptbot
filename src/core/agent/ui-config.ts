@@ -51,9 +51,6 @@ export interface UiConfig {
   readonly visibleSkills: VisibleSkill[];
 }
 
-/** §0.3.0 Task 10: 默认空配置（文件不存在 / 损坏时返回） */
-const EMPTY_CONFIG: UiConfig = { visibleSkills: [] };
-
 /**
  * §0.3.0 Task 10: UiConfigStorage — 文件系统持久化。
  *
@@ -91,7 +88,7 @@ export class UiConfigStorage {
   async get(userId: string): Promise<UiConfig> {
     const configPath = this.getConfigPath(userId);
     if (!existsSync(configPath)) {
-      return EMPTY_CONFIG;
+      return { visibleSkills: [] };
     }
 
     let raw: string;
@@ -103,29 +100,30 @@ export class UiConfigStorage {
         userId,
         error: String(err),
       });
-      return EMPTY_CONFIG;
+      return { visibleSkills: [] };
     }
 
     try {
       const parsed = JSON.parse(raw);
       if (!isUiConfig(parsed)) {
-        log.warn('ui-config.json has invalid shape, returning empty', {
-          userId,
-        });
-        return EMPTY_CONFIG;
+        console.warn(
+          `[ui-config-storage] ui-config.json has invalid shape for user=${userId}, returning empty`,
+        );
+        return { visibleSkills: [] };
       }
-      return parsed;
+      // 归一化：仅保留 slug + displayName，剥离任何手动编辑的额外字段（与 PUT 校验对称）
+      return {
+        visibleSkills: parsed.visibleSkills.map((s) => ({
+          slug: s.slug,
+          displayName: s.displayName,
+        })),
+      };
     } catch (err) {
-      // 损坏 JSON：warn + 返回空配置（graceful 降级，UI 不应因配置损坏崩溃）
-      log.warn('failed to parse ui-config.json, returning empty', {
-        userId,
-        error: String(err),
-      });
-      // 与 listAgents 一致：console.warn 兼容旧观察者
+      // 损坏 JSON：console.warn + 返回空配置（graceful 降级，UI 不应因配置损坏崩溃）
       console.warn(
         `[ui-config-storage] failed to parse ui-config.json for user=${userId}: ${String(err)}`,
       );
-      return EMPTY_CONFIG;
+      return { visibleSkills: [] };
     }
   }
 

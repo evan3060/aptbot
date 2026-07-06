@@ -87,6 +87,73 @@ describe('UiConfigStorage', () => {
       const config = await storage.get(TEST_USER_ID);
       expect(config).toEqual({ visibleSkills: [] });
     });
+
+    it('get 剥离文件中手动编辑的额外字段（仅保留 slug + displayName）', async () => {
+      const configDir = join(
+        tmpDataDir,
+        'users',
+        TEST_USER_ID,
+        'agents',
+        'default',
+      );
+      mkdirSync(configDir, { recursive: true });
+      // 手动写入含额外字段（top-level + per-item）的合法 JSON
+      writeFileSync(
+        join(configDir, 'ui-config.json'),
+        JSON.stringify({
+          visibleSkills: [
+            {
+              slug: 'skill-a',
+              displayName: 'A',
+              extraField: 'should-not-leak',
+              nested: { x: 1 },
+            },
+            {
+              slug: 'skill-b',
+              displayName: 'B',
+              secret: 'should-not-leak',
+            },
+          ],
+          topLevelExtra: 'should-not-leak',
+        }),
+        'utf-8',
+      );
+
+      const config = await storage.get(TEST_USER_ID);
+      // 仅保留 slug + displayName，额外字段被剥离（与 PUT 校验对称）
+      expect(config).toEqual({
+        visibleSkills: [
+          { slug: 'skill-a', displayName: 'A' },
+          { slug: 'skill-b', displayName: 'B' },
+        ],
+      });
+      // 额外字段未泄漏到返回对象
+      expect(
+        (config.visibleSkills[0] as Record<string, unknown>).extraField,
+      ).toBeUndefined();
+      expect(
+        (config as Record<string, unknown>).topLevelExtra,
+      ).toBeUndefined();
+    });
+
+    it('mutating 返回的空配置不影响后续 get（每次返回 fresh object）', async () => {
+      // 文件不存在 → 返回空配置
+      const first = await storage.get(TEST_USER_ID);
+      expect(first).toEqual({ visibleSkills: [] });
+
+      // 恶意 mutate 返回对象
+      first.visibleSkills.push({
+        slug: 'injected',
+        displayName: 'Injected',
+      } as never);
+
+      // 第二次 get 仍应返回独立的空配置，不受上次 mutation 影响
+      const second = await storage.get(TEST_USER_ID);
+      expect(second).toEqual({ visibleSkills: [] });
+      expect(second.visibleSkills).toHaveLength(0);
+      // 确保两次返回的不是同一个引用
+      expect(second).not.toBe(first);
+    });
   });
 
   describe('update + get round-trip', () => {
