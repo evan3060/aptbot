@@ -659,11 +659,8 @@ export class AgentSettingsModal extends LitElement {
         ? parseInt(fs.thinkingBudgetTokens, 10)
         : undefined,
     };
-    // 移除 undefined 值，保持 payload 简洁
-    Object.keys(agent).forEach((k) => {
-      if (agent[k] === undefined) delete agent[k];
-    });
-
+    // 保留所有键（undefined 表示「使用默认」），与 new-agent-modal _handleCreateClick 对齐。
+    // JSON 序列化时会自动丢弃 undefined 键，不影响 HTTP payload。
     const detail: { agent: typeof agent; uiConfig?: UiConfig } = { agent };
     if (this.mode === 'default') {
       detail.uiConfig = {

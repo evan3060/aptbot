@@ -141,6 +141,49 @@ describe('Task 14: <agent-settings-modal> agent 设置浮层', () => {
     expect(closed).toBe(true);
   });
 
+  it('有未保存修改时取消 → 弹确认对话框 → 确认放弃后触发 close 事件', async () => {
+    modal.agent = makeAgent({ name: 'Original' });
+    modal.mode = 'professional';
+    modal.open = true;
+    await settled(modal);
+
+    // 编辑 name 字段，触发 _dirty=true
+    const nameInput = modal.shadowRoot!.querySelector(
+      '.field-name input',
+    ) as HTMLInputElement;
+    nameInput.value = 'Edited Name';
+    nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await settled(modal);
+
+    let closed = false;
+    modal.addEventListener('close', () => {
+      closed = true;
+    });
+
+    // 点击取消 → 因 _dirty=true，弹出确认对话框（不直接 close）
+    const cancelBtn = modal.shadowRoot!.querySelector('.cancel-btn') as HTMLButtonElement;
+    cancelBtn.click();
+    await settled(modal);
+
+    // 确认对话框已渲染，「确认放弃」按钮可见
+    const confirmDialog = modal.shadowRoot!.querySelector('.delete-confirm-dialog');
+    expect(confirmDialog).toBeTruthy();
+    const confirmAbandonBtn = modal.shadowRoot!.querySelector(
+      '.delete-confirm-btn',
+    ) as HTMLButtonElement;
+    expect(confirmAbandonBtn).toBeTruthy();
+    expect(confirmAbandonBtn.textContent?.trim()).toBe('确认放弃');
+
+    // 此时还未 dispatch close（等待用户确认）
+    expect(closed).toBe(false);
+
+    // 点击「确认放弃」→ dispatch close
+    confirmAbandonBtn.click();
+    await settled(modal);
+
+    expect(closed).toBe(true);
+  });
+
   it('删除按钮触发确认弹窗（professional only）', async () => {
     modal.agent = makeAgent({ type: 'professional' });
     modal.mode = 'professional';
