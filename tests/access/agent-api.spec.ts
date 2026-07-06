@@ -478,6 +478,73 @@ describe('Task 9: Agent HTTP API', () => {
       });
       expect(res.status).toBe(403);
     });
+
+    describe('?limit 参数校验', () => {
+      it('?limit=0 → 400', async () => {
+        await startServer();
+        const agent = await createAgentDirectly(aliceUserId);
+        const res = await request(
+          'GET',
+          `/api/agents/${agent.slug}/memory-log?limit=0`,
+          undefined,
+          { authorization: `Bearer ${aliceToken}` },
+        );
+        expect(res.status).toBe(400);
+        expect(res.body.error).toMatch(/limit/i);
+      });
+
+      it('?limit=-5 → 400', async () => {
+        await startServer();
+        const agent = await createAgentDirectly(aliceUserId);
+        const res = await request(
+          'GET',
+          `/api/agents/${agent.slug}/memory-log?limit=-5`,
+          undefined,
+          { authorization: `Bearer ${aliceToken}` },
+        );
+        expect(res.status).toBe(400);
+        expect(res.body.error).toMatch(/limit/i);
+      });
+
+      it('?limit=abc → 400', async () => {
+        await startServer();
+        const agent = await createAgentDirectly(aliceUserId);
+        const res = await request(
+          'GET',
+          `/api/agents/${agent.slug}/memory-log?limit=abc`,
+          undefined,
+          { authorization: `Bearer ${aliceToken}` },
+        );
+        expect(res.status).toBe(400);
+        expect(res.body.error).toMatch(/limit/i);
+      });
+
+      it('?limit=1.5 → 400', async () => {
+        await startServer();
+        const agent = await createAgentDirectly(aliceUserId);
+        const res = await request(
+          'GET',
+          `/api/agents/${agent.slug}/memory-log?limit=1.5`,
+          undefined,
+          { authorization: `Bearer ${aliceToken}` },
+        );
+        expect(res.status).toBe(400);
+        expect(res.body.error).toMatch(/limit/i);
+      });
+
+      it('?limit=1001 → 400', async () => {
+        await startServer();
+        const agent = await createAgentDirectly(aliceUserId);
+        const res = await request(
+          'GET',
+          `/api/agents/${agent.slug}/memory-log?limit=1001`,
+          undefined,
+          { authorization: `Bearer ${aliceToken}` },
+        );
+        expect(res.status).toBe(400);
+        expect(res.body.error).toMatch(/limit/i);
+      });
+    });
   });
 
   describe('路由优先级 / 错误处理', () => {

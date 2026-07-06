@@ -444,10 +444,15 @@ export async function handleAgentApi(
         const limitParam = url.searchParams.get('limit');
         let limit = DEFAULT_MEMORY_LOG_LIMIT;
         if (limitParam !== null) {
-          const parsed = parseInt(limitParam, 10);
-          if (!Number.isNaN(parsed) && parsed > 0) {
-            limit = Math.min(parsed, MAX_MEMORY_LOG_LIMIT);
+          // 严格校验：必须是 1..1000 的整数，否则 400（与 API 其余校验风格一致）
+          const parsed = Number(limitParam);
+          if (!Number.isInteger(parsed) || parsed < 1 || parsed > MAX_MEMORY_LOG_LIMIT) {
+            sendJson(400, {
+              error: `limit must be a positive integer (1-${MAX_MEMORY_LOG_LIMIT})`,
+            });
+            return;
           }
+          limit = parsed;
         }
         const auditLog = memoryAuditLogFactory(currentUserId, slug);
         const records = await auditLog.list(limit);
