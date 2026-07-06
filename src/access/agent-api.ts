@@ -12,24 +12,30 @@ import {
   generateSlug,
   type AgentProfile,
 } from '../core/agent/agent-profile.js';
+import type { UiConfig, UiConfigStorage } from '../core/agent/ui-config.js';
 import { createLogger } from '../infrastructure/logger.js';
 
 /**
  * §0.3.0 Task 9: Agent HTTP API（/api/agents 系列）
  *
  * 端点：
- * - GET    /api/agents                  列出当前用户的 agents
- * - GET    /api/agents/:slug            获取 agent 详情
- * - POST   /api/agents                  创建新 agent（专业 agent，slug 自动生成）
- * - PUT    /api/agents/:slug            更新 agent 配置（personality / LLM / 记忆开关）
- * - DELETE /api/agents/:slug            路由注册 + 403 default 不可删 + 501 专业 agent 占位
- * - GET    /api/agents/:slug/sessions   列出该 agent 的 sessions
- * - GET    /api/agents/:slug/memory     获取 MEMORY.md 内容
- * - GET    /api/agents/:slug/memory-log 获取写入审计日志（默认 20 条，query limit 可调）
+ * - GET    /api/agents                       列出当前用户的 agents
+ * - GET    /api/agents/default/ui-config     读取 default agent 的 UI 配置（Task 10）
+ * - PUT    /api/agents/default/ui-config     更新 default agent 的 UI 配置（Task 10）
+ * - GET    /api/agents/:slug                 获取 agent 详情
+ * - POST   /api/agents                       创建新 agent（专业 agent，slug 自动生成）
+ * - PUT    /api/agents/:slug                 更新 agent 配置（personality / LLM / 记忆开关）
+ * - DELETE /api/agents/:slug                 路由注册 + 403 default 不可删 + 501 专业 agent 占位
+ * - GET    /api/agents/:slug/sessions       列出该 agent 的 sessions
+ * - GET    /api/agents/:slug/memory          获取 MEMORY.md 内容
+ * - GET    /api/agents/:slug/memory-log      获取写入审计日志（默认 20 条，query limit 可调）
  *
  * 鉴权：复用 authToken 机制（Bearer token）+ userStorage.findByToken 解析 userId。
  * 跨用户隔离：所有操作校验 agent.userId === currentUserId，否则 403。
  * 路径遍历防护：slug 严格正则校验（AGENT_SLUG_REGEX）。
+ *
+ * 路由优先级：`/api/agents/default/ui-config` 必须在 `/api/agents/:slug` 之前匹配，
+ * 否则 "default" 会被 slugMatch 捕获为 :slug 参数。
  *
  * 重要约束：DELETE 端点本 task 仅注册路由 + 403 default + 501 占位。
  * 真正的归档逻辑由 Task 19 实现 archiveAgent 后接入。
@@ -194,6 +200,7 @@ function stripSensitiveFields(profile: AgentProfile): AgentProfile {
  * @param sessionStorage       可选，用于 /:slug/sessions 端点
  * @param authToken            可选，admin/shared token（authToken-only 部署模式）
  * @param userStorage          可选，用户存储（多用户模式下的 token → userId 解析）
+ * @param uiConfigStorage     可选，用于 /api/agents/default/ui-config 端点（Task 10）
  */
 export async function handleAgentApi(
   req: IncomingMessage,
@@ -204,6 +211,7 @@ export async function handleAgentApi(
   sessionStorage: StorageAdapter | undefined,
   authToken: string | undefined,
   userStorage: UserStorage | undefined,
+  uiConfigStorage?: UiConfigStorage,
 ): Promise<void> {
   const sendJson = (status: number, body: unknown): void => {
     res.writeHead(status, RESPONSE_HEADERS);
@@ -293,6 +301,46 @@ export async function handleAgentApi(
       await agentStorage.saveAgent(profile);
       log.info('agent created', { userId: currentUserId, slug });
       sendJson(200, stripSensitiveFields(profile));
+      return;
+    }
+
+    // §0.3.0 Task 10: /api/agents/default/ui-config — UI 层配置（仅 default agent）
+    // 必须在 :slug 路由之前匹配，否则 "default" 会被 slugMatch 捕获为 :slug 参数。
+    if (pathname === '/api/agents/default/ui-config' && uiConfigStorage) {
+      // GET — 读取 UI 配置
+      if (req.method === 'GET') {
+        const config = await uiConfigStorage.get(currentUserId);
+        sendJson(200, config);
+        return;
+      }
+
+      // PUT — 更新 UI 配置
+      if (req.method === 'PUT') {
+        let body: unknown;
+        try {
+          body = await readJsonBody(req);
+        } catch (err) {
+          sendJson(400, {
+            ok: false,
+            error: err instanceof BodyTooLargeError ? 'request body too large' : 'invalid request body',
+          });
+          return;
+        }
+
+        const validation = validateUiConfigBody(body);
+        if (!validation.ok) {
+          sendJson(400, { ok: false, error: validation.error });
+          return;
+        }
+
+        await uiConfigStorage.update(currentUserId, validation.config);
+        log.info('ui-config updated', { userId: currentUserId });
+        sendJson(200, validation.config);
+        return;
+      }
+
+      // 其他 method → 405
+      sendJson(405, { ok: false, error: 'method not allowed' });
       return;
     }
 
@@ -571,6 +619,90 @@ interface UpdateValidation {
   reasoningEffort?: (typeof REASONING_EFFORT_VALUES)[number];
   thinkingType?: (typeof THINKING_TYPE_VALUES)[number];
   thinkingBudgetTokens?: number;
+}
+
+/**
+ * §0.3.0 Task 10: validateUiConfigBody — 校验 PUT /api/agents/default/ui-config 请求体。
+ *
+ * 契约：{ visibleSkills: Array<{ slug: string; displayName: string }> }
+ *
+ * 校验规则（与 UiConfigStorage.isUiConfig 一致）：
+ * - body 必须是对象
+ * - visibleSkills 必须是数组（长度上限 100，防滥用）
+ * - 每项必须含 slug（非空字符串，≤64 字符）+ displayName（字符串，≤128 字符）
+ */
+interface UiConfigValidation {
+  ok: true;
+  config: UiConfig;
+}
+interface UiConfigValidationFailure {
+  ok: false;
+  error: string;
+}
+
+/** §0.3.0 Task 10: visibleSkills 数组长度上限（防恶意超大 payload） */
+const MAX_VISIBLE_SKILLS = 100;
+/** §0.3.0 Task 10: skill slug 最大长度（与 Skill.name 一致） */
+const MAX_SKILL_SLUG_LENGTH = 64;
+/** §0.3.0 Task 10: displayName 最大长度（兼容中文等多字节） */
+const MAX_SKILL_DISPLAY_NAME_LENGTH = 128;
+
+function validateUiConfigBody(
+  body: unknown,
+): UiConfigValidation | UiConfigValidationFailure {
+  if (!body || typeof body !== 'object') {
+    return { ok: false, error: 'invalid request body' };
+  }
+  const b = body as Record<string, unknown>;
+
+  if (!Array.isArray(b.visibleSkills)) {
+    return { ok: false, error: 'visibleSkills must be an array' };
+  }
+  if (b.visibleSkills.length > MAX_VISIBLE_SKILLS) {
+    return {
+      ok: false,
+      error: `visibleSkills length exceeds max (${MAX_VISIBLE_SKILLS})`,
+    };
+  }
+
+  const visibleSkills: { slug: string; displayName: string }[] = [];
+  for (let i = 0; i < b.visibleSkills.length; i++) {
+    const item = b.visibleSkills[i];
+    if (!item || typeof item !== 'object') {
+      return {
+        ok: false,
+        error: `visibleSkills[${i}] must be an object`,
+      };
+    }
+    const skill = item as Record<string, unknown>;
+    if (typeof skill.slug !== 'string' || skill.slug.length === 0) {
+      return {
+        ok: false,
+        error: `visibleSkills[${i}].slug must be a non-empty string`,
+      };
+    }
+    if (skill.slug.length > MAX_SKILL_SLUG_LENGTH) {
+      return {
+        ok: false,
+        error: `visibleSkills[${i}].slug must be at most ${MAX_SKILL_SLUG_LENGTH} chars`,
+      };
+    }
+    if (typeof skill.displayName !== 'string' || skill.displayName.length === 0) {
+      return {
+        ok: false,
+        error: `visibleSkills[${i}].displayName must be a non-empty string`,
+      };
+    }
+    if (skill.displayName.length > MAX_SKILL_DISPLAY_NAME_LENGTH) {
+      return {
+        ok: false,
+        error: `visibleSkills[${i}].displayName must be at most ${MAX_SKILL_DISPLAY_NAME_LENGTH} chars`,
+      };
+    }
+    visibleSkills.push({ slug: skill.slug, displayName: skill.displayName });
+  }
+
+  return { ok: true, config: { visibleSkills } };
 }
 
 function validateUpdateBody(body: unknown): UpdateValidation | ValidationFailure {

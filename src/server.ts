@@ -20,6 +20,7 @@ import { buildSystemPrompt as buildAgentSystemPrompt } from './core/agent/system
 import type { AgentProfile } from './core/agent/agent-profile.js';
 import { AgentStorage } from './core/agent/agent-storage.js';
 import { MemoryAuditLog } from './core/agent/memory-audit-log.js';
+import { UiConfigStorage } from './core/agent/ui-config.js';
 import type { CommandRegistry, CommandContext, CommandResult } from './shared/commands/registry.js';
 import { createCommandRegistry } from './shared/commands/registry.js';
 import { InMemoryMessageBus } from './bus/message-bus.js';
@@ -239,6 +240,9 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
   const agentStorage = new AgentStorage(aptbotConfig.dataDir);
   const memoryAuditLogFactory = (userId: string, slug: string) =>
     new MemoryAuditLog(userId, slug, aptbotConfig.dataDir);
+  // §0.3.0 Task 10: UiConfigStorage — /api/agents/default/ui-config 端点使用
+  // 仅 default agent 有 ui-config.json，存于 data/users/<userId>/agents/default/ui-config.json
+  const uiConfigStorage = new UiConfigStorage(aptbotConfig.dataDir);
 
   // §4.8 Skills 系统：workspace (~/.aptbot/skills/) + builtin (src/skills/) 双层加载
   // workspace 优先级高（覆盖 builtin 同名），builtin 兜底
@@ -354,6 +358,8 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
     // §0.3.0 Task 9: agent API 注入 — /api/agents 系列端点
     agentStorage,
     memoryAuditLogFactory,
+    // §0.3.0 Task 10: UI 配置 API — /api/agents/default/ui-config 端点
+    uiConfigStorage,
   });
 
   // C8 修复：注册 WebSocket Channel 并绑定 sessionKey，使出站事件能路由到 WS 客户端

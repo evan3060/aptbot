@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { handleAgentApi } from '../../src/access/agent-api.js';
 import { AgentStorage } from '../../src/core/agent/agent-storage.js';
 import { MemoryAuditLog } from '../../src/core/agent/memory-audit-log.js';
+import { UiConfigStorage } from '../../src/core/agent/ui-config.js';
 import {
   AGENT_SLUG_REGEX,
   MAX_AGENTS_PER_USER,
@@ -44,6 +45,7 @@ describe('Task 9: Agent HTTP API', () => {
   let agentStorage: AgentStorage;
   let sessionStorage: StorageAdapter;
   let userStorage: UserStorage;
+  let uiConfigStorage: UiConfigStorage;
   let aliceToken: string;
   let aliceUserId: string;
   let bobToken: string;
@@ -54,6 +56,7 @@ describe('Task 9: Agent HTTP API', () => {
     agentStorage = new AgentStorage(tmpDir);
     sessionStorage = new FileStorage(tmpDir);
     userStorage = createUserStorage(tmpDir);
+    uiConfigStorage = new UiConfigStorage(tmpDir);
     const alice = await userStorage.register('alice', 'pw123456');
     aliceToken = alice.token;
     aliceUserId = alice.userId;
@@ -83,6 +86,7 @@ describe('Task 9: Agent HTTP API', () => {
         sessionStorage,
         AUTH_TOKEN,
         userStorage,
+        uiConfigStorage,
       );
     });
     await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r));
@@ -562,6 +566,154 @@ describe('Task 9: Agent HTTP API', () => {
         authorization: `Bearer ${aliceToken}`,
       });
       expect([404, 405]).toContain(res.status);
+    });
+  });
+
+  describe('Task 10: GET /api/agents/default/ui-config — UI 配置', () => {
+    it('无 auth → 401', async () => {
+      await startServer();
+      const res = await request('GET', '/api/agents/default/ui-config');
+      expect(res.status).toBe(401);
+    });
+
+    it('错误 token → 401', async () => {
+      await startServer();
+      const res = await request('GET', '/api/agents/default/ui-config', undefined, {
+        authorization: 'Bearer wrong-token',
+      });
+      expect(res.status).toBe(401);
+    });
+
+    it('有 auth → 200 + 配置（默认空 visibleSkills）', async () => {
+      await startServer();
+      const res = await request('GET', '/api/agents/default/ui-config', undefined, {
+        authorization: `Bearer ${aliceToken}`,
+      });
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ visibleSkills: [] });
+    });
+
+    it('用户隔离：alice 与 bob 的配置互不影响', async () => {
+      await startServer();
+      // alice 写入一个 skill
+      await request(
+        'PUT',
+        '/api/agents/default/ui-config',
+        { visibleSkills: [{ slug: 'alice-skill', displayName: 'Alice' }] },
+        { authorization: `Bearer ${aliceToken}` },
+      );
+      // bob 应看不到
+      const bobRes = await request('GET', '/api/agents/default/ui-config', undefined, {
+        authorization: `Bearer ${bobToken}`,
+      });
+      expect(bobRes.status).toBe(200);
+      expect(bobRes.body).toEqual({ visibleSkills: [] });
+    });
+  });
+
+  describe('Task 10: PUT /api/agents/default/ui-config — 更新 UI 配置', () => {
+    it('无 auth → 401', async () => {
+      await startServer();
+      const res = await request('PUT', '/api/agents/default/ui-config', {
+        visibleSkills: [],
+      });
+      expect(res.status).toBe(401);
+    });
+
+    it('合法 body → 200', async () => {
+      await startServer();
+      const res = await request(
+        'PUT',
+        '/api/agents/default/ui-config',
+        { visibleSkills: [{ slug: 'skill-1', displayName: 'Skill One' }] },
+        { authorization: `Bearer ${aliceToken}` },
+      );
+      expect(res.status).toBe(200);
+    });
+
+    it('PUT 后 GET → 返回更新后的配置', async () => {
+      await startServer();
+      const newConfig = {
+        visibleSkills: [
+          { slug: 'skill-foo', displayName: 'Foo' },
+          { slug: 'skill-bar', displayName: 'Bar' },
+        ],
+      };
+      const putRes = await request('PUT', '/api/agents/default/ui-config', newConfig, {
+        authorization: `Bearer ${aliceToken}`,
+      });
+      expect(putRes.status).toBe(200);
+
+      const getRes = await request('GET', '/api/agents/default/ui-config', undefined, {
+        authorization: `Bearer ${aliceToken}`,
+      });
+      expect(getRes.status).toBe(200);
+      expect(getRes.body).toEqual(newConfig);
+    });
+
+    it('PUT 覆盖已存在配置 → GET 返回新值', async () => {
+      await startServer();
+      // 第一次写
+      await request(
+        'PUT',
+        '/api/agents/default/ui-config',
+        { visibleSkills: [{ slug: 'old', displayName: 'Old' }] },
+        { authorization: `Bearer ${aliceToken}` },
+      );
+      // 覆盖
+      await request(
+        'PUT',
+        '/api/agents/default/ui-config',
+        { visibleSkills: [{ slug: 'new', displayName: 'New' }] },
+        { authorization: `Bearer ${aliceToken}`,
+      });
+      const getRes = await request('GET', '/api/agents/default/ui-config', undefined, {
+        authorization: `Bearer ${aliceToken}`,
+      });
+      expect(getRes.body.visibleSkills).toEqual([
+        { slug: 'new', displayName: 'New' },
+      ]);
+    });
+
+    it('非法 body（缺 visibleSkills）→ 400', async () => {
+      await startServer();
+      const res = await request('PUT', '/api/agents/default/ui-config', {
+        notVisibleSkills: [],
+      }, { authorization: `Bearer ${aliceToken}` });
+      expect(res.status).toBe(400);
+    });
+
+    it('非法 body（visibleSkills 不是数组）→ 400', async () => {
+      await startServer();
+      const res = await request(
+        'PUT',
+        '/api/agents/default/ui-config',
+        { visibleSkills: 'not-an-array' },
+        { authorization: `Bearer ${aliceToken}` },
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it('非法 body（item 缺 slug）→ 400', async () => {
+      await startServer();
+      const res = await request(
+        'PUT',
+        '/api/agents/default/ui-config',
+        { visibleSkills: [{ displayName: 'No Slug' }] },
+        { authorization: `Bearer ${aliceToken}` },
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it('非法 body（item slug 非 string）→ 400', async () => {
+      await startServer();
+      const res = await request(
+        'PUT',
+        '/api/agents/default/ui-config',
+        { visibleSkills: [{ slug: 123, displayName: 'X' }] },
+        { authorization: `Bearer ${aliceToken}` },
+      );
+      expect(res.status).toBe(400);
     });
   });
 });

@@ -15,6 +15,7 @@ import type { FeedbackStorage } from '../infrastructure/feedback-storage.js';
 import { handleFeedbackApi } from './feedback-api.js';
 import { handleAgentApi, type MemoryAuditLogFactory } from './agent-api.js';
 import type { AgentStorage } from '../core/agent/agent-storage.js';
+import type { UiConfigStorage } from '../core/agent/ui-config.js';
 import { createLearnListHtml, createLearnArticleHtml, createFeedbackHtml } from './learn-page.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -78,6 +79,8 @@ export interface WebSocketServerOptions {
   agentStorage?: AgentStorage;
   /** §0.3.0 Task 9: MemoryAuditLog 工厂，根据 (userId, slug) 构造绑定到该 agent 的实例 */
   memoryAuditLogFactory?: MemoryAuditLogFactory;
+  /** §0.3.0 Task 10: UiConfigStorage 实例，启用后 /api/agents/default/ui-config 端点可用 */
+  uiConfigStorage?: UiConfigStorage;
 }
 
 export interface WebSocketServer {
@@ -252,7 +255,7 @@ async function identifyUser(
  */
 export function startWebSocketServer(options: WebSocketServerOptions): Promise<WebSocketServer> {
   return new Promise((resolve, reject) => {
-    const { port, bus, authToken, serveHtml, serveDemoHtml, host, userStorage, fallbackSessionKey, getCurrentSessionId, onSessionBound, onSessionUnbound, sessionStorage, onSessionRenamed, globalBufferLimit, readHistoryForReplay, articleLoader, feedbackStorage, learnEnabled, feedbackEnabled, agentStorage, memoryAuditLogFactory } = options;
+    const { port, bus, authToken, serveHtml, serveDemoHtml, host, userStorage, fallbackSessionKey, getCurrentSessionId, onSessionBound, onSessionUnbound, sessionStorage, onSessionRenamed, globalBufferLimit, readHistoryForReplay, articleLoader, feedbackStorage, learnEnabled, feedbackEnabled, agentStorage, memoryAuditLogFactory, uiConfigStorage } = options;
     const globalLimit = globalBufferLimit ?? WS_GLOBAL_BUFFER_MAX;
     // Task 9 (0.2.3): learnEnabled 默认 false；feedbackEnabled 默认 true
     const isLearnEnabled = learnEnabled === true;
@@ -330,6 +333,7 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
 
       // §0.3.0 Task 9: /api/agents 必须在 /api/* 之前判断（路由优先级，与 /api/feedback 同模式）
       // /api/agents + /api/agents/:slug + /api/agents/:slug/{sessions,memory,memory-log}
+      // + /api/agents/default/ui-config（Task 10）
       // 均由 handleAgentApi 处理；agentStorage 未提供时返回 404
       if (agentStorage && memoryAuditLogFactory && (pathname === '/api/agents' || pathname.startsWith('/api/agents/'))) {
         handleAgentApi(
@@ -341,6 +345,7 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
           sessionStorage,
           authToken,
           userStorage,
+          uiConfigStorage,
         );
         return;
       }
