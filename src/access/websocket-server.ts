@@ -13,9 +13,10 @@ import type { ArticleLoader } from '../learn/article-loader.js';
 import type { ArticleLang } from '../learn/article-types.js';
 import type { FeedbackStorage } from '../infrastructure/feedback-storage.js';
 import { handleFeedbackApi } from './feedback-api.js';
-import { handleAgentApi, type MemoryAuditLogFactory } from './agent-api.js';
+import { handleAgentApi, handleSkillApi, type MemoryAuditLogFactory } from './agent-api.js';
 import type { AgentStorage } from '../core/agent/agent-storage.js';
 import type { UiConfigStorage } from '../core/agent/ui-config.js';
+import type { SkillState } from '../core/skills/loader.js';
 import { createLearnListHtml, createLearnArticleHtml, createFeedbackHtml } from './learn-page.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -81,6 +82,8 @@ export interface WebSocketServerOptions {
   memoryAuditLogFactory?: MemoryAuditLogFactory;
   /** §0.3.0 Task 10: UiConfigStorage 实例，启用后 /api/agents/default/ui-config 端点可用 */
   uiConfigStorage?: UiConfigStorage;
+  /** §0.3.0 Task 11: SkillState 实例，启用后 /api/skills 端点可用（skillState 为 undefined 时返回空数组） */
+  skillState?: SkillState;
 }
 
 export interface WebSocketServer {
@@ -255,7 +258,7 @@ async function identifyUser(
  */
 export function startWebSocketServer(options: WebSocketServerOptions): Promise<WebSocketServer> {
   return new Promise((resolve, reject) => {
-    const { port, bus, authToken, serveHtml, serveDemoHtml, host, userStorage, fallbackSessionKey, getCurrentSessionId, onSessionBound, onSessionUnbound, sessionStorage, onSessionRenamed, globalBufferLimit, readHistoryForReplay, articleLoader, feedbackStorage, learnEnabled, feedbackEnabled, agentStorage, memoryAuditLogFactory, uiConfigStorage } = options;
+    const { port, bus, authToken, serveHtml, serveDemoHtml, host, userStorage, fallbackSessionKey, getCurrentSessionId, onSessionBound, onSessionUnbound, sessionStorage, onSessionRenamed, globalBufferLimit, readHistoryForReplay, articleLoader, feedbackStorage, learnEnabled, feedbackEnabled, agentStorage, memoryAuditLogFactory, uiConfigStorage, skillState } = options;
     const globalLimit = globalBufferLimit ?? WS_GLOBAL_BUFFER_MAX;
     // Task 9 (0.2.3): learnEnabled 默认 false；feedbackEnabled 默认 true
     const isLearnEnabled = learnEnabled === true;
@@ -347,6 +350,13 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
           userStorage,
           uiConfigStorage,
         );
+        return;
+      }
+
+      // §0.3.0 Task 11: /api/skills 必须在 /api/* 之前判断（路由优先级，与 /api/agents 同模式）
+      // 由 handleSkillApi 处理；skillState 未提供（创建失败降级）时仍可路由，返回空数组
+      if (pathname === '/api/skills' || pathname.startsWith('/api/skills/')) {
+        handleSkillApi(req, res, pathname, skillState, authToken, userStorage);
         return;
       }
 

@@ -360,6 +360,8 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
     memoryAuditLogFactory,
     // §0.3.0 Task 10: UI 配置 API — /api/agents/default/ui-config 端点
     uiConfigStorage,
+    // §0.3.0 Task 11: skills API — /api/skills 端点（skillState 降级时返回空数组）
+    skillState,
   });
 
   // C8 修复：注册 WebSocket Channel 并绑定 sessionKey，使出站事件能路由到 WS 客户端

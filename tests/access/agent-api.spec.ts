@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { handleAgentApi } from '../../src/access/agent-api.js';
+import { handleAgentApi, handleSkillApi } from '../../src/access/agent-api.js';
 import { AgentStorage } from '../../src/core/agent/agent-storage.js';
 import { MemoryAuditLog } from '../../src/core/agent/memory-audit-log.js';
 import { UiConfigStorage } from '../../src/core/agent/ui-config.js';
@@ -17,6 +17,8 @@ import { createUserStorage, type UserStorage } from '../../src/infrastructure/us
 import { FileStorage, type StorageAdapter } from '../../src/infrastructure/storage/file-storage.js';
 import type { AgentProfile } from '../../src/core/agent/agent-profile.js';
 import type { AuditRecord } from '../../src/core/agent/memory-audit-log.js';
+import type { Skill } from '../../src/core/skills/types.js';
+import type { SkillState } from '../../src/core/skills/loader.js';
 
 /**
  * §0.3.0 Task 9: Agent HTTP API（/api/agents 系列）
@@ -715,5 +717,180 @@ describe('Task 9: Agent HTTP API', () => {
       );
       expect(res.status).toBe(400);
     });
+  });
+});
+
+describe('Task 11: GET /api/skills — Skill 列表', () => {
+  let server: Server | null = null;
+  let port: number;
+  let tmpDir: string;
+  let userStorage: UserStorage;
+  let aliceToken: string;
+  let skillState: SkillState;
+
+  beforeEach(async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'aptbot-skill-api-'));
+    userStorage = createUserStorage(tmpDir);
+    const alice = await userStorage.register('alice', 'pw123456');
+    aliceToken = alice.token;
+
+    // 构造 mock SkillState：含 template 与不含 template 的 skill 各一
+    const skills: Skill[] = [
+      {
+        name: 'skill-with-template',
+        description: 'A skill with a template field',
+        content: 'body',
+        filePath: '/tmp/skill-with-template/SKILL.md',
+        contentLines: 1,
+        contentBytes: 4,
+        template: 'Summarize: {{cursor}}',
+      },
+      {
+        name: 'skill-without-template',
+        description: 'A skill without a template field',
+        content: 'body',
+        filePath: '/tmp/skill-without-template/SKILL.md',
+        contentLines: 1,
+        contentBytes: 4,
+      },
+    ];
+    skillState = {
+      skills: skills,
+      findByFilePath: () => undefined,
+      markUsed: () => false,
+      reload: async () => {},
+    };
+  });
+
+  afterEach(async () => {
+    if (server) {
+      await new Promise<void>((r) => server!.close(() => r()));
+      server = null;
+    }
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  async function startSkillServer(): Promise<void> {
+    server = createServer((req, res) => {
+      const url = new URL(req.url ?? '/', 'http://localhost');
+      handleSkillApi(
+        req,
+        res,
+        url.pathname,
+        skillState,
+        AUTH_TOKEN,
+        userStorage,
+      );
+    });
+    await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r));
+    port = (server!.address() as { port: number }).port;
+  }
+
+  async function request(
+    method: string,
+    path: string,
+    body?: unknown,
+    headers?: Record<string, string>,
+  ): Promise<{ status: number; body: any; headers: Headers }> {
+    const url = `http://localhost:${port}${path}`;
+    const init: RequestInit = {
+      method,
+      headers: { 'content-type': 'application/json', ...headers },
+    };
+    if (body !== undefined) init.body = JSON.stringify(body);
+    const res = await fetch(url, init);
+    const text = await res.text();
+    let parsed: any = null;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = text;
+    }
+    return { status: res.status, body: parsed, headers: res.headers };
+  }
+
+  it('无 auth → 401', async () => {
+    await startSkillServer();
+    const res = await request('GET', '/api/skills');
+    expect(res.status).toBe(401);
+    expect(res.body.error).toBeTruthy();
+  });
+
+  it('错误 token → 401', async () => {
+    await startSkillServer();
+    const res = await request('GET', '/api/skills', undefined, {
+      authorization: 'Bearer wrong-token',
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('正确 auth → 200 + skills 数组含 name/description', async () => {
+    await startSkillServer();
+    const res = await request('GET', '/api/skills', undefined, {
+      authorization: `Bearer ${aliceToken}`,
+    });
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body).toHaveLength(2);
+    // 每项含 name + description
+    for (const item of res.body) {
+      expect(typeof item.name).toBe('string');
+      expect(typeof item.description).toBe('string');
+    }
+    const names = res.body.map((s: any) => s.name);
+    expect(names).toContain('skill-with-template');
+    expect(names).toContain('skill-without-template');
+  });
+
+  it('template 字段：有 template 的 skill 包含该字段，无则省略', async () => {
+    await startSkillServer();
+    const res = await request('GET', '/api/skills', undefined, {
+      authorization: `Bearer ${aliceToken}`,
+    });
+    expect(res.status).toBe(200);
+    const withTpl = res.body.find((s: any) => s.name === 'skill-with-template');
+    const withoutTpl = res.body.find((s: any) => s.name === 'skill-without-template');
+    expect(withTpl.template).toBe('Summarize: {{cursor}}');
+    expect(withoutTpl.template).toBeUndefined();
+  });
+
+  it('不暴露内部字段（filePath / content / contentLines 等）', async () => {
+    await startSkillServer();
+    const res = await request('GET', '/api/skills', undefined, {
+      authorization: `Bearer ${aliceToken}`,
+    });
+    expect(res.status).toBe(200);
+    for (const item of res.body) {
+      expect(item.filePath).toBeUndefined();
+      expect(item.content).toBeUndefined();
+      expect(item.contentLines).toBeUndefined();
+      expect(item.contentBytes).toBeUndefined();
+      expect(item.tags).toBeUndefined();
+      expect(item.disableModelInvocation).toBeUndefined();
+      expect(item.lastUsed).toBeUndefined();
+    }
+  });
+
+  it('skillState 为空时返回空数组', async () => {
+    skillState = {
+      skills: [],
+      findByFilePath: () => undefined,
+      markUsed: () => false,
+      reload: async () => {},
+    };
+    await startSkillServer();
+    const res = await request('GET', '/api/skills', undefined, {
+      authorization: `Bearer ${aliceToken}`,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+  });
+
+  it('未匹配子路径 → 404', async () => {
+    await startSkillServer();
+    const res = await request('GET', '/api/skills/unknown-subpath', undefined, {
+      authorization: `Bearer ${aliceToken}`,
+    });
+    expect(res.status).toBe(404);
   });
 });

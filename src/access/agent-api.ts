@@ -14,6 +14,7 @@ import {
 } from '../core/agent/agent-profile.js';
 import type { UiConfig, UiConfigStorage } from '../core/agent/ui-config.js';
 import { createLogger } from '../infrastructure/logger.js';
+import type { SkillState } from '../core/skills/loader.js';
 
 /**
  * §0.3.0 Task 9: Agent HTTP API（/api/agents 系列）
@@ -517,6 +518,70 @@ export async function handleAgentApi(
     sendJson(404, { ok: false, error: 'not found' });
   } catch (err) {
     log.error('agent api error', { error: String(err), pathname });
+    sendJson(500, { ok: false, error: 'internal server error' });
+  }
+}
+
+/**
+ * §0.3.0 Task 11: handleSkillApi — 处理 /api/skills 路由的 HTTP 请求。
+ *
+ * 端点：
+ * - GET /api/skills — 列出所有已加载 skill（含 template 字段，若有）
+ *
+ * 鉴权：复用 authToken 机制（与 handleAgentApi / handleFeedbackApi 一致）。
+ * 返回字段：仅 name / description / template（若有）；不暴露 filePath / content 等内部字段。
+ * skillState 为 undefined（创建失败降级）时返回空数组。
+ *
+ * @param req          Node.js IncomingMessage
+ * @param res          Node.js ServerResponse
+ * @param pathname     已解析的 URL pathname（不含 query string）
+ * @param skillState   可选，SkillState 实例（含当前 skills 快照 + 热重载支持）
+ * @param authToken    可选，admin/shared token（authToken-only 部署模式）
+ * @param userStorage  可选，用户存储（多用户模式下的 token → userId 解析）
+ */
+export async function handleSkillApi(
+  req: IncomingMessage,
+  res: ServerResponse,
+  pathname: string,
+  skillState: SkillState | undefined,
+  authToken: string | undefined,
+  userStorage: UserStorage | undefined,
+): Promise<void> {
+  const sendJson = (status: number, body: unknown): void => {
+    res.writeHead(status, RESPONSE_HEADERS);
+    res.end(JSON.stringify(body));
+  };
+
+  // 1. 鉴权（与 handleAgentApi 一致）
+  const auth = await resolveAuth(req, userStorage, authToken);
+  if (!auth) {
+    sendJson(401, { ok: false, error: 'unauthorized' });
+    return;
+  }
+
+  try {
+    // 2. GET /api/skills — 列出所有已加载 skill
+    if (pathname === '/api/skills' && req.method === 'GET') {
+      const skills = skillState?.skills ?? [];
+      const list = skills.map((s) => {
+        const item: { name: string; description: string; template?: string } = {
+          name: s.name,
+          description: s.description,
+        };
+        // template 字段仅在该 skill 有时才包含（避免输出 undefined 字段）
+        if (s.template !== undefined) {
+          item.template = s.template;
+        }
+        return item;
+      });
+      sendJson(200, list);
+      return;
+    }
+
+    // 未匹配的子路径 → 404
+    sendJson(404, { ok: false, error: 'not found' });
+  } catch (err) {
+    log.error('skill api error', { error: String(err), pathname });
     sendJson(500, { ok: false, error: 'internal server error' });
   }
 }
