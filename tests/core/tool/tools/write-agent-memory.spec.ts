@@ -56,7 +56,14 @@ function makeTool(
   userId: string = VALID_USER_ID,
   agentId: string = VALID_AGENT_ID,
 ): AgentTool<WriteAgentMemoryParams, WriteAgentMemoryDetails> {
-  return createWriteAgentMemoryTool(userId, agentId, tmpDataDir, SESSION_ID, auditLog);
+  // §0.3.0 final-review: getter-based factory signature
+  return createWriteAgentMemoryTool(
+    () => userId,
+    () => agentId,
+    tmpDataDir,
+    SESSION_ID,
+    (uid, slug) => new MemoryAuditLog(uid, slug, tmpDataDir),
+  );
 }
 
 function memoryPath(userId: string = VALID_USER_ID, agentId: string = VALID_AGENT_ID): string {
@@ -109,12 +116,27 @@ describe('writeAgentMemoryTool', () => {
   });
 
   describe('construction path traversal guard', () => {
-    it('throws on invalid userId', () => {
-      expect(() => makeTool('../etc', VALID_AGENT_ID)).toThrow(/userId/);
+    // §0.3.0 final-review: guard 移到执行时（getter 模式），返回 error 而非 throw
+    it('returns invalid_user_id error at execution when userId fails guard', async () => {
+      const tool = makeTool('../etc', VALID_AGENT_ID);
+      const result = await tool.execute('tc', {
+        section: 'facts',
+        content: 'x',
+        mode: 'append',
+      });
+      expect(result.error?.code).toBe('invalid_user_id');
+      expect(result.error?.message).toMatch(/userId/);
     });
 
-    it('throws on invalid agentId', () => {
-      expect(() => makeTool(VALID_USER_ID, '../etc')).toThrow(/agentId/);
+    it('returns invalid_agent_id error at execution when agentId fails guard', async () => {
+      const tool = makeTool(VALID_USER_ID, '../etc');
+      const result = await tool.execute('tc', {
+        section: 'facts',
+        content: 'x',
+        mode: 'append',
+      });
+      expect(result.error?.code).toBe('invalid_agent_id');
+      expect(result.error?.message).toMatch(/agentId/);
     });
   });
 
@@ -308,7 +330,7 @@ describe('writeAgentMemoryTool', () => {
       const tool = makeTool();
       await tool.execute('tc', { section: 'facts', content: '- hello from writer', mode: 'append' });
 
-      const reader = createReadAgentMemoryTool(VALID_USER_ID, VALID_AGENT_ID, tmpDataDir);
+      const reader = createReadAgentMemoryTool(() => VALID_USER_ID, () => VALID_AGENT_ID, tmpDataDir);
       const result = await reader.execute('tc', { section: 'facts' });
       expect(result.error).toBeUndefined();
       const text = (result.content[0] as { text: string }).text;
@@ -325,7 +347,7 @@ describe('writeAgentMemoryTool', () => {
       await tool.execute('c', { section: 'preferences', content: '- dark mode', mode: 'append' });
       await tool.execute('d', { section: 'history', content: '- task 7 done', mode: 'append' });
 
-      const reader = createReadAgentMemoryTool(VALID_USER_ID, VALID_AGENT_ID, tmpDataDir);
+      const reader = createReadAgentMemoryTool(() => VALID_USER_ID, () => VALID_AGENT_ID, tmpDataDir);
       const up = await reader.execute('1', { section: 'user_profile' });
       const f = await reader.execute('2', { section: 'facts' });
       const p = await reader.execute('3', { section: 'preferences' });
@@ -357,18 +379,18 @@ describe('writeAgentMemoryTool', () => {
 
     it('different agentIds write to their own MEMORY.md', async () => {
       const toolA = createWriteAgentMemoryTool(
-        VALID_USER_ID,
-        'agent-aaa111',
+        () => VALID_USER_ID,
+        () => 'agent-aaa111',
         tmpDataDir,
         SESSION_ID,
-        new MemoryAuditLog(VALID_USER_ID, 'agent-aaa111', tmpDataDir),
+        (uid, slug) => new MemoryAuditLog(uid, slug, tmpDataDir),
       );
       const toolB = createWriteAgentMemoryTool(
-        VALID_USER_ID,
-        'agent-bbb222',
+        () => VALID_USER_ID,
+        () => 'agent-bbb222',
         tmpDataDir,
         SESSION_ID,
-        new MemoryAuditLog(VALID_USER_ID, 'agent-bbb222', tmpDataDir),
+        (uid, slug) => new MemoryAuditLog(uid, slug, tmpDataDir),
       );
       await toolA.execute('a', { section: 'facts', content: 'A content', mode: 'append' });
       await toolB.execute('b', { section: 'facts', content: 'B content', mode: 'append' });
@@ -478,12 +500,13 @@ old
         },
         list: async () => [],
       } as unknown as MemoryAuditLog;
+      // §0.3.0 final-review: 工厂签名改为 factory，返回 failing 实例
       const tool = createWriteAgentMemoryTool(
-        VALID_USER_ID,
-        VALID_AGENT_ID,
+        () => VALID_USER_ID,
+        () => VALID_AGENT_ID,
         tmpDataDir,
         SESSION_ID,
-        failingAudit,
+        () => failingAudit,
       );
 
       const result = await tool.execute('tc', { section: 'facts', content: 'persisted', mode: 'append' });

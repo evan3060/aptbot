@@ -6,6 +6,10 @@
     <img src="https://img.shields.io/badge/version-0.3.0-blue" alt="Version">
     <img src="https://img.shields.io/badge/license-MIT-yellow" alt="License">
   </p>
+  <p>
+    <a href="./README.md">English</a> |
+    <a href="./README.zh-CN.md">简体中文</a>
+  </p>
 </div>
 
 🤖 **aptbot — 你的个人 AI 助理**

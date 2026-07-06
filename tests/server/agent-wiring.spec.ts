@@ -569,3 +569,115 @@ describe('Task 18: resolveAgentForPrompt 遵守 memoryEnabled', () => {
     expect(memoryContent).toBe(memoryText);
   });
 });
+
+/**
+ * §0.3.0 final-review: 内存工具注册 + switch_agent 处理回归测试
+ *
+ * 覆盖 final review 发现的 1 Critical + 1 Important 修复：
+ * - Critical: read_agent_memory / write_agent_memory 已在 server.ts registry 注册
+ * - Important: /agent <slug> 的 switch_agent action 在 server 路径被处理
+ *   （CLI 路径已处理，server 路径此前仅处理 new_session，switch_agent 被丢弃）
+ */
+describe('§0.3.0 final-review: 内存工具注册 + switch_agent 处理', () => {
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'aptbot-final-review-'));
+  });
+
+  afterEach(async () => {
+    await stopServer();
+  });
+
+  it('read_agent_memory 工具已注册到 server registry', async () => {
+    process.env.APTBOT_CONFIG = makeTestConfig(tempDir!);
+    process.env.TEST_API_KEY = 'test-key';
+
+    const port = 27432 + Math.floor(Math.random() * 1000);
+    serverHandle = await startServer({ port, deploy: 'local' });
+
+    const registry = serverHandle!.getRegistry();
+    expect(registry.has('read_agent_memory')).toBe(true);
+  });
+
+  it('write_agent_memory 工具已注册到 server registry', async () => {
+    process.env.APTBOT_CONFIG = makeTestConfig(tempDir!);
+    process.env.TEST_API_KEY = 'test-key';
+
+    const port = 28432 + Math.floor(Math.random() * 1000);
+    serverHandle = await startServer({ port, deploy: 'local' });
+
+    const registry = serverHandle!.getRegistry();
+    expect(registry.has('write_agent_memory')).toBe(true);
+  });
+
+  it('/agent <slug> 切换后 currentAgentSlug 更新为新 slug（switch_agent action 被 server 路径处理）', async () => {
+    process.env.APTBOT_CONFIG = makeTestConfig(tempDir!);
+    process.env.TEST_API_KEY = 'test-key';
+
+    const port = 29432 + Math.floor(Math.random() * 1000);
+    serverHandle = await startServer({ port, deploy: 'local' });
+
+    // 1. 注册用户拿到 userId + token
+    const regRes = await fetch(`http://127.0.0.1:${port}/api/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'bob', password: 'password123' }),
+    });
+    const regBody = await regRes.json();
+    const userId: string = regBody.userId;
+    const token: string = regBody.token;
+    expect(userId).toBeTruthy();
+    expect(token).toBeTruthy();
+
+    // 2. 创建 default agent + 一个 professional agent
+    const agentStorage = new AgentStorage(tempDir!);
+    await ensureDefaultAgent(userId, agentStorage);
+    const proSlug = 'agent-travel01';
+    const proProfile: AgentProfile = {
+      name: 'Travel Planner',
+      description: '专业旅行规划助手',
+      userId,
+      type: 'professional',
+      slug: proSlug,
+      createdAt: 1700000000000,
+      updatedAt: 1700000000000,
+      personality: '你是一位资深旅行规划师。',
+    };
+    await agentStorage.saveAgent(proProfile);
+
+    // 3. 用 token 连接 WS
+    const ws = new WebSocket(`ws://127.0.0.1:${port}?token=${encodeURIComponent(token)}`);
+    wsClients.push(ws);
+    await new Promise<void>((resolve, reject) => {
+      ws.once('open', () => resolve());
+      ws.once('error', reject);
+      setTimeout(() => reject(new Error('ws connect timeout')), 5000);
+    });
+    await new Promise((r) => setTimeout(r, 100));
+
+    // 4. 发送 /agent <slug> 切换命令
+    ws.send(JSON.stringify({
+      type: 'message',
+      content: `/agent ${proSlug}`,
+    }));
+    const switchMessages = await collectTurnEvents(ws, 5000);
+    const switchOutput = extractDeltaText(switchMessages);
+    // 验证命令执行成功
+    expect(switchOutput).toContain('Switched to agent: Travel Planner');
+    expect(switchOutput).toContain(proSlug);
+
+    // 5. 发送 /agent（无参）验证 currentAgentSlug 已更新
+    ws.send(JSON.stringify({
+      type: 'message',
+      content: '/agent',
+    }));
+    const listMessages = await collectTurnEvents(ws, 5000);
+    const listOutput = extractDeltaText(listMessages);
+    // professional agent 被标记为 (current)（证明 switch_agent action 触发了 onSwitchAgent 回调）
+    expect(listOutput).toContain(proSlug);
+    expect(listOutput).toMatch(/\(current\).*Travel Planner/);
+    // default agent 不再是 current
+    const defaultLine = listOutput.split('\n').find((l) => l.includes('default'));
+    expect(defaultLine).toBeTruthy();
+    expect(defaultLine!).not.toContain('(current)');
+  });
+});

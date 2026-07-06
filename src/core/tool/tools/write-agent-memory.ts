@@ -50,38 +50,30 @@ const CONTENT_PREVIEW_MAX = 200;
  *
  * 路径硬编码为 `${dataDir}/users/${userId}/agents/${agentId}/MEMORY.md`：
  * - 不接受 path 参数 → 防止 LLM 跨 agent / 跨用户访问
- * - userId + agentId 在构造时校验路径遍历防护（USER_ID_REGEX + AGENT_SLUG_REGEX）
+ * - userId + agentId 通过 getter 在执行时动态读取，路径遍历防护也在执行时校验
  *
  * 并发串行化：复用 AgentStorage.withAgentLock（lockKey = `${userId}/${agentId}`），
  * 与 AgentStorage.saveAgent 共享同一 per-agentId Mutex 实例，保证并发写入串行化。
  * 审计日志 append 嵌套在 withAgentLock 内（审计 append 内部使用 withJsonlLock 独立锁），
  * 保证审计记录顺序与 memory 写入顺序一致。
  *
- * @param userId 当前 session 所属用户 ID（UUID v4）
- * @param agentId 当前 session 绑定的 agent slug
+ * §0.3.0 final-review: 工厂签名改为 getter + auditLogFactory 模式，使 server.ts 可在
+ * 注册时传入可变上下文（userId 在每条消息到达时更新、agentSlug 在 /agent 切换时更新），
+ * 工具执行时读取最新值并按当前 (userId, agentId) 创建 MemoryAuditLog 实例。
+ *
+ * @param getUserId 返回当前 session 所属用户 ID（UUID v4）的 getter
+ * @param getAgentId 返回当前 session 绑定的 agent slug 的 getter
  * @param dataDir 数据根目录
  * @param sessionId 触发写入的 session ID（记入审计）
- * @param memoryAuditLog 审计日志实例（依赖注入，便于测试 mock）
+ * @param memoryAuditLogFactory 审计日志工厂（按 (userId, slug) 创建实例），执行时调用
  */
 export function createWriteAgentMemoryTool(
-  userId: string,
-  agentId: string,
+  getUserId: () => string,
+  getAgentId: () => string,
   dataDir: string,
   sessionId: string,
-  memoryAuditLog: MemoryAuditLog,
+  memoryAuditLogFactory: (userId: string, slug: string) => MemoryAuditLog,
 ): AgentTool<WriteAgentMemoryParams, WriteAgentMemoryDetails> {
-  if (!USER_ID_REGEX.test(userId)) {
-    throw new Error(`invalid userId (path traversal guard): ${userId}`);
-  }
-  if (!AGENT_SLUG_REGEX.test(agentId)) {
-    throw new Error(`invalid agentId (path traversal guard): ${agentId}`);
-  }
-
-  const memoryPath = join(dataDir, 'users', userId, 'agents', agentId, 'MEMORY.md');
-  // §0.3.0 复用 AgentStorage 的 per-agentId mutex（lockKey = `${userId}/${agentId}`），
-  // 与 AgentStorage.saveAgent 共享同一 Mutex 实例，保证并发写入串行化。
-  const memoryLockKey = `${userId}/${agentId}`;
-
   return {
     name: 'write_agent_memory',
     label: 'Write Agent Memory',
@@ -122,6 +114,35 @@ export function createWriteAgentMemoryTool(
           { section, mode, beforeSize: 0, afterSize: 0, audited: false },
         ) as AgentToolResult<WriteAgentMemoryDetails>;
       }
+
+      // 执行时读取当前 userId / agentId，并校验路径遍历防护
+      const userId = getUserId();
+      const agentId = getAgentId();
+      if (!USER_ID_REGEX.test(userId)) {
+        return toolError('invalid_user_id', `invalid userId (path traversal guard): ${userId}`, {
+          section,
+          mode,
+          beforeSize: 0,
+          afterSize: 0,
+          audited: false,
+        }) as AgentToolResult<WriteAgentMemoryDetails>;
+      }
+      if (!AGENT_SLUG_REGEX.test(agentId)) {
+        return toolError('invalid_agent_id', `invalid agentId (path traversal guard): ${agentId}`, {
+          section,
+          mode,
+          beforeSize: 0,
+          afterSize: 0,
+          audited: false,
+        }) as AgentToolResult<WriteAgentMemoryDetails>;
+      }
+
+      const memoryPath = join(dataDir, 'users', userId, 'agents', agentId, 'MEMORY.md');
+      // §0.3.0 复用 AgentStorage 的 per-agentId mutex（lockKey = `${userId}/${agentId}`），
+      // 与 AgentStorage.saveAgent 共享同一 Mutex 实例，保证并发写入串行化。
+      const memoryLockKey = `${userId}/${agentId}`;
+      // 按当前 (userId, agentId) 创建审计日志实例
+      const memoryAuditLog = memoryAuditLogFactory(userId, agentId);
 
       let beforeSize = 0;
       let afterSize = 0;

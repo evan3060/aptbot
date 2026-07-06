@@ -2,11 +2,13 @@ import { loadConfig, resolveApiKey, ConfigLoader, parseAptbotConfig, DEFAULT_CON
 import { FileStorage, type StorageAdapter } from './infrastructure/storage/file-storage.js';
 import { createUserStorage, type UserStorage } from './infrastructure/user-storage.js';
 import type { AptbotConfig, ProviderConfig } from './infrastructure/config-types.js';
-import { createToolRegistry } from './core/tool/types.js';
+import { createToolRegistry, type ToolRegistry } from './core/tool/types.js';
 import { bashTool } from './core/tool/tools/bash.js';
 import { createReadTool } from './core/tool/tools/read.js';
 import { editTool } from './core/tool/tools/edit.js';
 import { createUpdateWorkingMemoryTool } from './core/tool/tools/update-working-memory.js';
+import { createReadAgentMemoryTool } from './core/tool/tools/read-agent-memory.js';
+import { createWriteAgentMemoryTool } from './core/tool/tools/write-agent-memory.js';
 import { createSkillState, type SkillState } from './core/skills/loader.js';
 import { formatSkillsForSystemPrompt } from './core/skills/system-prompt.js';
 import { createNodeExecutionEnv } from './core/skills/env.js';
@@ -85,6 +87,8 @@ export interface ServerHandle {
   stop(): Promise<void>;
   readonly port: number;
   getActiveConnections(): number;
+  /** §0.3.0 final-review: 暴露 registry 供测试验证内存工具注册 */
+  getRegistry(): ToolRegistry;
 }
 
 function findModelFromConfig(
@@ -350,6 +354,12 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
     skillState = undefined;
   }
 
+  // §0.3.0 final-review: slashHandler 前向声明（let）—— 内存工具的 getter 需要在
+  // registry 注册时闭包捕获 slashHandler，但 slashHandler 的赋值要等到 sessionRef 等
+  // 后续依赖就绪后才进行。getter 执行时读取 slashHandler.ctx.userId /
+  // ctx.currentAgentSlug（由 runInboundLoop 每 turn 更新 + onSwitchAgent 切换时更新）。
+  let slashHandler: SlashCommandHandler | undefined;
+
   const registry = createToolRegistry();
   registry.register(bashTool);
   // §12.5 read_file 特判：传入 skillState 后，读取 skill 文件时更新 lastUsed（联动 L1 索引重排序）
@@ -369,6 +379,25 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
   // I4 修复：自动恢复最近 session，而非每次启动创建新 sessionId
   const sessionId = await resolveSessionId(storage);
   registry.register(createUpdateWorkingMemoryTool(storage, sessionId));
+
+  // §0.3.0 final-review: 注册 read_agent_memory / write_agent_memory 工具
+  // 使用 getter 模式：工具执行时从 slashHandler.ctx 读取最新 userId / currentAgentSlug，
+  // registry 无需在 hot-reload / agent 切换时重建。
+  // - userId 由 runInboundLoop 每 turn 设置（slashHandler.ctx.userId = senderUserId）
+  // - currentAgentSlug 由 onSwitchAgent 回调设置（/agent <slug> 切换时）
+  // slashHandler 此时为 undefined（首条消息到达前），getter 返回安全缺省值。
+  registry.register(createReadAgentMemoryTool(
+    () => slashHandler?.ctx.userId ?? '',
+    () => slashHandler?.ctx.currentAgentSlug ?? DEFAULT_AGENT_SLUG,
+    aptbotConfig.dataDir,
+  ));
+  registry.register(createWriteAgentMemoryTool(
+    () => slashHandler?.ctx.userId ?? '',
+    () => slashHandler?.ctx.currentAgentSlug ?? DEFAULT_AGENT_SLUG,
+    aptbotConfig.dataDir,
+    sessionId,
+    memoryAuditLogFactory,
+  ));
 
   // §0.3.0 Task 17: per-session systemPrompt — 初始 session 用占位 default agent
   // （启动时尚无 userId，无法加载真实 agent profile；hot-reload 时按 ctx.userId 重建）
@@ -479,7 +508,7 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
 
   // 创建 CommandRegistry 并注入 runInboundLoop，使 slash 命令在 agent 之前被拦截
   const commandRegistry = createCommandRegistry();
-  const slashHandler: SlashCommandHandler = {
+  slashHandler = {
     registry: commandRegistry,
     ctx: {
       sessionId,
@@ -546,13 +575,44 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
 
   const configReload: ConfigReload = { loader: configLoader, rebuild: rebuildSession };
 
+  // §0.3.0 final-review: /agent <slug> 切换回调 — 更新 slashHandler.ctx.currentAgentSlug
+  // 并用新 agent 的 profile + MEMORY.md 重建 session systemPrompt（下个 turn 生效）。
+  // 内存工具的 getter 直接读取 slashHandler.ctx.currentAgentSlug，此处更新后即生效。
+  // 此处能访问 provider/model/agentStorage/aptbotConfig/registry/skillState 等闭包变量。
+  const onSwitchAgent: (userId: string | undefined, oldSlug: string, newSlug: string) => Promise<void> = async (userId, oldSlug, newSlug) => {
+    if (slashHandler) {
+      slashHandler.ctx.currentAgentSlug = newSlug;
+    }
+    try {
+      const { agent: switchAgent, memoryContent: switchMemory } = await resolveAgentForPrompt(
+        userId,
+        newSlug,
+        agentStorage,
+        aptbotConfig.dataDir,
+      );
+      const switchSystemPrompt = buildSessionSystemPrompt(switchAgent, switchMemory, skillState);
+      sessionRef.current = createAgentSession({
+        storage,
+        sessionId: sessionRef.currentKey,
+        agentLoop,
+        provider,
+        model,
+        tools: registry,
+        systemPrompt: switchSystemPrompt,
+      });
+      log.info('agent switched', { from: oldSlug, to: newSlug, userId: userId?.slice(0, 8) });
+    } catch (e) {
+      log.error('agent switch rebuild failed, keeping old session', { from: oldSlug, to: newSlug, error: String(e) });
+    }
+  };
+
   void runInboundLoop(bus, sessionRef, watchdog, slashHandler, sessionFactory, (oldKey, newId) => {
     // /new 或 /resume 后，向旧 sessionKey 的 connection 推送 session_changed
     // 客户端收到后更新 localStorage 并用 ?session=newId 重连
     log.info('onNewSession: sending session_changed', { oldKey: oldKey.slice(0, 8), newId: newId.slice(0, 8) });
     channelManager.bindSession(newId, wsChannel);
     wsServer.sendToSessionKey(oldKey, { type: 'session_changed', sessionId: newId });
-  }, configReload);
+  }, configReload, onSwitchAgent);
   void channelManager.runDispatchLoop();
 
   log.info('server started', { port: config.port });
@@ -561,6 +621,9 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
     port: config.port,
     getActiveConnections(): number {
       return wsServer.getActiveConnections();
+    },
+    getRegistry(): ToolRegistry {
+      return registry;
     },
     async stop() {
       await shutdown();
@@ -646,6 +709,9 @@ export async function runInboundLoop(
   onNewSession?: (oldKey: string, newId: string) => void,
   /** §4.6 Config 热重载：beforeTurn 检查 mtimeNs，变化时准备 pending，afterTurn 应用 */
   configReload?: ConfigReload,
+  /** §0.3.0 final-review: /agent <slug> 切换 agent 后触发，参数为 (userId, oldSlug, newSlug)。
+   * 回调负责更新 currentAgentSlug + agentMemoryCtx + 用新 agent profile 重建 session。 */
+  onSwitchAgent?: (userId: string | undefined, oldSlug: string, newSlug: string) => void | Promise<void>,
 ): Promise<void> {
   const loopLog = createLogger('inbound-loop');
   let seq = 0;
@@ -709,6 +775,8 @@ export async function runInboundLoop(
 
       const next = prev.then(async () => {
         // I5 fix: ctx.userId 在链内设置，避免并行 sessionKey 间的竞态
+        // §0.3.0 final-review: 内存工具的 getter 直接读取 slashHandler.ctx.userId，
+        // 此处更新后内存工具即获得最新 userId（无需额外同步 agentMemoryCtx）。
         if (senderUserId && slashHandler) slashHandler.ctx.userId = senderUserId;
         // Task 11: 每个 turn 刷新 sessionAttrs 句柄，使 /new /resume /热重载后的新 session 生效
         if (slashHandler) slashHandler.ctx.sessionAttrs = sessionRef.current;
@@ -761,6 +829,13 @@ export async function runInboundLoop(
                 // Task 6: 通知 server 推送 session_changed 到发起方 sessionKey 的 connection
                 onNewSession?.(oldKey, newId);
                 loopLog.info('session switched', { senderSessionKey: oldKey, newSessionKey: newId, resumed: !!result.continueSessionId });
+              }
+              // §0.3.0 final-review: /agent <slug> 切换 agent — 更新 currentAgentSlug + agentMemoryCtx
+              // 并用新 agent 的 profile + MEMORY.md 重建 session systemPrompt。
+              // 交由 onSwitchAgent 回调处理（回调在 startServer 闭包内，能访问 provider/model 等）。
+              if (result.action === 'switch_agent' && result.agentSlug && onSwitchAgent) {
+                const oldSlug = slashHandler.ctx.currentAgentSlug ?? DEFAULT_AGENT_SLUG;
+                await onSwitchAgent(slashHandler.ctx.userId, oldSlug, result.agentSlug);
               }
               // 所有命令都发送完整 turn 事件序列，确保客户端清除 working 状态
               const turnId = createTurnId();

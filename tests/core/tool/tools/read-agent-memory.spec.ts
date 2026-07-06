@@ -51,7 +51,7 @@ function writeMemory(userId: string, agentId: string, content: string): string {
 
 describe('readAgentMemoryTool', () => {
   it('declares name, label, description, parameters, parallel executionMode', () => {
-    const tool = createReadAgentMemoryTool(VALID_USER_ID, VALID_AGENT_ID, tmpDataDir);
+    const tool = createReadAgentMemoryTool(() => VALID_USER_ID, () => VALID_AGENT_ID, tmpDataDir);
     expect(tool.name).toBe('read_agent_memory');
     expect(tool.label).toBeTruthy();
     expect(tool.description).toBeTruthy();
@@ -60,7 +60,7 @@ describe('readAgentMemoryTool', () => {
   });
 
   it('parameters schema only exposes optional section (no path param)', () => {
-    const tool = createReadAgentMemoryTool(VALID_USER_ID, VALID_AGENT_ID, tmpDataDir);
+    const tool = createReadAgentMemoryTool(() => VALID_USER_ID, () => VALID_AGENT_ID, tmpDataDir);
     const props = tool.parameters.properties as Record<string, unknown>;
     expect(props).toHaveProperty('section');
     expect(props).not.toHaveProperty('path');
@@ -71,7 +71,7 @@ describe('readAgentMemoryTool', () => {
 
   it('reads existing MEMORY.md and returns full content when section=all', async () => {
     writeMemory(VALID_USER_ID, VALID_AGENT_ID, SAMPLE_MEMORY);
-    const tool = createReadAgentMemoryTool(VALID_USER_ID, VALID_AGENT_ID, tmpDataDir);
+    const tool = createReadAgentMemoryTool(() => VALID_USER_ID, () => VALID_AGENT_ID, tmpDataDir);
     const result = await tool.execute('tc_1', { section: 'all' });
     expect(result.error).toBeUndefined();
     expect(result.content[0]).toMatchObject({ type: 'text' });
@@ -89,7 +89,7 @@ describe('readAgentMemoryTool', () => {
 
   it('defaults to section=all when section omitted', async () => {
     writeMemory(VALID_USER_ID, VALID_AGENT_ID, SAMPLE_MEMORY);
-    const tool = createReadAgentMemoryTool(VALID_USER_ID, VALID_AGENT_ID, tmpDataDir);
+    const tool = createReadAgentMemoryTool(() => VALID_USER_ID, () => VALID_AGENT_ID, tmpDataDir);
     const result = await tool.execute('tc_2', {});
     expect(result.error).toBeUndefined();
     expect(result.details.section).toBe('all');
@@ -98,7 +98,7 @@ describe('readAgentMemoryTool', () => {
   });
 
   it('returns empty content (not error) when MEMORY.md does not exist', async () => {
-    const tool = createReadAgentMemoryTool(VALID_USER_ID, VALID_AGENT_ID, tmpDataDir);
+    const tool = createReadAgentMemoryTool(() => VALID_USER_ID, () => VALID_AGENT_ID, tmpDataDir);
     const result = await tool.execute('tc_3', {});
     expect(result.error).toBeUndefined();
     expect(result.content[0]).toMatchObject({ type: 'text' });
@@ -112,7 +112,7 @@ describe('readAgentMemoryTool', () => {
     // 构造 >8KB 文件
     const big = '# Agent Memory\n\n## Facts\n- ' + 'x'.repeat(MAX_MEMORY_SIZE + 100) + '\n';
     writeMemory(VALID_USER_ID, VALID_AGENT_ID, big);
-    const tool = createReadAgentMemoryTool(VALID_USER_ID, VALID_AGENT_ID, tmpDataDir);
+    const tool = createReadAgentMemoryTool(() => VALID_USER_ID, () => VALID_AGENT_ID, tmpDataDir);
     const result = await tool.execute('tc_4', { section: 'all' });
     expect(result.error?.code).toBe('memory_too_large');
     expect(result.error?.message).toMatch(/section/);
@@ -122,7 +122,7 @@ describe('readAgentMemoryTool', () => {
 
   it('filters to User Profile section only', async () => {
     writeMemory(VALID_USER_ID, VALID_AGENT_ID, SAMPLE_MEMORY);
-    const tool = createReadAgentMemoryTool(VALID_USER_ID, VALID_AGENT_ID, tmpDataDir);
+    const tool = createReadAgentMemoryTool(() => VALID_USER_ID, () => VALID_AGENT_ID, tmpDataDir);
     const result = await tool.execute('tc_5', { section: 'user_profile' });
     expect(result.error).toBeUndefined();
     const text = (result.content[0] as { text: string }).text;
@@ -136,7 +136,7 @@ describe('readAgentMemoryTool', () => {
 
   it('filters to Facts section only', async () => {
     writeMemory(VALID_USER_ID, VALID_AGENT_ID, SAMPLE_MEMORY);
-    const tool = createReadAgentMemoryTool(VALID_USER_ID, VALID_AGENT_ID, tmpDataDir);
+    const tool = createReadAgentMemoryTool(() => VALID_USER_ID, () => VALID_AGENT_ID, tmpDataDir);
     const result = await tool.execute('tc_6', { section: 'facts' });
     const text = (result.content[0] as { text: string }).text;
     expect(text).toContain('TypeScript project');
@@ -147,7 +147,7 @@ describe('readAgentMemoryTool', () => {
 
   it('filters to Preferences section only', async () => {
     writeMemory(VALID_USER_ID, VALID_AGENT_ID, SAMPLE_MEMORY);
-    const tool = createReadAgentMemoryTool(VALID_USER_ID, VALID_AGENT_ID, tmpDataDir);
+    const tool = createReadAgentMemoryTool(() => VALID_USER_ID, () => VALID_AGENT_ID, tmpDataDir);
     const result = await tool.execute('tc_7', { section: 'preferences' });
     const text = (result.content[0] as { text: string }).text;
     expect(text).toContain('Use Chinese');
@@ -158,7 +158,7 @@ describe('readAgentMemoryTool', () => {
 
   it('filters to History section only', async () => {
     writeMemory(VALID_USER_ID, VALID_AGENT_ID, SAMPLE_MEMORY);
-    const tool = createReadAgentMemoryTool(VALID_USER_ID, VALID_AGENT_ID, tmpDataDir);
+    const tool = createReadAgentMemoryTool(() => VALID_USER_ID, () => VALID_AGENT_ID, tmpDataDir);
     const result = await tool.execute('tc_8', { section: 'history' });
     const text = (result.content[0] as { text: string }).text;
     expect(text).toContain('Task 6');
@@ -170,7 +170,7 @@ describe('readAgentMemoryTool', () => {
   it('returns empty content when section not found in MEMORY.md', async () => {
     const content = '# Agent Memory\n\n## Facts\n- only facts\n';
     writeMemory(VALID_USER_ID, VALID_AGENT_ID, content);
-    const tool = createReadAgentMemoryTool(VALID_USER_ID, VALID_AGENT_ID, tmpDataDir);
+    const tool = createReadAgentMemoryTool(() => VALID_USER_ID, () => VALID_AGENT_ID, tmpDataDir);
     const result = await tool.execute('tc_9', { section: 'preferences' });
     expect(result.error).toBeUndefined();
     const text = (result.content[0] as { text: string }).text;
@@ -182,7 +182,7 @@ describe('readAgentMemoryTool', () => {
   it('hardcodes path — does not accept path parameter', async () => {
     writeMemory(VALID_USER_ID, VALID_AGENT_ID, SAMPLE_MEMORY);
     // 即使 caller 试图传 path，也被忽略；只读取硬编码路径
-    const tool = createReadAgentMemoryTool(VALID_USER_ID, VALID_AGENT_ID, tmpDataDir);
+    const tool = createReadAgentMemoryTool(() => VALID_USER_ID, () => VALID_AGENT_ID, tmpDataDir);
     const malicious = (tool as AgentTool<unknown>).parameters as { properties: Record<string, unknown> };
     expect(malicious.properties).not.toHaveProperty('path');
     const result = await tool.execute('tc_10', {
@@ -198,8 +198,8 @@ describe('readAgentMemoryTool', () => {
   it('prevents cross-agent access — different agentId reads its own MEMORY.md', async () => {
     writeMemory(VALID_USER_ID, 'agent-aaa111', '# Agent Memory\n\n## Facts\n- agent A\n');
     writeMemory(VALID_USER_ID, 'agent-bbb222', '# Agent Memory\n\n## Facts\n- agent B\n');
-    const toolA = createReadAgentMemoryTool(VALID_USER_ID, 'agent-aaa111', tmpDataDir);
-    const toolB = createReadAgentMemoryTool(VALID_USER_ID, 'agent-bbb222', tmpDataDir);
+    const toolA = createReadAgentMemoryTool(() => VALID_USER_ID, () => 'agent-aaa111', tmpDataDir);
+    const toolB = createReadAgentMemoryTool(() => VALID_USER_ID, () => 'agent-bbb222', tmpDataDir);
     const ra = await toolA.execute('tc_11a', { section: 'all' });
     const rb = await toolB.execute('tc_11b', { section: 'all' });
     expect((ra.content[0] as { text: string }).text).toContain('agent A');
@@ -207,19 +207,45 @@ describe('readAgentMemoryTool', () => {
     expect((ra.content[0] as { text: string }).text).not.toContain('agent B');
   });
 
-  it('throws on invalid userId at construction (path traversal guard)', () => {
-    expect(() =>
-      createReadAgentMemoryTool('../etc', VALID_AGENT_ID, tmpDataDir),
-    ).toThrow(/userId/);
+  it('returns invalid_user_id error at execution when userId fails path traversal guard', async () => {
+    const tool = createReadAgentMemoryTool(() => '../etc', () => VALID_AGENT_ID, tmpDataDir);
+    const result = await tool.execute('tc', {});
+    expect(result.error?.code).toBe('invalid_user_id');
+    expect(result.error?.message).toMatch(/userId/);
   });
 
-  it('throws on invalid agentId at construction (path traversal guard)', () => {
-    expect(() =>
-      createReadAgentMemoryTool(VALID_USER_ID, '../etc', tmpDataDir),
-    ).toThrow(/agentId/);
+  it('returns invalid_agent_id error at execution when agentId fails path traversal guard', async () => {
+    const tool = createReadAgentMemoryTool(() => VALID_USER_ID, () => '../etc', tmpDataDir);
+    const result = await tool.execute('tc', {});
+    expect(result.error?.code).toBe('invalid_agent_id');
+    expect(result.error?.message).toMatch(/agentId/);
   });
 
   it('exposes MAX_MEMORY_SIZE = 8192', () => {
     expect(MAX_MEMORY_SIZE).toBe(8192);
+  });
+
+  // §0.3.0 final-review: getter 模式 — 工具执行时读取最新上下文，非构造时
+  it('getter-based: reads latest userId/agentId at execution time (not construction time)', async () => {
+    // 为两个不同 agent 各写一份 MEMORY.md
+    writeMemory(VALID_USER_ID, 'agent-aaa111', '# Agent Memory\n\n## Facts\n- agent A\n');
+    writeMemory(VALID_USER_ID, 'agent-bbb222', '# Agent Memory\n\n## Facts\n- agent B\n');
+
+    // 构造时可变上下文指向 agent-aaa111
+    const ctx = { userId: VALID_USER_ID, agentId: 'agent-aaa111' as string };
+    const tool = createReadAgentMemoryTool(
+      () => ctx.userId,
+      () => ctx.agentId,
+      tmpDataDir,
+    );
+
+    // 第一次执行：读取 agent A 的 MEMORY.md
+    const ra = await tool.execute('tc_12a', { section: 'all' });
+    expect((ra.content[0] as { text: string }).text).toContain('agent A');
+
+    // 切换上下文到 agent-bbb222（无需重建工具 / registry）
+    ctx.agentId = 'agent-bbb222';
+    const rb = await tool.execute('tc_12b', { section: 'all' });
+    expect((rb.content[0] as { text: string }).text).toContain('agent B');
   });
 });
