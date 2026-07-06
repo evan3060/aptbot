@@ -66,8 +66,11 @@ function getAgentMutex(lockKey: string): Mutex {
 /**
  * §0.3.0 withAgentLock: 在 5000ms 内未获取锁则 reject。
  * 与 withJsonlLock 实现一致，含 ghost acquisition 释放（防死锁）。
+ *
+ * §0.3.0 Task 7 起 export：write_agent_memory 工具复用此锁保证并发写入串行化
+ * （与 AgentStorage.saveAgent 共享同一 per-agentId mutex，避免读写竞态）。
  */
-async function withAgentLock<T>(
+export async function withAgentLock<T>(
   lockKey: string,
   fn: () => Promise<T>,
 ): Promise<T> {

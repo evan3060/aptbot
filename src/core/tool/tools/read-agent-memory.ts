@@ -33,13 +33,22 @@ export interface ReadAgentMemoryDetails {
  * §0.3.0 §2.5 section 标题映射。
  * - section 值（snake_case）↔ MEMORY.md 中的 `## ` 标题（Title Case）
  * - 简单字符串映射，不做 fuzzy 匹配
+ * - §0.3.0 Task 7 起 export：write_agent_memory 复用同一常量保证 reader/writer header 大小写一致
  */
-const SECTION_HEADER_MAP: Record<Exclude<MemorySection, 'all'>, string> = {
+export const SECTION_HEADER_MAP: Record<Exclude<MemorySection, 'all'>, string> = {
   user_profile: 'User Profile',
   facts: 'Facts',
   preferences: 'Preferences',
   history: 'History',
 };
+
+/** §0.3.0 Task 7: section 顺序（用于新建 MEMORY.md 时写入 skeleton） */
+export const SECTION_ORDER: Exclude<MemorySection, 'all'>[] = [
+  'user_profile',
+  'facts',
+  'preferences',
+  'history',
+];
 
 /**
  * §0.3.0 §2.5 parseSection: 从 MEMORY.md 文本中提取指定 section 内容。
