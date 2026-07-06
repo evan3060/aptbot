@@ -115,8 +115,10 @@ function mergeChipSkills(
  *
  * 通过 shadowRoot 访问内部 input 元素，设置 value + setSelectionRange + 同步 _value。
  * template 为空时仅激活 skill（不填入输入框），由调用方决定。
+ *
+ * 导出供集成测试直接调用（避免依赖完整 createWebUIApp + WebSocket 装配）。
  */
-function applyTemplateToInput(
+export function applyTemplateToInput(
   inputBox: HTMLElement,
   template: string,
 ): void {

@@ -50,7 +50,7 @@ export interface SkillSelectDetail {
  * - 有 input + 有 template → 追加（含分隔符 '\n'）
  * - template 含 {{cursor}} → 移除占位符，cursor 定位到该处
  * - template 不含 {{cursor}} → cursor 默认在末尾
- * - 多个 {{cursor}} → 仅移除第一个，cursor 定位到首个
+ * - 多个 {{cursor}} → 全部移除，cursor 定位到首个
  *
  * @param currentInput 当前输入框内容
  * @param template skill 模板字符串（可含 {{cursor}} 占位符）
@@ -68,12 +68,12 @@ export function fillTemplate(
     return { value: input, cursorPos: input.length };
   }
 
-  // 计算 cursor 位置 + 移除首个 {{cursor}} 占位符
+  // 计算 cursor 位置 + 移除全部 {{cursor}} 占位符（cursor 定位到首个）
   const cursorIdx = tpl.indexOf('{{cursor}}');
   let resolvedTpl: string;
   let cursorOffsetInTpl: number;
   if (cursorIdx >= 0) {
-    resolvedTpl = tpl.replace('{{cursor}}', '');
+    resolvedTpl = tpl.replaceAll('{{cursor}}', '');
     cursorOffsetInTpl = cursorIdx;
   } else {
     resolvedTpl = tpl;

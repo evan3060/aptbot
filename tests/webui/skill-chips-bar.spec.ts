@@ -6,6 +6,7 @@ import {
   shouldRenderChipBar,
   type ChipSkill,
 } from '../../src/webui/components/skill-chips-bar.js';
+import { applyTemplateToInput } from '../../src/webui/index.js';
 import type { SkillChipsBar } from '../../src/webui/components/skill-chips-bar.js';
 import type { AgentProfile } from '../../src/core/agent/agent-profile.js';
 
@@ -262,11 +263,11 @@ describe('Task 15: <skill-chips-bar> + 模板填充', () => {
       expect(result.cursorPos).toBe(0);
     });
 
-    it('多个 {{cursor}} 占位符 → 仅移除第一个，cursor 定位到首个', () => {
+    it('多个 {{cursor}} 占位符 → 全部移除，cursor 定位到首个', () => {
       const template = 'a {{cursor}} b {{cursor}} c';
       const result = fillTemplate('', template);
-      // 仅移除第一个
-      expect(result.value).toBe('a  b {{cursor}} c');
+      // 全部移除（不留 literal 文本）
+      expect(result.value).toBe('a  b  c');
       expect(result.cursorPos).toBe('a '.length);
     });
   });
@@ -297,6 +298,50 @@ describe('Task 15: <skill-chips-bar> + 模板填充', () => {
 
     it('空 agents 列表 → 返回 false', () => {
       expect(shouldRenderChipBar([], 'default')).toBe(false);
+    });
+  });
+
+  describe('applyTemplateToInput (shadow DOM 集成)', () => {
+    /**
+     * 创建 stub <input-box>：拥有 shadow DOM，内部含真实 <input> 元素。
+     * 模拟 InputBox 内部 _handleInput 同步 _value 的行为（监听 input 事件）。
+     * 这与 index.ts applyTemplateToInput 通过 inputBox.shadowRoot?.querySelector('input')
+     * 穿透访问的契约一致。
+     */
+    function makeStubInputBox(): HTMLElement {
+      const host = document.createElement('div');
+      const shadow = host.attachShadow({ mode: 'open' });
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = '';
+      // 模拟 InputBox._handleInput 同步 _value（监听 input 事件）
+      input.addEventListener('input', () => {
+        (host as unknown as { _value: string })._value = input.value;
+      });
+      shadow.appendChild(input);
+      return host;
+    }
+
+    it('穿透 shadow DOM: 设置 value + cursor 定位到 {{cursor}} + dispatch input 事件同步 _value', () => {
+      const host = makeStubInputBox();
+      const input = host.shadowRoot?.querySelector('input') as HTMLInputElement;
+
+      let inputEventCount = 0;
+      input.addEventListener('input', () => {
+        inputEventCount++;
+      });
+
+      // 调用 applyTemplateToInput（穿透 shadow DOM 设置 value + cursor + dispatch input）
+      applyTemplateToInput(host, 'fix {{cursor}} bug');
+
+      // 1. value 已正确设置（{{cursor}} 已移除，无 literal 文本残留）
+      expect(input.value).toBe('fix  bug');
+      // 2. cursor 已定位到首个占位符位置（'fix ' 之后，索引 4）
+      expect(input.selectionStart).toBe('fix '.length);
+      expect(input.selectionEnd).toBe('fix '.length);
+      // 3. input 事件已 dispatch（_value 同步发生 — InputBox._handleInput 被触发）
+      expect(inputEventCount).toBe(1);
+      expect((host as unknown as { _value: string })._value).toBe('fix  bug');
     });
   });
 });
