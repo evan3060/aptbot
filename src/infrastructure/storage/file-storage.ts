@@ -1,5 +1,5 @@
 import { readdirSync, statSync, unlinkSync, existsSync, writeFileSync, readFileSync, renameSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import {
   appendJsonl,
   readJsonlTolerant,
@@ -225,7 +225,7 @@ export class FileStorage implements StorageAdapter {
    * 调用方必须在 withJsonlLock 内调用以防止并发读改写竞态。
    */
   private writeMetaAtomicToPath(metaPath: string, patch: SessionMetaFile): void {
-    const dir = metaPath.substring(0, metaPath.lastIndexOf('/'));
+    const dir = dirname(metaPath);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
@@ -655,48 +655,10 @@ export class FileStorage implements StorageAdapter {
   }
 
   /** Task 5 C2 fix: 读取 session 当前 owner
-   *  §0.3.0 Task 4: 递归扫描所有可能路径查找 .meta.json */
+   *  §0.3.0 Task 4: 委托 findSessionOwnerSync 避免递归扫描逻辑重复 */
   async getSessionOwner(id: string): Promise<string | undefined> {
     if (!isValidSessionId(id)) return undefined;
-
-    // 1. Legacy path: ${dataDir}/${id}.meta.json
-    const legacyMeta = this.readMeta(id);
-    if (legacyMeta.userId) return legacyMeta.userId;
-
-    // 2. Legacy fallback: ${dataDir}/sessions/${id}.meta.json (if dataDir is data root)
-    const legacyFallbackMetaPath = this.resolveLegacyFallbackMetaPath(id);
-    if (existsSync(legacyFallbackMetaPath)) {
-      const meta = this.readMetaFromPath(legacyFallbackMetaPath);
-      if (meta.userId) return meta.userId;
-    }
-
-    // 3. Recursive scan: ${dataDir}/users/*/agents/*/sessions/${id}.meta.json
-    const usersDir = join(this.dataDir, 'users');
-    if (existsSync(usersDir)) {
-      try {
-        const userDirs = readdirSync(usersDir);
-        for (const userDir of userDirs) {
-          if (!USER_ID_REGEX.test(userDir)) continue;
-          const agentsDir = join(usersDir, userDir, 'agents');
-          if (!existsSync(agentsDir)) continue;
-          const agentDirs = readdirSync(agentsDir);
-          for (const agentDir of agentDirs) {
-            if (!AGENT_SLUG_REGEX.test(agentDir)) continue;
-            const sessionsDir = join(agentsDir, agentDir, 'sessions');
-            if (!existsSync(sessionsDir)) continue;
-            const metaPath = join(sessionsDir, `${id}.meta.json`);
-            if (existsSync(metaPath)) {
-              const meta = this.readMetaFromPath(metaPath);
-              if (meta.userId) return meta.userId;
-            }
-          }
-        }
-      } catch (err) {
-        metaLog.warn('recursive scan for getSessionOwner failed', { id, error: String(err) });
-      }
-    }
-
-    return undefined;
+    return this.findSessionOwnerSync(id);
   }
 
   /**

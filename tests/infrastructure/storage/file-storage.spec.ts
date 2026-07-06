@@ -461,6 +461,25 @@ describe('FileStorage — Task 4 agent-scoped path', () => {
       const hasNew = newMsgs.some((m) => m.message.content === 'new');
       expect(hasNew).toBe(true);
     });
+
+    it('listSessions treats legacy .meta.json without agentId as "default"', async () => {
+      // §0.3.0 Task 4 review fix: legacy .meta.json 缺省 agentId 时应视为 'default'
+      const userId = validUuid();
+      const id = validUuid();
+      // 在 legacy fallback 路径手工放置 .jsonl + .meta.json（meta 仅含 userId，无 agentId）
+      const legacyDir = join(DATA_DIR, 'sessions');
+      mkdirSync(legacyDir, { recursive: true });
+      const legacyJsonl = join(legacyDir, `${id}.jsonl`);
+      writeFileSync(legacyJsonl, JSON.stringify(makeMessageEntry('legacy')) + '\n');
+      const legacyMeta = join(legacyDir, `${id}.meta.json`);
+      writeFileSync(legacyMeta, JSON.stringify({ userId }), 'utf-8');
+
+      const list = await storage.listSessions();
+      const found = list.find((s) => s.id === id);
+      expect(found).toBeDefined();
+      expect(found?.agentId).toBe('default');
+      expect(found?.userId).toBe(userId);
+    });
   });
 
   describe('updateSessionLabel + hasCustomLabel with (id, userId, agentId)', () => {
