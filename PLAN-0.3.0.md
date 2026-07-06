@@ -150,7 +150,7 @@
 
 ### Task 4: SessionMetadata 扩展 + session 路径迁移
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** SessionMetadata 新增 agentId 必填字段，session 存储路径从 `data/sessions/` 迁移到 `data/users/<userId>/agents/<slug>/sessions/`。
 
