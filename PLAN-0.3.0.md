@@ -606,7 +606,7 @@
 
 ### Task 16: WebUI — 记忆写入轻量提示
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** agent 写入 MEMORY.md 时 UI 展示轻量提示（toast），不打断对话。
 
@@ -637,7 +637,7 @@
 
 ### Task 17: server.ts 装配 + systemPrompt 约束更新
 
-- [ ] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
+- [x] 完成（TDD RED → GREEN → tsc 0 → code-review → commit → 文档同步）
 
 **价值：** server.ts 装配所有新模块 + systemPrompt 安全约束更新（禁止访问 sessions/ + archived-agents/ + ui-config.json）。
 

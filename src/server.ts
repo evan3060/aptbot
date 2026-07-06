@@ -20,6 +20,7 @@ import { buildSystemPrompt as buildAgentSystemPrompt } from './core/agent/system
 import type { AgentProfile } from './core/agent/agent-profile.js';
 import { AgentStorage } from './core/agent/agent-storage.js';
 import { MemoryAuditLog } from './core/agent/memory-audit-log.js';
+import { migrateLegacySessions, ensureDefaultAgent, DEFAULT_AGENT_SLUG } from './core/agent/agent-migration.js';
 import { UiConfigStorage } from './core/agent/ui-config.js';
 import type { CommandRegistry, CommandContext, CommandResult } from './shared/commands/registry.js';
 import { createCommandRegistry } from './shared/commands/registry.js';
@@ -151,16 +152,26 @@ const PLACEHOLDER_DEFAULT_AGENT: AgentProfile = {
 };
 
 /**
- * §4.9 L1 索引：拼装 system prompt = base + skills 索引段。
- * - §0.3.0 Task 8: base 由 buildAgentSystemPrompt 构造（稳定前部 + Agent Memory + Personality）
+ * §0.3.0 Task 17: 拼装 per-session system prompt = base + skills 索引段。
+ *
+ * - base 由 buildAgentSystemPrompt 构造（稳定前部 + Agent Memory + Personality）
  * - skillState 为 undefined（创建失败降级）时仅返回 base
  * - formatSkillsForSystemPrompt 失败时降级到 base（不阻塞 server 启动 / rebuild）
  * - 热重载后调用方传入 reloaded skillState 以拿到最新索引
  *
- * 注意：当前使用 PLACEHOLDER_DEFAULT_AGENT + null memoryContent（Task 17 装配实际 agent）。
+ * 抽出为独立可测纯函数：不同 agent + memoryContent 产出不同 systemPrompt，
+ * 供测试直接验证（不依赖 server 启动）。
+ *
+ * @param agent 当前 session 绑定的 AgentProfile
+ * @param memoryContent MEMORY.md 内容；null 表示不注入（default agent 或专业 agent 无 MEMORY.md）
+ * @param skillState SkillState 实例（降级时 undefined）
  */
-function buildSystemPrompt(skillState: SkillState | undefined): string {
-  const base = buildAgentSystemPrompt(PLACEHOLDER_DEFAULT_AGENT, null);
+export function buildSessionSystemPrompt(
+  agent: AgentProfile,
+  memoryContent: string | null,
+  skillState: SkillState | undefined,
+): string {
+  const base = buildAgentSystemPrompt(agent, memoryContent);
   if (!skillState) return base;
   try {
     const skillsSection = formatSkillsForSystemPrompt([...skillState.skills]);
@@ -222,6 +233,62 @@ export async function resolveLearnWiring(input: LearnWiringInput): Promise<Learn
   return { learnEnabled, feedbackEnabled, articleLoader, feedbackStorage };
 }
 
+/**
+ * §0.3.0 Task 17: 解析当前 session 的 AgentProfile + MEMORY.md 内容。
+ *
+ * 行为：
+ * - userId 缺失 → 返回 PLACEHOLDER_DEFAULT_AGENT + null memory（并 log warn）
+ * - userId 存在 → agentStorage.getAgent(userId, slug)
+ *   - 找到 agent：
+ *     - professional agent → 读 MEMORY.md（不存在返回 null）
+ *     - default agent → memoryContent=null（default agent 永不注入 MEMORY.md）
+ *   - 未找到 → ensureDefaultAgent(userId, agentStorage) 兜底创建
+ *
+ * 失败降级：任何异常都 fallback 到 PLACEHOLDER_DEFAULT_AGENT + null，不阻塞 rebuild。
+ *
+ * @param userId 当前 session 的用户 ID（可能 undefined）
+ * @param slug 当前 agent slug（默认 'default'）
+ * @param agentStorage AgentStorage 实例
+ * @param dataDir 数据目录绝对路径（用于构造 MEMORY.md 路径）
+ */
+async function resolveAgentForPrompt(
+  userId: string | undefined,
+  slug: string,
+  agentStorage: AgentStorage,
+  dataDir: string,
+): Promise<{ agent: AgentProfile; memoryContent: string | null }> {
+  if (!userId) {
+    log.warn('resolveAgentForPrompt: no userId available, using placeholder default agent');
+    return { agent: PLACEHOLDER_DEFAULT_AGENT, memoryContent: null };
+  }
+  try {
+    let agent = await agentStorage.getAgent(userId, slug);
+    if (!agent) {
+      // 未找到 → ensureDefaultAgent 兜底（仅对 default slug 有意义；其他 slug 仍可能返回 null）
+      if (slug === DEFAULT_AGENT_SLUG) {
+        agent = await ensureDefaultAgent(userId, agentStorage);
+      } else {
+        log.warn('resolveAgentForPrompt: agent not found, using placeholder', { userId, slug });
+        return { agent: PLACEHOLDER_DEFAULT_AGENT, memoryContent: null };
+      }
+    }
+    // default agent 永不注入 MEMORY.md（per Task 8 契约）
+    if (agent.type !== 'professional') {
+      return { agent, memoryContent: null };
+    }
+    // professional agent → 读 MEMORY.md（不存在返回 null）
+    const memoryPath = path.join(dataDir, 'users', userId, 'agents', slug, 'MEMORY.md');
+    if (!fs.existsSync(memoryPath)) {
+      return { agent, memoryContent: null };
+    }
+    const memoryContent = fs.readFileSync(memoryPath, 'utf-8');
+    return { agent, memoryContent };
+  } catch (e) {
+    log.warn('resolveAgentForPrompt failed, using placeholder', { userId, slug, error: String(e) });
+    return { agent: PLACEHOLDER_DEFAULT_AGENT, memoryContent: null };
+  }
+}
+
 export async function startServer(config: ServerConfig): Promise<ServerHandle> {
   log.info('starting server', { port: config.port, deploy: config.deploy });
 
@@ -243,6 +310,26 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
   // §0.3.0 Task 10: UiConfigStorage — /api/agents/default/ui-config 端点使用
   // 仅 default agent 有 ui-config.json，存于 data/users/<userId>/agents/default/ui-config.json
   const uiConfigStorage = new UiConfigStorage(aptbotConfig.dataDir);
+
+  // §0.3.0 Task 17: 启动时调用 migrateLegacySessions — 幂等迁移 legacy data/sessions/*.jsonl
+  // 到 data/users/<userId>/agents/default/sessions/。失败不阻塞启动（log warn 继续）。
+  try {
+    const migrationReport = await migrateLegacySessions(aptbotConfig.dataDir, agentStorage);
+    if (migrationReport.migratedSessions > 0 || migrationReport.createdAgents > 0) {
+      log.info('legacy sessions migrated', {
+        migratedSessions: migrationReport.migratedSessions,
+        createdAgents: migrationReport.createdAgents,
+        errors: migrationReport.errors.length,
+      });
+    }
+    if (migrationReport.errors.length > 0) {
+      log.warn('legacy session migration had errors', {
+        errors: migrationReport.errors.map((e) => ({ sessionId: e.sessionId, error: e.error })),
+      });
+    }
+  } catch (e) {
+    log.warn('migrateLegacySessions failed, continuing without migration', { error: String(e) });
+  }
 
   // §4.8 Skills 系统：workspace (~/.aptbot/skills/) + builtin (src/skills/) 双层加载
   // workspace 优先级高（覆盖 builtin 同名），builtin 兜底
@@ -283,8 +370,9 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
   const sessionId = await resolveSessionId(storage);
   registry.register(createUpdateWorkingMemoryTool(storage, sessionId));
 
-  // §4.9 L1 索引注入 system prompt（skillState 降级时仅 base）
-  const systemPrompt = buildSystemPrompt(skillState);
+  // §0.3.0 Task 17: per-session systemPrompt — 初始 session 用占位 default agent
+  // （启动时尚无 userId，无法加载真实 agent profile；hot-reload 时按 ctx.userId 重建）
+  const systemPrompt = buildSessionSystemPrompt(PLACEHOLDER_DEFAULT_AGENT, null, skillState);
 
   const session = createAgentSession({
     storage,
@@ -402,12 +490,19 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
       dataDir: aptbotConfig.dataDir,
       // Task 12: /feedback 命令使用的反馈存储；feedbackEnabled:false 时为 undefined
       feedbackStorage: learnWiring.feedbackStorage,
+      // §0.3.0 Task 17: /agent 命令所需上下文 — agentStorage / currentAgentSlug /
+      // memoryAuditLogFactory / skillState。currentAgentSlug='default' 与 MVP session 绑定一致。
+      agentStorage,
+      currentAgentSlug: DEFAULT_AGENT_SLUG,
+      memoryAuditLogFactory,
+      skillState,
     },
   };
 
   // §4.6 Config 热重载 rebuild：用新配置重建 provider/model/session（下个 turn 生效）
   // 当前 turn 不受影响（sessionRef.current 在 afterTurn 才被替换）
   // §4.9 Skills 热重载联动：rebuild 前 await skillState.reload()，新 session 拿到最新 skills
+  // §0.3.0 Task 17: rebuild 时按 ctx.userId + currentAgentSlug 加载真实 agent profile + MEMORY.md
   const rebuildSession: (newConfig: AptbotConfig) => Promise<void> = async (newConfig) => {
     try {
       // Skills 热重载优先于 session 重建（失败降级到旧 skills，不阻塞 provider/model rebuild）
@@ -425,7 +520,14 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
         return;
       }
       const newProvider = createProvider(newDecl, newApiKey);
-      const newSystemPrompt = buildSystemPrompt(skillState);
+      // §0.3.0 Task 17: 解析当前 agent profile + MEMORY.md（若 userId 可用）
+      const { agent: rebuildAgent, memoryContent: rebuildMemory } = await resolveAgentForPrompt(
+        slashHandler.ctx.userId,
+        slashHandler.ctx.currentAgentSlug ?? DEFAULT_AGENT_SLUG,
+        agentStorage,
+        aptbotConfig.dataDir,
+      );
+      const newSystemPrompt = buildSessionSystemPrompt(rebuildAgent, rebuildMemory, skillState);
       sessionRef.current = createAgentSession({
         storage,
         sessionId: sessionRef.currentKey,

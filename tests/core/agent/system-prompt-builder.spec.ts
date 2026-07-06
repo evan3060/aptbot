@@ -217,4 +217,66 @@ describe('system-prompt-builder', () => {
       expect(prompt).toContain('Important constraints');
     });
   });
+
+  /**
+   * §0.3.0 Task 17: STABLE_PREFIX 约束文本更新
+   *
+   * 新增/替换的约束：
+   * - 替换原 data/sessions/ 引用为 data/users/*\/agents/*\/sessions/
+   * - 新增：禁止访问 data/users/*\/archived-agents/（Task 19 归档 agent）
+   * - 新增：禁止访问 ui-config.json 文件（UI 层配置）
+   * - 新增：允许通过 read_agent_memory / write_agent_memory 工具访问当前 agent 的 MEMORY.md
+   * - 新增：禁止访问其他 agent 的 MEMORY.md
+   * - 保留：server kill 命令、源码修改、bash 输出摘要等原约束
+   */
+  describe('Task 17: STABLE_PREFIX 约束文本更新', () => {
+    const prompt = buildSystemPrompt(baseDefaultAgent, null);
+
+    it('禁止访问新路径 data/users/*/agents/*/sessions/（替换原 data/sessions/）', () => {
+      expect(prompt).toContain('data/users/*/agents/*/sessions/');
+    });
+
+    it('不再引用旧路径 data/sessions/（被替换为新结构）', () => {
+      // 旧路径已被替换为新路径，不应再以独立禁止项形式出现
+      // 通过负向断言：不应出现 "data/sessions/" 这一具体路径串
+      expect(prompt).not.toContain('data/sessions/');
+    });
+
+    it('禁止访问归档目录 data/users/*/archived-agents/', () => {
+      expect(prompt).toContain('data/users/*/archived-agents/');
+    });
+
+    it('禁止访问 ui-config.json 文件', () => {
+      expect(prompt).toContain('ui-config.json');
+    });
+
+    it('允许通过 read_agent_memory / write_agent_memory 工具访问当前 agent 的 MEMORY.md', () => {
+      // 必须显式声明 read_agent_memory + write_agent_memory 工具是访问 MEMORY.md 的唯一许可路径
+      expect(prompt).toContain('read_agent_memory');
+      expect(prompt).toContain('write_agent_memory');
+      expect(prompt).toContain('MEMORY.md');
+    });
+
+    it('禁止访问其他 agent 的 MEMORY.md 文件', () => {
+      // 应明确禁止跨 agent 访问 MEMORY.md
+      // 通过查找包含 "other" 或 "其他" 关键字的 MEMORY.md 禁止项
+      const hasForbiddenOtherAgentsMemory =
+        /other.*MEMORY\.md|MEMORY\.md.*other|其他.*MEMORY\.md|MEMORY\.md.*其他/i.test(prompt);
+      expect(hasForbiddenOtherAgentsMemory).toBe(true);
+    });
+
+    it('保留原 server kill 命令约束', () => {
+      expect(prompt).toContain('kill');
+      expect(prompt).toContain('pkill');
+      expect(prompt).toContain('shutdown');
+    });
+
+    it('保留原源码修改禁令', () => {
+      expect(prompt).toContain('source code');
+    });
+
+    it('保留原 bash 输出摘要约束', () => {
+      expect(prompt).toContain('summarize');
+    });
+  });
 });
