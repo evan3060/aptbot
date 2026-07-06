@@ -146,17 +146,16 @@ export function parseAgentMd(raw: string): ParsedAgentMd {
 }
 
 /**
- * §0.3.0 generateSlug: 从 name 生成 slug。
+ * §0.3.0 generateSlug: 生成 slug。
  *
  * 算法：`agent-<6-hex-chars>`，与 name 解耦。
  * - 避免引入 pinyin 库依赖
  * - 6 位 hex = 16^6 ≈ 1677 万种组合，单用户 50 上限下冲突概率可忽略
  * - 真正冲突时由 AgentStorage 层重试（Task 2 实现）
  *
- * @param name 显示名（仅作为函数签名占位，实际不参与 slug 生成）
  * @returns 形如 `agent-a1b2c3` 的 slug
  */
-export function generateSlug(_name: string): string {
+export function generateSlug(): string {
   const hex = randomBytes(3).toString('hex'); // 3 bytes = 6 hex chars
   return `agent-${hex}`;
 }

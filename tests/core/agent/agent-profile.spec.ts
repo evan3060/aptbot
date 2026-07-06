@@ -65,14 +65,14 @@ describe('agent-profile', () => {
 
   describe('generateSlug', () => {
     it('生成的 slug 匹配 AGENT_SLUG_REGEX', () => {
-      const slug = generateSlug('my agent');
+      const slug = generateSlug();
       expect(validateSlug(slug)).toBe(true);
     });
 
-    it('同名 name 多次调用生成不同 slug（随机后缀）', () => {
-      const slug1 = generateSlug('my agent');
-      const slug2 = generateSlug('my agent');
-      const slug3 = generateSlug('my agent');
+    it('多次调用生成不同 slug（随机后缀）', () => {
+      const slug1 = generateSlug();
+      const slug2 = generateSlug();
+      const slug3 = generateSlug();
       expect(slug1).not.toBe(slug2);
       expect(slug2).not.toBe(slug3);
       expect(slug1).not.toBe(slug3);
@@ -80,8 +80,8 @@ describe('agent-profile', () => {
 
     it('slug 与 name 解耦：固定前缀 agent- + 6 位 hex', () => {
       // 不引入 pinyin 依赖，slug 与 name 内容无关
-      const slug1 = generateSlug('我的助手');
-      const slug2 = generateSlug('totally different name');
+      const slug1 = generateSlug();
+      const slug2 = generateSlug();
       expect(slug1).toMatch(/^agent-[a-f0-9]{6}$/);
       expect(slug2).toMatch(/^agent-[a-f0-9]{6}$/);
     });
