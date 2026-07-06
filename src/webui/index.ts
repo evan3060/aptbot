@@ -6,6 +6,7 @@ import './components/footer-bar.js';
 import './components/input-box.js';
 import './components/agent-sidebar.js';
 import './components/skill-chips-bar.js';
+import './components/memory-write-toast.js';
 
 import type { CommandRegistry } from '../shared/commands/registry.js';
 import { coreReducer, initialUIState } from '../shared/ui-state/reducer.js';
@@ -16,6 +17,7 @@ import type { Skill } from '../core/skills/types.js';
 import type { VisibleSkill } from '../core/agent/ui-config.js';
 import type { AgentSidebar } from './components/agent-sidebar.js';
 import type { SkillChipsBar, ChipSkill } from './components/skill-chips-bar.js';
+import type { MemoryWriteToast } from './components/memory-write-toast.js';
 import { fillTemplate, shouldRenderChipBar } from './components/skill-chips-bar.js';
 
 export interface WebUIApp {
@@ -44,9 +46,103 @@ interface AppElements {
   sidebarEl: AgentSidebar;
   messagesEl: HTMLElement;
   chipsEl?: SkillChipsBar;
+  toastEl: MemoryWriteToast;
   inputEl: HTMLElement & { addEventListener: (type: string, listener: (e: Event) => void) => void };
   footerEl: HTMLElement & { model: string };
   workingEl: HTMLElement & { isWorking: boolean };
+}
+
+/** §0.3.0 Task 16: write_agent_memory section 标题（snake_case → Title Case）映射。
+ *  服务于 toast 显示。与 read-agent-memory.ts SECTION_HEADER_MAP 一致。 */
+const SECTION_DISPLAY_MAP: Record<string, string> = {
+  user_profile: 'User Profile',
+  facts: 'Facts',
+  preferences: 'Preferences',
+  history: 'History',
+};
+
+/** §0.3.0 Task 16: toast 中 contentPreview 的最大字符数 */
+const TOAST_PREVIEW_MAX = 60;
+
+/**
+ * §0.3.0 Task 16: buildMemoryToastMessage — 构造 toast 文案。
+ * 形如 `agent 已更新记忆：Preferences` 或 `agent 已更新记忆：Preferences — prefers dark mode…`
+ * section 为空时降级为 `agent 已更新记忆`；preview 为空时仅显示 section 标题。
+ */
+function buildMemoryToastMessage(section: string, contentPreview: string): string {
+  const sectionTitle = SECTION_DISPLAY_MAP[section] ?? section ?? '';
+  const base = sectionTitle ? `agent 已更新记忆：${sectionTitle}` : 'agent 已更新记忆';
+  const preview = (contentPreview ?? '').trim();
+  if (!preview) return base;
+  const truncated = preview.length > TOAST_PREVIEW_MAX
+    ? `${preview.slice(0, TOAST_PREVIEW_MAX)}…`
+    : preview;
+  return `${base} — ${truncated}`;
+}
+
+/**
+ * §0.3.0 Task 16: PendingMemoryWrite — tool_call_start 到 tool_result 期间缓存的参数。
+ * 由 tool_call_delta.arguments JSON 解析得到，用于 tool_result 时构造 toast 文案。
+ */
+interface PendingMemoryWrite {
+  section: string;
+  content: string;
+}
+
+/**
+ * §0.3.0 Task 16: handleMemoryWriteEvent — 处理 AgentEvent，识别 write_agent_memory
+ * 工具调用流程并在 tool_result 成功时显示 toast。
+ *
+ * 流程：
+ * - tool_call_start.toolName === 'write_agent_memory' → 记录 toolCallId（占位）
+ * - tool_call_delta 对应 toolCallId → 解析 JSON arguments 缓存 { section, content }
+ * - tool_result 对应 toolCallId 且 success=true → 构造 toast 文案并 visible=true
+ * - tool_result 后清理 pending 条目（无论成功/失败）
+ *
+ * 任何 JSON 解析失败 / 数据缺失 → 静默降级（不显示 toast，不抛错）。
+ * 与 reducer 解耦：不影响 messages / isWorking 状态机。
+ */
+function handleMemoryWriteEvent(
+  toast: MemoryWriteToast,
+  event: AgentEvent,
+  pending: Map<string, PendingMemoryWrite>,
+): void {
+  switch (event.type) {
+    case 'tool_call_start': {
+      if (event.toolName === 'write_agent_memory') {
+        pending.set(event.toolCallId, { section: '', content: '' });
+      }
+      return;
+    }
+    case 'tool_call_delta': {
+      const p = pending.get(event.toolCallId);
+      if (!p) return;
+      try {
+        const args = JSON.parse(event.arguments ?? '{}') as {
+          section?: string;
+          content?: string;
+          mode?: string;
+        };
+        if (typeof args.section === 'string') p.section = args.section;
+        if (typeof args.content === 'string') p.content = args.content;
+      } catch {
+        // JSON 解析失败：保留占位（section=''），tool_result 时降级为通用文案
+      }
+      return;
+    }
+    case 'tool_result': {
+      const p = pending.get(event.toolCallId);
+      pending.delete(event.toolCallId);
+      if (!p) return;
+      if (!event.success) return;
+      const message = buildMemoryToastMessage(p.section, p.content);
+      toast.message = message;
+      toast.visible = true;
+      return;
+    }
+    default:
+      return;
+  }
 }
 
 function createElements(config: WebUIAppConfig): AppElements {
@@ -78,6 +174,9 @@ function createElements(config: WebUIAppConfig): AppElements {
   const footerEl = document.createElement('footer-bar') as AppElements['footerEl'];
   const inputEl = document.createElement('input-box') as AppElements['inputEl'];
 
+  // §0.3.0 Task 16: 记忆写入 toast（position: fixed，最后 append 确保 z-index 顶层）
+  const toastEl = document.createElement('memory-write-toast') as MemoryWriteToast;
+
   document.body.appendChild(sidebarEl);
   document.body.appendChild(messagesEl);
   document.body.appendChild(workingEl);
@@ -86,8 +185,9 @@ function createElements(config: WebUIAppConfig): AppElements {
   }
   document.body.appendChild(inputEl);
   document.body.appendChild(footerEl);
+  document.body.appendChild(toastEl);
 
-  return { sidebarEl, messagesEl, chipsEl, inputEl, footerEl, workingEl };
+  return { sidebarEl, messagesEl, chipsEl, toastEl, inputEl, footerEl, workingEl };
 }
 
 /**
@@ -164,6 +264,10 @@ export function createWebUIApp(config: WebUIAppConfig): WebUIApp {
           : config.wsUrl,
       );
 
+      // §0.3.0 Task 16: pending write_agent_memory 调用（toolCallId → section+content）
+      // tool_call_start 占位 → tool_call_delta 填充参数 → tool_result 显示 toast 后清理
+      const pendingMemoryWrites = new Map<string, PendingMemoryWrite>();
+
       // §0.3.0 Task 13: 透传 agent-sidebar 事件到上层。
       // 上层（server.ts / 集成测试）可通过 addEventListener 监听这些事件
       // 实现 agent 切换 / session 切换 / 打开设置浮层 / 新建 session / 新建 agent。
@@ -217,11 +321,15 @@ export function createWebUIApp(config: WebUIAppConfig): WebUIApp {
             state = coreReducer(state, msg.event);
             renderMessages(els.messagesEl, state.messages);
             els.workingEl.isWorking = state.isWorking;
+            // §0.3.0 Task 16: write_agent_memory toast — 仅在 tool_result 成功时显示
+            handleMemoryWriteEvent(els.toastEl, msg.event, pendingMemoryWrites);
           } else if (msg.type === 'resync_required') {
             // 服务端缓冲已丢失，重置 UI 状态
             state = initialUIState;
             renderMessages(els.messagesEl, state.messages);
             els.workingEl.isWorking = false;
+            // §0.3.0 Task 16: 重置 pending memory writes（避免遗留 toolCallId 错触 toast）
+            pendingMemoryWrites.clear();
           }
         } catch {
           // ignore malformed
