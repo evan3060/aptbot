@@ -5,13 +5,18 @@ import './components/working-indicator.js';
 import './components/footer-bar.js';
 import './components/input-box.js';
 import './components/agent-sidebar.js';
+import './components/skill-chips-bar.js';
 
 import type { CommandRegistry } from '../shared/commands/registry.js';
 import { coreReducer, initialUIState } from '../shared/ui-state/reducer.js';
 import type { AgentEvent } from '../core/agent/events.js';
 import type { AgentProfile } from '../core/agent/agent-profile.js';
 import type { SessionMetadata } from '../core/memory/types.js';
+import type { Skill } from '../core/skills/types.js';
+import type { VisibleSkill } from '../core/agent/ui-config.js';
 import type { AgentSidebar } from './components/agent-sidebar.js';
+import type { SkillChipsBar, ChipSkill } from './components/skill-chips-bar.js';
+import { fillTemplate, shouldRenderChipBar } from './components/skill-chips-bar.js';
 
 export interface WebUIApp {
   start(): Promise<void>;
@@ -29,11 +34,16 @@ export interface WebUIAppConfig {
   currentAgentSlug?: string;
   /** §0.3.0 Task 13: 当前选中的 session id */
   currentSessionId?: string;
+  /** §0.3.0 Task 15: default agent 的 visibleSkills 配置（来自 GET /api/agents/default/ui-config） */
+  visibleSkills?: VisibleSkill[];
+  /** §0.3.0 Task 15: 已加载的 skill 列表（用于查找 template） */
+  skills?: Skill[];
 }
 
 interface AppElements {
   sidebarEl: AgentSidebar;
   messagesEl: HTMLElement;
+  chipsEl?: SkillChipsBar;
   inputEl: HTMLElement & { addEventListener: (type: string, listener: (e: Event) => void) => void };
   footerEl: HTMLElement & { model: string };
   workingEl: HTMLElement & { isWorking: boolean };
@@ -51,16 +61,83 @@ function createElements(config: WebUIAppConfig): AppElements {
   messagesEl.id = 'messages';
 
   const workingEl = document.createElement('working-indicator') as AppElements['workingEl'];
+
+  // §0.3.0 Task 15: chip 区仅在 default agent 渲染（专业 agent 不渲染）
+  const agents = config.agents ?? [];
+  const currentSlug = config.currentAgentSlug ?? 'default';
+  let chipsEl: SkillChipsBar | undefined;
+  if (shouldRenderChipBar(agents, currentSlug)) {
+    chipsEl = document.createElement('skill-chips-bar') as SkillChipsBar;
+    chipsEl.visibleSkills = mergeChipSkills(
+      config.visibleSkills ?? [],
+      config.skills ?? [],
+    );
+    chipsEl.activeSkill = null;
+  }
+
   const footerEl = document.createElement('footer-bar') as AppElements['footerEl'];
   const inputEl = document.createElement('input-box') as AppElements['inputEl'];
 
   document.body.appendChild(sidebarEl);
   document.body.appendChild(messagesEl);
   document.body.appendChild(workingEl);
+  if (chipsEl) {
+    document.body.appendChild(chipsEl);
+  }
   document.body.appendChild(inputEl);
   document.body.appendChild(footerEl);
 
-  return { sidebarEl, messagesEl, inputEl, footerEl, workingEl };
+  return { sidebarEl, messagesEl, chipsEl, inputEl, footerEl, workingEl };
+}
+
+/**
+ * §0.3.0 Task 15: mergeChipSkills — 合并 UiConfig.visibleSkills 与 Skill.template。
+ *
+ * UiConfig 仅含 { slug, displayName }（UI 层偏好），template 来自 Skill.template。
+ * 按 visibleSkills 顺序输出 ChipSkill，查找对应 skill 的 template 注入。
+ */
+function mergeChipSkills(
+  visibleSkills: VisibleSkill[],
+  skills: Skill[],
+): ChipSkill[] {
+  return visibleSkills.map((v) => {
+    const skill = skills.find((s) => s.name === v.slug);
+    return {
+      slug: v.slug,
+      displayName: v.displayName,
+      template: skill?.template,
+    };
+  });
+}
+
+/**
+ * §0.3.0 Task 15: applyTemplateToInput — 将模板填入 <input-box> 内部 <input>。
+ *
+ * 通过 shadowRoot 访问内部 input 元素，设置 value + setSelectionRange + 同步 _value。
+ * template 为空时仅激活 skill（不填入输入框），由调用方决定。
+ */
+function applyTemplateToInput(
+  inputBox: HTMLElement,
+  template: string,
+): void {
+  const input = inputBox.shadowRoot?.querySelector('input') as HTMLInputElement | null;
+  if (!input) return;
+  const current = input.value;
+  const { value, cursorPos } = fillTemplate(current, template);
+  if (value === current) {
+    // template 空 → 不修改输入框
+    return;
+  }
+  input.value = value;
+  try {
+    input.setSelectionRange(cursorPos, cursorPos);
+  } catch {
+    // setSelectionRange 在某些浏览器极端情况可能抛错，安全降级到末尾
+    input.setSelectionRange(value.length, value.length);
+  }
+  // 同步 InputBox 内部 _value（dispatch input 事件触发 _handleInput）
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.focus();
 }
 
 function renderMessages(container: HTMLElement, messages: Array<{ role: string; text: string }>): void {
@@ -108,6 +185,28 @@ export function createWebUIApp(config: WebUIAppConfig): WebUIApp {
       });
       // agent-click / settings-click / new-agent-click 由上层自定义处理（默认无操作）
       // 避免硬编码 ws 行为，保持组件解耦。
+
+      // §0.3.0 Task 15: skill-select 事件处理（仅 default agent 渲染 chip 区时生效）
+      // - empty input + template → 覆盖填入
+      // - has content + template → 追加（含 \n 分隔符）
+      // - template 含 {{cursor}} → 光标定位到该处
+      // - template 空 → 仅激活 skill（不填入输入框）
+      // - skill 状态不持久化（一次性，刷新页面清空）
+      // - 用户可立即切换其他 skill
+      if (els.chipsEl) {
+        els.chipsEl.addEventListener('skill-select', (e: Event) => {
+          const detail = (e as CustomEvent).detail as {
+            slug: string | null;
+            template?: string;
+          };
+          // 更新 active chip 高亮（null = 取消选中）
+          els.chipsEl!.activeSkill = detail.slug;
+          // slug=null（取消选中）或 template 空 → 仅激活/取消激活，不填入输入框
+          if (detail.slug === null) return;
+          if (!detail.template) return;
+          applyTemplateToInput(els.inputEl, detail.template);
+        });
+      }
 
       ws.addEventListener('message', (event) => {
         try {
