@@ -28,6 +28,12 @@ export interface CreateAgentRequest {
   name: string;
   description: string;
   personality: string;
+  /**
+   * 前端独有字段：lucide icon 标识符（cpu / brain / terminal / palette）。
+   * 后端目前忽略此字段（validateCreateBody 仅读取已知字段），保留扩展点；
+   * AgentModals 创建表单会随表单状态一起发送，便于后端未来支持时无需改前端。
+   */
+  iconName?: string;
   model?: string;
   temperature?: number;
   maxTokens?: number;
@@ -41,6 +47,8 @@ export interface UpdateAgentRequest {
   name?: string;
   description?: string;
   personality?: string;
+  /** 前端独有字段（同 CreateAgentRequest.iconName），后端目前忽略。 */
+  iconName?: string;
   model?: string;
   temperature?: number;
   maxTokens?: number;
