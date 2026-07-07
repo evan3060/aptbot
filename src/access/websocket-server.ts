@@ -409,6 +409,68 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
         return;
       }
 
+      // Task 1 (React WebUI redesign): /webui/assets/* 静态资源 — Vite 多 chunk 产物
+      // Vite 构建输出 index-[hash].js + index-[hash].css + 字体等，按扩展名映射 content-type。
+      // Vite 产物使用 content hash，可长期缓存（cache-control: public, max-age=31536000, immutable）。
+      // 路径安全：basename(pathname) 取最后一段，避免 .. 遍历攻击；resolve 后再次校验在 assetsDir 之内。
+      // 目录解析：prod 模式（dist/access/）下 __dirname/../webui/assets 即 dist/webui/assets；
+      // dev 模式（tsx src/access/）下 __dirname 指向 src/access/，回退到 process.cwd()/dist/webui/assets。
+      if (req.method === 'GET' && pathname.startsWith('/webui/assets/')) {
+        const distAssetsDir = path.resolve(__dirname, '../webui/assets');
+        const cwdAssetsDir = path.resolve(process.cwd(), 'dist/webui/assets');
+        const assetsDir = existsSync(distAssetsDir) ? distAssetsDir : cwdAssetsDir;
+        const requestedFile = path.resolve(assetsDir, path.basename(pathname));
+        const rel = path.relative(assetsDir, requestedFile);
+        if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+          res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
+          res.end('Forbidden');
+          return;
+        }
+        if (!existsSync(requestedFile)) {
+          res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+          res.end('Not Found');
+          return;
+        }
+        const ext = path.extname(requestedFile).toLowerCase();
+        const mimeMap: Record<string, string> = {
+          '.js': 'text/javascript; charset=utf-8',
+          '.mjs': 'text/javascript; charset=utf-8',
+          '.css': 'text/css; charset=utf-8',
+          '.woff2': 'font/woff2',
+          '.woff': 'font/woff',
+          '.ttf': 'font/ttf',
+          '.otf': 'font/otf',
+          '.eot': 'application/vnd.ms-fontobject',
+          '.svg': 'image/svg+xml',
+          '.png': 'image/png',
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg',
+          '.gif': 'image/gif',
+          '.webp': 'image/webp',
+          '.ico': 'image/x-icon',
+          '.json': 'application/json; charset=utf-8',
+          '.map': 'application/json; charset=utf-8',
+          '.html': 'text/html; charset=utf-8',
+          '.txt': 'text/plain; charset=utf-8',
+        };
+        const mime = mimeMap[ext] ?? 'application/octet-stream';
+        try {
+          const data = readFileSync(requestedFile);
+          res.writeHead(200, {
+            'content-type': mime,
+            'cache-control': 'public, max-age=31536000, immutable',
+            'x-content-type-options': 'nosniff',
+            'access-control-allow-origin': '*',
+          });
+          res.end(data);
+        } catch (err) {
+          log.error('webui asset read failed', { error: String(err), path: requestedFile });
+          res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+          res.end('Not Found');
+        }
+        return;
+      }
+
       // 服务最小化聊天页面（部署用）
       // 用 pathname 匹配，忽略 query string（如 ?token=xxx）
       if (serveHtml && req.method === 'GET' && (pathname === '/' || pathname === '/index.html')) {

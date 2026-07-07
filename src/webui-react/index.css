@@ -1,0 +1,46 @@
+/**
+ * Task 1 (React WebUI redesign): 全局样式入口。
+ *
+ * - Google Fonts（Hanken Grotesk + JetBrains Mono）
+ * - Tailwind v4 入口（@import "tailwindcss"）
+ * - @theme 定义 Tailwind 字体 token
+ * - 自定义 scrollbar 样式（4px 窄轨，浅灰 thumb）
+ * - slideIn 动画（消息进入时使用）
+ *
+ * 设计参考：aistudio-design/src/index.css（保持设计原型一致，便于 Task 9 直接复用）
+ */
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #ffffff;
+  color: #000000;
+}
+
+/* Custom scrollbar — 4px 窄轨，浅灰 thumb */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #dadada;
+  border-radius: 10px;
+}
+
+/* Message slide-in animation */
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.message-enter {
+  animation: slideIn 0.3s ease-out forwards;
+}

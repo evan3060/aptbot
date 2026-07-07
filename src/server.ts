@@ -427,21 +427,24 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
   // Task 5: 根据 config.landingPage 严格等于 true 决定根路径提供落地页还是聊天页
   // landingPage 为 undefined/false 时不启用，保持原有聊天页行为（向后兼容）
   const landingEnabled = aptbotConfig.landingPage === true;
-  // §0.3.0 WebUI 集成: 优先使用 Lit WebUI（dist/webui/index.html），未构建时降级到 0.2.x chat-page
-  // dev 模式需先运行 `npm run webui:build` 构建前端 bundle
+  // Task 1 (React WebUI redesign): 优先使用 Vite 构建产物（dist/webui/index.html），
+  // 未构建时降级到 src/webui/index.html（旧 Lit，保留为 rollback backup）。
+  // dev 模式需先运行 `npm run webui:build` 构建前端 bundle；HMR 开发使用 `npm run webui:dev`。
   const distWebuiHtml = path.join(process.cwd(), 'dist/webui/index.html');
   const srcWebuiHtml = path.join(process.cwd(), 'src/webui/index.html');
   const webuiHtmlPath = fs.existsSync(distWebuiHtml)
     ? distWebuiHtml
     : (fs.existsSync(srcWebuiHtml) ? srcWebuiHtml : null);
   const webuiEnabled = webuiHtmlPath !== null;
-  // bundle 路径独立计算：始终在 dist/webui/index.js（esbuild 输出）
+  // bundle 路径独立计算：旧 Lit esbuild 输出 dist/webui/index.js（仅当存在时绑定）。
+  // Vite 构建会 emptyOutDir 清空 dist/webui，因此 Vite 输出后此路径通常不存在；
+  // 旧 Lit 保留作为 rollback，需要单独构建（旧 esbuild 脚本已废弃，需手动恢复）。
   const distWebuiBundle = path.join(process.cwd(), 'dist/webui/index.js');
   const webuiBundlePath = fs.existsSync(distWebuiBundle) ? distWebuiBundle : undefined;
   if (webuiEnabled) {
-    log.info('webui enabled — serving Lit WebUI from ' + webuiHtmlPath);
+    log.info('webui enabled — serving WebUI from ' + webuiHtmlPath);
   } else {
-    log.warn('webui bundle not found — falling back to 0.2.x chat-page. Run `npm run webui:build` to enable Lit WebUI.');
+    log.warn('webui bundle not found — falling back to 0.2.x chat-page. Run `npm run webui:build` to enable WebUI.');
   }
   // Task 11 (0.2.3): learn system 装配
   // articlesDir 优先从 src/learn/articles/ 读取（tsx dev 和生产部署均有效）
