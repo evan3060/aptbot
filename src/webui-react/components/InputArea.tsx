@@ -15,7 +15,7 @@
  *
  * 仅 emit 事件；WebSocket 发送由 App.tsx（Task 9）通过 WsClient.send / sendSlash 完成。
  */
-import { useState, KeyboardEvent } from 'react';
+import { useState, useRef, KeyboardEvent } from 'react';
 import {
   Languages,
   Wand2,
@@ -69,6 +69,7 @@ export default function InputArea({
   const [inputText, setInputText] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [thinkingDepth, setThinkingDepth] = useState('standard');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const activeAgent = agents.find((a) => a.slug === activeAgentSlug) || null;
 
@@ -155,8 +156,7 @@ export default function InputArea({
         break;
     }
     setInputText(prefix);
-    const textarea = document.querySelector('textarea');
-    if (textarea) textarea.focus();
+    textareaRef.current?.focus();
   };
 
   /** 文件附件：后端暂未支持文件上传，点击按钮提示"开发中" */
@@ -294,6 +294,7 @@ export default function InputArea({
         {/* 文本输入区 */}
         <div className="relative bg-white rounded-xl shadow-sm focus-within:shadow-md transition-all border border-slate-300">
           <textarea
+            ref={textareaRef}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
