@@ -172,3 +172,20 @@ export interface BootstrapResponse {
   currentSessionId: string;
   model: string;
 }
+
+/**
+ * Task 6 (React WebUI redesign): ModelOption 类型。
+ *
+ * InputArea 的 model 下拉框数据源。当前 bootstrap 仅返回单一 `model`（字符串），
+ * 由 App.tsx（Task 9）包装成 `ModelOption[]`（单元素数组）传入。
+ *
+ * 字段：
+ * - id: 内部标识符（与 bootstrap.model 字符串一致即可）
+ * - name: 下拉框显示名（可读模型名，如 "GLM-5.2"，由 App.tsx 映射）
+ * - backendModel: 后端实际使用的模型标识符（保留扩展点，目前与 id 一致）
+ */
+export interface ModelOption {
+  id: string;
+  name: string;
+  backendModel: string;
+}
