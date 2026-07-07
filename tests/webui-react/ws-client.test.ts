@@ -10,7 +10,7 @@
  *   - 收到 `{ type: 'event', seq, event }` 时更新 lastEventSeq 并触发 'event' handler
  *   - 'user_identified' / 'error' / 'presence' / 'replay' 各自触发对应 handler
  *   - 'resync_required' 重置 lastEventSeq=0 并重连（触发 'open' 二次）
- *   - 'session_changed' 仅触发 handler（不自动重连 — 由 App.tsx Task 9 决定）
+ *   - 'session_changed' 触发 handler、重置 lastEventSeq=0、并用新 sessionId 自动重连
  *   - close() 关闭 ws 并停止自动重连
  *
  * happy-dom 提供 location.protocol / location.host（构建 URL 用）。
@@ -296,20 +296,36 @@ describe('WsClient', () => {
       }]);
     });
 
-    it('收到 session_changed 时触发 handler（不自动重连）', () => {
+    it('收到 session_changed 时触发 handler，重置 lastEventSeq=0，并用新 sessionId 自动重连', () => {
       const client = new WsClient();
       client.connect('tok', 'sess');
       const ws = MockWebSocket.instances[0];
       ws.emitOpen();
+
+      // 先累积 seq，验证 session_changed 会重置
+      client.on('event', () => {});
+      ws.emitMessage({ type: 'event', seq: 9, event: { type: 'message_delta', text: 'x' } });
+      expect(client.lastEventSeq).toBe(9);
 
       const calls: unknown[] = [];
       client.on('session_changed', (p) => calls.push(p));
 
       ws.emitMessage({ type: 'session_changed', sessionId: 'new-session' });
 
+      // handler 被调用，携带完整 server 消息
       expect(calls).toEqual([{ type: 'session_changed', sessionId: 'new-session' }]);
-      // 不应自动重连 — 由 App.tsx 决定
-      expect(MockWebSocket.instances.length).toBe(1);
+      // lastEventSeq 重置为 0（新 session 全量 replay）
+      expect(client.lastEventSeq).toBe(0);
+      // 自动重连 — 新建一个 WebSocket 实例
+      expect(MockWebSocket.instances.length).toBe(2);
+      // 新连接使用新 sessionId、保留 token、含重置后的 lastEventSeq=0
+      const newWs = MockWebSocket.instances[1];
+      const newUrl = new URL(newWs.url);
+      expect(newUrl.searchParams.get('session')).toBe('new-session');
+      expect(newUrl.searchParams.get('token')).toBe('tok');
+      expect(newUrl.searchParams.get('lastEventSeq')).toBe('0');
+      // 旧 ws 被关闭
+      expect(ws.closed).toBe(true);
     });
 
     it('收到 session_renamed 时触发 handler', () => {

@@ -6,9 +6,10 @@
  * - onmessage 解析 JSON，按 `type` 分发到注册的 handler
  * - 维护 lastEventSeq（ring buffer resync 协议）
  * - 收到 `resync_required` 时重置 lastEventSeq=0 并重连
+ * - 收到 `session_changed` 时更新 currentSessionId、重置 lastEventSeq=0、emit 后用新 sessionId 重连
  * - 连接断开时按指数退避自动重连（3s 起，最大 30s）
  *
- * 不管理 session 状态：`session_changed` 仅触发 handler，由调用方（Task 9 App.tsx）决定是否重连。
+ * session_changed 由 WsClient 自动重连；App.tsx（Task 9）仅监听该事件以更新 UI 状态（activeSessionId、清空 messages）。
  *
  * 服务端消息形状见 src/webui-react/types.ts WsServerMessage 注释。
  */
@@ -42,7 +43,7 @@ const RECONNECT_MAX_MS = 30000;
  * 典型用法：
  *   const ws = new WsClient();
  *   ws.on('event', (event: AgentEvent) => dispatch(event));
- *   ws.on('session_changed', (msg) => { updateSession(msg.sessionId); ws.connect(token, msg.sessionId); });
+ *   ws.on('session_changed', (msg) => { setActiveSessionId(msg.sessionId); clearMessages(); });
  *   ws.connect(token, sessionId);
  */
 export class WsClient {
@@ -174,10 +175,16 @@ export class WsClient {
         this.emit('resync_required', undefined);
         this.reconnectNow();
         break;
-      case 'session_changed':
-        // 不自动重连 — 由调用方决定是否更新 session 并 connect(token, newSessionId)
+      case 'session_changed': {
+        // 切换到新 session：更新 currentSessionId、重置 seq、emit，再重连
+        // WsClient 拥有连接生命周期，收到 session_changed 即用新 sessionId 重连；
+        // App.tsx（Task 9）仅监听 'session_changed' 以更新 UI 状态（activeSessionId、清空 messages）
+        this.currentSessionId = msg.sessionId;
+        this.lastEventSeq = 0;
         this.emit('session_changed', msg);
+        this.reconnectNow();
         break;
+      }
       case 'session_renamed':
         this.emit('session_renamed', msg);
         break;
