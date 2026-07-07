@@ -7,7 +7,7 @@
  * 关键变更：将原 localStorage getUsers 逻辑替换为 AuthController.login / register 调用，
  * 通过后端 /api/login /api/register 端点进行真实认证。
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Lock, User, CheckCircle2, AlertCircle } from 'lucide-react';
 import { authController } from '../lib/auth.js';
 
@@ -25,14 +25,22 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Reset form when modal opens/closes or mode changes
+  // Reset form when modal opens/closes or mode changes; clear any pending success timer
   useEffect(() => {
     setUsername('');
     setPassword('');
     setConfirmPassword('');
     setError('');
     setSuccess('');
+    setLoading(false);
+    return () => {
+      if (successTimerRef.current !== null) {
+        clearTimeout(successTimerRef.current);
+        successTimerRef.current = null;
+      }
+    };
   }, [isOpen, mode]);
 
   if (!isOpen) return null;
@@ -52,15 +60,18 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
     }
 
     setLoading(true);
+    let didSucceed = false;
 
     try {
       if (mode === 'login') {
         const user = await authController.login(username.trim(), password);
         setSuccess('登录成功！正在进入工作区...');
-        setTimeout(() => {
+        successTimerRef.current = setTimeout(() => {
+          successTimerRef.current = null;
           onLoginSuccess(user.username);
           onClose();
         }, 800);
+        didSucceed = true;
       } else {
         // Registration Flow
         if (!confirmPassword) {
@@ -78,12 +89,14 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
 
         await authController.register(username.trim(), password);
         setSuccess('注册成功！即将返回登录...');
-        setTimeout(() => {
+        successTimerRef.current = setTimeout(() => {
+          successTimerRef.current = null;
           setMode('login');
           setPassword('');
           setConfirmPassword('');
           setSuccess('');
         }, 1200);
+        didSucceed = true;
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : '请求失败';
@@ -95,7 +108,11 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
         setError(message);
       }
     } finally {
-      setLoading(false);
+      // Keep loading true through the success-delay window so the buttons stay
+      // disabled until the modal closes (login) or mode switches (register).
+      if (!didSucceed) {
+        setLoading(false);
+      }
     }
   };
 
