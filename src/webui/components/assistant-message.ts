@@ -4,13 +4,23 @@ export class AssistantMessage extends LitElement {
   static override styles = css`
     :host {
       display: block;
-      padding: 8px 12px;
-      margin: 4px 0;
-      background: #f7f7f8;
-      border-radius: 6px;
-      font-family: system-ui, sans-serif;
+      margin-bottom: 16px;
+      padding: 12px 16px;
+      border-radius: 8px;
+      line-height: 1.6;
       white-space: pre-wrap;
-      word-break: break-word;
+      word-wrap: break-word;
+      font-family: Inter, system-ui, 'PingFang SC', sans-serif;
+      /* §0.3.0 WebUI 集成修复: 恢复 0.2.3 样式 — assistant 消息靠左 + 绿色左边框 */
+      background: var(--bg-base, rgb(255, 255, 255));
+      border-left: 3px solid var(--accent, rgb(13, 113, 73));
+    }
+    .label {
+      font-size: 11px;
+      color: var(--text-secondary, rgb(139, 133, 127));
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
     .streaming::after {
       content: '▋';
@@ -36,7 +46,7 @@ export class AssistantMessage extends LitElement {
   }
 
   protected override render() {
-    return html`<span class=${this.isStreaming ? 'streaming' : ''}>${this.text}</span>`;
+    return html`<div class="label">Assistant</div><div class=${this.isStreaming ? 'streaming' : ''}>${this.text}</div>`;
   }
 }
 

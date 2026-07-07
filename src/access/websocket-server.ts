@@ -13,9 +13,10 @@ import type { ArticleLoader } from '../learn/article-loader.js';
 import type { ArticleLang } from '../learn/article-types.js';
 import type { FeedbackStorage } from '../infrastructure/feedback-storage.js';
 import { handleFeedbackApi } from './feedback-api.js';
-import { handleAgentApi, handleSkillApi, type MemoryAuditLogFactory } from './agent-api.js';
+import { handleAgentApi, handleSkillApi, resolveAuth, type MemoryAuditLogFactory } from './agent-api.js';
 import type { AgentStorage } from '../core/agent/agent-storage.js';
 import type { UiConfigStorage } from '../core/agent/ui-config.js';
+import { ensureDefaultAgent } from '../core/agent/agent-migration.js';
 import type { SkillState } from '../core/skills/loader.js';
 import { createLearnListHtml, createLearnArticleHtml, createFeedbackHtml } from './learn-page.js';
 
@@ -60,6 +61,8 @@ export interface WebSocketServerOptions {
   sessionStorage?: StorageAdapter;
   /** 会话重命名后触发，用于广播 session_renamed 控制消息到同 session 其他连接 */
   onSessionRenamed?: (sessionId: string, label: string) => void;
+  /** 会话删除后触发，用于清理内存中 perSenderSessions 等状态 */
+  onSessionDeleted?: (sessionId: string) => void;
   /** Task 1 (0.2.2): 全局 ring buffer 总条目上限，触发时按 LRU 淘汰最旧 sessionKey 的全部 buffer。默认 50000 */
   globalBufferLimit?: number;
   /**
@@ -84,6 +87,10 @@ export interface WebSocketServerOptions {
   uiConfigStorage?: UiConfigStorage;
   /** §0.3.0 Task 11: SkillState 实例，启用后 /api/skills 端点可用（skillState 为 undefined 时返回空数组） */
   skillState?: SkillState;
+  /** §0.3.0 WebUI 集成: webui bundle JS 文件路径，启用后 GET /webui/index.js 返回 bundle */
+  webuiBundlePath?: string;
+  /** §0.3.0 WebUI 集成: 当前默认模型 ID（用于 footer 显示） */
+  defaultModel?: string;
 }
 
 export interface WebSocketServer {
@@ -258,7 +265,7 @@ async function identifyUser(
  */
 export function startWebSocketServer(options: WebSocketServerOptions): Promise<WebSocketServer> {
   return new Promise((resolve, reject) => {
-    const { port, bus, authToken, serveHtml, serveDemoHtml, host, userStorage, fallbackSessionKey, getCurrentSessionId, onSessionBound, onSessionUnbound, sessionStorage, onSessionRenamed, globalBufferLimit, readHistoryForReplay, articleLoader, feedbackStorage, learnEnabled, feedbackEnabled, agentStorage, memoryAuditLogFactory, uiConfigStorage, skillState } = options;
+    const { port, bus, authToken, serveHtml, serveDemoHtml, host, userStorage, fallbackSessionKey, getCurrentSessionId, onSessionBound, onSessionUnbound, sessionStorage, onSessionRenamed, onSessionDeleted, globalBufferLimit, readHistoryForReplay, articleLoader, feedbackStorage, learnEnabled, feedbackEnabled, agentStorage, memoryAuditLogFactory, uiConfigStorage, skillState, webuiBundlePath, defaultModel } = options;
     const globalLimit = globalBufferLimit ?? WS_GLOBAL_BUFFER_MAX;
     // Task 9 (0.2.3): learnEnabled 默认 false；feedbackEnabled 默认 true
     const isLearnEnabled = learnEnabled === true;
@@ -323,7 +330,7 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
       return 'zh';
     }
 
-    const httpServer = createServer((req, res) => {
+    const httpServer = createServer(async (req, res) => {
       const pathname = new URL(req.url ?? '/', `http://localhost:${port}`).pathname;
 
       // Task 9 (0.2.3): /api/feedback 必须在 /api/* 之前判断（路由优先级）
@@ -360,9 +367,45 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
         return;
       }
 
+      // §0.3.0 WebUI 集成: /api/webui-bootstrap 端点
+      // 返回 agents/sessions/visibleSkills/skills/currentAgentSlug/currentSessionId
+      // 数据来自已注入的 agentStorage/skillState/uiConfigStorage/userStorage/fallbackSessionKey
+      if (pathname === '/api/webui-bootstrap' && req.method === 'GET') {
+        await handleWebuiBootstrap(req, res, {
+          agentStorage, uiConfigStorage, skillState, userStorage, sessionStorage,
+          authToken, fallbackSessionKey, getCurrentSessionId, defaultModel,
+        }).catch((err) => {
+          log.error('webui-bootstrap failed', { error: String(err) });
+          res.writeHead(500, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: 'internal_error' }));
+        });
+        return;
+      }
+
       // Task 3: 认证 API 端点
       if (userStorage && pathname.startsWith('/api/')) {
-        handleAuthApi(req, res, pathname, userStorage, sessionStorage, onSessionRenamed);
+        handleAuthApi(req, res, pathname, userStorage, sessionStorage, onSessionRenamed, onSessionDeleted);
+        return;
+      }
+
+      // §0.3.0 WebUI 集成: /webui/index.js 静态资源 — esbuild bundle
+      if (webuiBundlePath && req.method === 'GET' && (pathname === '/webui/index.js' || pathname === '/webui/index.js.map')) {
+        try {
+          const fs = await import('node:fs/promises');
+          const content = await fs.readFile(webuiBundlePath + (pathname.endsWith('.map') ? '.map' : ''));
+          res.writeHead(200, {
+            'content-type': pathname.endsWith('.map')
+              ? 'application/json'
+              : 'text/javascript; charset=utf-8',
+            'cache-control': 'no-cache, no-store, must-revalidate',
+            'x-content-type-options': 'nosniff',
+          });
+          res.end(content);
+        } catch (err) {
+          log.error('webui bundle read failed', { error: String(err), path: webuiBundlePath });
+          res.writeHead(404, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: 'bundle_not_found' }));
+        }
         return;
       }
 
@@ -693,18 +736,23 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
         ws.removeListener('message', earlyMessageHandler);
 
         // Task 4: 有 userStorage 时发送 user_identified 事件
-        // 验收修复：携带 agent 真实 sessionId，使前端能对齐 localStorage 并查询正确的历史文件
+        // 验收修复（0.3.0 multi-user 模式）：仅当客户端未显式指定 ?session= 时，
+        // 才用 agent 全局 sessionId 兜底；客户端已指定 sessionKey 时不覆盖，
+        // 否则 multi-user 模式下所有用户会被强制切换到同一个全局 session。
         if (userStorage) {
+          const clientSpecifiedSession = url.searchParams.has('session');
           const agentSessionId = getCurrentSessionId ? getCurrentSessionId() : undefined;
-          // 将 agent 当前 sessionId claim 给该用户（使 history API ownership 检查通过）
-          if (agentSessionId && sessionStorage && agentSessionId !== sessionKey) {
+          // 仅在客户端未指定 session 时，才 claim agent 全局 session 给该用户
+          if (!clientSpecifiedSession && agentSessionId && sessionStorage && agentSessionId !== sessionKey) {
             try {
               await sessionStorage.claimSession(agentSessionId, identity.userId);
             } catch (err) {
               log.warn('failed to claim agent session for user', { agentSessionId, error: String(err) });
             }
           }
-          safeSend(ws, { type: 'user_identified', userId: identity.userId, username: identity.username, sessionId: agentSessionId, clientId: state.clientId });
+          // 客户端已显式指定 session 时，不发送 agentSessionId，避免前端误切换
+          const sessionIdToSend = clientSpecifiedSession ? undefined : agentSessionId;
+          safeSend(ws, { type: 'user_identified', userId: identity.userId, username: identity.username, sessionId: sessionIdToSend, clientId: state.clientId });
         }
 
         // Task 9: presence 广播 — 通知同 sessionKey 的其他连接（不含自己）当前在线数
@@ -1050,6 +1098,7 @@ async function handleAuthApi(
   userStorage: UserStorage,
   sessionStorage?: StorageAdapter,
   onSessionRenamed?: (sessionId: string, label: string) => void,
+  onSessionDeleted?: (sessionId: string) => void,
 ): Promise<void> {
   const sendJson = (status: number, body: unknown) => {
     res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
@@ -1237,6 +1286,51 @@ async function handleAuthApi(
       return;
     }
 
+    // 删除会话：DELETE /api/sessions/:id
+    const deleteMatch = pathname.match(/^\/api\/sessions\/([a-f0-9-]{36})$/);
+    if (deleteMatch && req.method === 'DELETE') {
+      const sessionId = deleteMatch[1];
+      const token = extractAuthToken(req);
+      if (!token) {
+        sendJson(401, { error: 'missing token' });
+        return;
+      }
+      const user = await userStorage.findByToken(token);
+      if (!user) {
+        sendJson(401, { error: 'invalid token' });
+        return;
+      }
+      if (!sessionStorage) {
+        sendJson(500, { error: 'session storage unavailable' });
+        return;
+      }
+      const owner = await sessionStorage.getSessionOwner(sessionId);
+      if (!owner) {
+        sendJson(404, { error: 'session not found' });
+        return;
+      }
+      if (owner !== user.userId) {
+        sendJson(403, { error: 'forbidden' });
+        return;
+      }
+      try {
+        await sessionStorage.deleteSession(sessionId);
+      } catch (err) {
+        log.error('deleteSession failed', { error: String(err), sessionId });
+        sendJson(500, { error: 'delete failed' });
+        return;
+      }
+      if (onSessionDeleted) {
+        try {
+          onSessionDeleted(sessionId);
+        } catch (err) {
+          log.error('onSessionDeleted callback failed', { error: String(err), sessionId });
+        }
+      }
+      sendJson(200, { ok: true });
+      return;
+    }
+
     // Task 10: GET /api/sessions — 返回当前用户的 session 列表（按 userId 过滤）
     if (pathname === '/api/sessions' && req.method === 'GET') {
       // Task 4 (0.2.2): cookie > Bearer > URL ?token=
@@ -1313,4 +1407,82 @@ function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
     });
     req.on('error', reject);
   });
+}
+
+/**
+ * §0.3.0 WebUI 集成: handleWebuiBootstrap — /api/webui-bootstrap 端点。
+ *
+ * 返回 Lit WebUI 启动所需的初始数据：
+ * - agents: 用户的所有 AgentProfile（GET /api/agents 复用）
+ * - sessions: 用户的所有 SessionMetadata（listSessions(userId)）
+ * - visibleSkills: default agent 的 UiConfig.visibleSkills（仅 default agent 渲染 chip 区时用）
+ * - skills: 已加载的 skill 列表（用于查找 template）
+ * - currentAgentSlug: 当前活跃 agent slug（MVP 始终为 'default'）
+ * - currentSessionId: server 当前活跃 sessionId（用于前端对齐）
+ *
+ * 鉴权：
+ * - 复用 resolveAuth（与 handleAgentApi 一致）
+ * - 未鉴权（无 token / token 无效）：返回 401 + { error: 'unauthorized' }，前端显示 auth modal
+ * - authToken-only 部署：使用 SHARED_AGENT_USER_ID 占位
+ */
+async function handleWebuiBootstrap(
+  req: IncomingMessage,
+  res: ServerResponse,
+  deps: {
+    agentStorage?: AgentStorage;
+    uiConfigStorage?: UiConfigStorage;
+    skillState?: SkillState;
+    userStorage?: UserStorage;
+    sessionStorage?: StorageAdapter;
+    authToken?: string;
+    fallbackSessionKey?: string;
+    getCurrentSessionId?: () => string;
+    defaultModel?: string;
+  },
+): Promise<void> {
+  const { agentStorage, uiConfigStorage, skillState, userStorage, sessionStorage, authToken, fallbackSessionKey, getCurrentSessionId, defaultModel } = deps;
+  // 未配置 userStorage 且未配置 authToken 时，无法鉴权 — 返回 401
+  if (!userStorage && !authToken) {
+    res.writeHead(401, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'unauthorized' }));
+    return;
+  }
+  const auth = await resolveAuth(req, userStorage, authToken);
+  if (!auth) {
+    res.writeHead(401, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'unauthorized' }));
+    return;
+  }
+  const userId = auth.userId;
+
+  // §0.3.0 WebUI 集成修复：新用户首次访问时自动 ensureDefaultAgent，
+  // 否则 webui-bootstrap 返回 agents=[]，sidebar 不显示 default agent。
+  // ensureDefaultAgent 是幂等的（已存在则直接返回），每次调用安全。
+  if (agentStorage) {
+    try {
+      await ensureDefaultAgent(userId, agentStorage);
+    } catch (err) {
+      log.warn('ensureDefaultAgent failed in /api/webui-bootstrap', { userId, error: String(err) });
+    }
+  }
+
+  // 并行加载所有数据源
+  const [agents, sessions, uiConfig] = await Promise.all([
+    agentStorage ? agentStorage.listAgents(userId).catch(() => []) : Promise.resolve([]),
+    sessionStorage ? sessionStorage.listSessions(userId).catch(() => []) : Promise.resolve([]),
+    uiConfigStorage ? uiConfigStorage.get(userId).catch(() => ({ visibleSkills: [] })) : Promise.resolve({ visibleSkills: [] }),
+  ]);
+
+  const skills = skillState ? [...skillState.skills] : [];
+
+  res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify({
+    agents,
+    sessions,
+    visibleSkills: uiConfig.visibleSkills ?? [],
+    skills,
+    currentAgentSlug: 'default',
+    currentSessionId: getCurrentSessionId ? getCurrentSessionId() : (fallbackSessionKey ?? ''),
+    model: defaultModel ?? '',
+  }));
 }

@@ -3,24 +3,36 @@ import { LitElement, html, css } from 'lit';
 export class WorkingIndicator extends LitElement {
   static override styles = css`
     :host {
+      display: none;
+      text-align: center;
+      padding: 8px;
+      color: var(--text-secondary, rgb(139, 133, 127));
+      font-size: 13px;
+      font-family: Inter, system-ui, 'PingFang SC', sans-serif;
+      background: var(--bg-base, rgb(255, 255, 255));
+      border-top: 1px solid var(--border, rgb(229, 231, 235));
+    }
+    :host([isworking]) {
       display: block;
-      padding: 4px 12px;
-      font-family: system-ui, sans-serif;
-      color: #6b7280;
-      font-size: 0.85em;
     }
     .dot {
-      animation: pulse 1.2s ease-in-out infinite;
       display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent, rgb(13, 113, 73));
+      margin-left: 6px;
+      animation: blink 1s infinite;
+      vertical-align: middle;
     }
-    @keyframes pulse {
-      0%, 100% { opacity: 0.4; }
+    @keyframes blink {
+      0%, 100% { opacity: 0.3; }
       50% { opacity: 1; }
     }
   `;
 
   static override properties = {
-    isWorking: { type: Boolean },
+    isWorking: { type: Boolean, reflect: true, attribute: 'isworking' },
   };
 
   declare isWorking: boolean;
@@ -32,7 +44,7 @@ export class WorkingIndicator extends LitElement {
 
   protected override render() {
     if (!this.isWorking) return html``;
-    return html`<span class="dot">⠋ Working...</span>`;
+    return html`<span>Working</span><span class="dot"></span>`;
   }
 }
 

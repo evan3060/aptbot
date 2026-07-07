@@ -73,12 +73,19 @@ export class AgentNode extends LitElement {
       border: none;
       cursor: pointer;
       color: var(--text-secondary, rgb(139, 133, 127));
-      font-size: 14px;
       line-height: 1;
-      padding: 2px 6px;
+      padding: 2px 4px;
       flex-shrink: 0;
       opacity: 0;
       border-radius: 3px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .settings-btn svg {
+      width: 14px;
+      height: 14px;
+      fill: currentColor;
     }
     .agent-row:hover .settings-btn {
       opacity: 1;
@@ -155,9 +162,9 @@ export class AgentNode extends LitElement {
         <span class="agent-name">${this.agent.name}<span class="agent-type-tag">${typeTagText}</span></span>
         <button
           class="settings-btn"
-          title="Agent 设置"
+          title="agent 设置"
           @click=${this._handleSettingsClick}
-        >⚙️</button>
+        ><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M8 4.754a3.246 3.246 0 1 0 0 6.492 3.246 3.246 0 0 0 0-6.492zM5.754 8a2.246 2.246 0 1 1 4.492 0 2.246 2.246 0 0 1-4.492 0z"/><path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.879.879 0 0 1-1.137.582l-.31-.113c-1.716-.607-3.302.879-2.696 2.595l.113.31a.879.879 0 0 1-.582 1.137l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.879.879 0 0 1 .582 1.137l-.113.31c-.607 1.716.879 3.302 2.595 2.696l.31-.113a.879.879 0 0 1 1.137.582l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.879.879 0 0 1 1.137-.582l.31.113c1.716.607 3.302-.879 2.696-2.595l-.113-.31a.879.879 0 0 1 .582-1.137l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.879.879 0 0 1-.582-1.137l.113-.31c.607-1.716-.879-3.302-2.595-2.696l-.31.113a.879.879 0 0 1-1.137-.582l-.094-.319z"/></svg></button>
       </div>
       ${this.expanded
         ? html`<div class="sessions-container">

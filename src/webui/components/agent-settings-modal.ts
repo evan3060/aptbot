@@ -330,7 +330,7 @@ export class AgentSettingsModal extends LitElement {
       <div class="modal-backdrop" @click=${this._handleBackdropClick}>
         <div class="modal-container" @click=${this._stopPropagation}>
           <div class="modal-header">
-            ${this.mode === 'professional' ? 'Agent 设置' : '通用 Agent 设置'}
+            ${this.mode === 'professional' ? '编辑 agent' : '通用助手设置'}
           </div>
           <div class="modal-body">
             ${this.mode === 'professional'

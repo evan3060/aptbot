@@ -4,11 +4,13 @@ export class FooterBar extends LitElement {
   static override styles = css`
     :host {
       display: block;
-      padding: 6px 12px;
-      border-top: 1px solid #e5e7eb;
+      padding: 4px 20px;
+      border-top: 1px solid var(--border, rgb(229, 231, 235));
       font-family: ui-monospace, monospace;
-      font-size: 0.75em;
-      color: #9ca3af;
+      font-size: 11px;
+      color: var(--text-secondary, rgb(139, 133, 127));
+      background: var(--bg-base, rgb(255, 255, 255));
+      text-align: center;
     }
   `;
 

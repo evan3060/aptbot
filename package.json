@@ -9,8 +9,10 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "build": "tsc",
-    "dev": "tsx --env-file=.env src/server.ts"
+    "build": "tsc && node scripts/build-webui.mjs",
+    "dev": "tsx --env-file=.env src/server.ts",
+    "webui:build": "node scripts/build-webui.mjs",
+    "webui:watch": "node scripts/build-webui.mjs --watch"
   },
   "devDependencies": {
     "@types/node": "^26.0.1",

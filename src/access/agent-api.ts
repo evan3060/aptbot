@@ -15,6 +15,7 @@ import {
 import type { UiConfig, UiConfigStorage } from '../core/agent/ui-config.js';
 import { createLogger } from '../infrastructure/logger.js';
 import type { SkillState } from '../core/skills/loader.js';
+import { ensureDefaultAgent } from '../core/agent/agent-migration.js';
 
 /**
  * §0.3.0 Task 9: Agent HTTP API（/api/agents 系列）
@@ -153,7 +154,8 @@ interface ResolvedAuth {
  * 设计理由：SHARED_USER_ID（'__shared__'）不通过 USER_ID_REGEX，无法用于 AgentStorage 路径。
  * 故此处用合法 UUID v4 形态的占位 ID，仅供 authToken-only 部署使用。
  */
-async function resolveAuth(
+/** §0.3.0 WebUI 集成: 导出 resolveAuth 供 websocket-server 的 /api/webui-bootstrap 端点复用 */
+export async function resolveAuth(
   req: IncomingMessage,
   userStorage: UserStorage | undefined,
   authToken: string | undefined,
@@ -231,6 +233,14 @@ export async function handleAgentApi(
     // 2. 路由分发
     // GET /api/agents — 列表
     if (pathname === '/api/agents' && req.method === 'GET') {
+      // §0.3.0 WebUI 集成修复：新用户注册后 /api/agents 应自动 ensureDefaultAgent，
+      // 否则 sidebar agent-list 为空，无法切换/新建会话。
+      // ensureDefaultAgent 是幂等的（已存在则直接返回），每次调用安全。
+      try {
+        await ensureDefaultAgent(currentUserId, agentStorage);
+      } catch (err) {
+        log.warn('ensureDefaultAgent failed in /api/agents', { userId: currentUserId, error: String(err) });
+      }
       const agents = await agentStorage.listAgents(currentUserId);
       sendJson(200, agents.map(stripSensitiveFields));
       return;

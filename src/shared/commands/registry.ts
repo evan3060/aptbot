@@ -302,7 +302,10 @@ const sessionsCommand: Command = {
   name: 'sessions',
   description: 'List all sessions',
   async execute(_args, ctx) {
-    const sessions = await ctx.storage.listSessions();
+    // 仅列出当前用户的 session，避免跨用户 resume 被拒绝
+    const sessions = ctx.userId
+      ? await ctx.storage.listSessions(ctx.userId)
+      : await ctx.storage.listSessions();
     if (sessions.length === 0) {
       return { output: 'No sessions found.' };
     }
@@ -330,7 +333,10 @@ const resumeCommand: Command = {
       return { output: 'Usage: /resume <session-id>' };
     }
     const targetId = args[0];
-    const sessions = await ctx.storage.listSessions();
+    // 仅在当前用户的 session 中匹配，避免跨用户 resume 被拒绝
+    const sessions = ctx.userId
+      ? await ctx.storage.listSessions(ctx.userId)
+      : await ctx.storage.listSessions();
     const matches = sessions.filter((s) => s.id.startsWith(targetId));
     if (matches.length === 0) {
       return { output: `Session not found: ${targetId}` };

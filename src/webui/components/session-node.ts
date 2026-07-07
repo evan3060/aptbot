@@ -110,6 +110,12 @@ export class SessionNode extends LitElement {
     .session-menu-item:hover {
       background: var(--bg-muted, rgb(249, 247, 244));
     }
+    .session-menu-item.danger {
+      color: rgb(220, 38, 38);
+    }
+    .session-menu-item.danger:hover {
+      background: rgba(220, 38, 38, 0.08);
+    }
     .session-rename-input {
       width: 100%;
       padding: 2px 4px;
@@ -213,6 +219,10 @@ export class SessionNode extends LitElement {
                 class="session-menu-item"
                 @click=${this._startRename}
               >重命名会话</div>
+              <div
+                class="session-menu-item danger"
+                @click=${this._handleDelete}
+              >删除会话</div>
             </div>`
           : ''}
       </div>
@@ -275,6 +285,18 @@ export class SessionNode extends LitElement {
   private _handleRenameCancel() {
     this._renaming = false;
     this._renameValue = '';
+  }
+
+  private _handleDelete(e: Event) {
+    e.stopPropagation();
+    this._menuOpen = false;
+    this.dispatchEvent(
+      new CustomEvent('delete-session', {
+        detail: { sessionId: this.session.id },
+        bubbles: true,
+        composed: true,
+      }),
+    );
   }
 }
 

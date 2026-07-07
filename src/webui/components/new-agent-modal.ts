@@ -219,7 +219,7 @@ export class NewAgentModal extends LitElement {
     return html`
       <div class="modal-backdrop" @click=${this._handleBackdropClick}>
         <div class="modal-container" @click=${this._stopPropagation}>
-          <div class="modal-header">新建专业 Agent</div>
+          <div class="modal-header">新建专业 agent</div>
           <div class="modal-body">
             <div class="section identity-section">
               <h3>身份配置</h3>

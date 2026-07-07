@@ -302,8 +302,11 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
     process.env.APTBOT_CONFIG ?? DEFAULT_CONFIG_PATH,
     parseAptbotConfig,
   );
-  const sessionsDir = `${aptbotConfig.dataDir}/sessions`;
-  const storage = new FileStorage(sessionsDir);
+  // §0.3.0 Task 4: FileStorage dataDir 必须是 aptbotConfig.dataDir（如 './data'），
+  // 不能是 './data/sessions'。FileStorage 内部按 ${dataDir}/users/*/agents/*/sessions/
+  // 扫描新路径，并按 ${dataDir}/sessions/ 扫描 legacy fallback。若 dataDir 设为
+  // './data/sessions'，新路径会变成 './data/sessions/users/...' 导致扫描不到。
+  const storage = new FileStorage(aptbotConfig.dataDir);
   // Task 5: 用户存储 — 始终创建，供 /api/register /api/login /api/me 与 WS 认证使用
   const userStorage: UserStorage = createUserStorage(aptbotConfig.dataDir);
   // §0.3.0 Task 9: AgentStorage + MemoryAuditLog 工厂 — /api/agents 系列端点使用
@@ -424,6 +427,22 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
   // Task 5: 根据 config.landingPage 严格等于 true 决定根路径提供落地页还是聊天页
   // landingPage 为 undefined/false 时不启用，保持原有聊天页行为（向后兼容）
   const landingEnabled = aptbotConfig.landingPage === true;
+  // §0.3.0 WebUI 集成: 优先使用 Lit WebUI（dist/webui/index.html），未构建时降级到 0.2.x chat-page
+  // dev 模式需先运行 `npm run webui:build` 构建前端 bundle
+  const distWebuiHtml = path.join(process.cwd(), 'dist/webui/index.html');
+  const srcWebuiHtml = path.join(process.cwd(), 'src/webui/index.html');
+  const webuiHtmlPath = fs.existsSync(distWebuiHtml)
+    ? distWebuiHtml
+    : (fs.existsSync(srcWebuiHtml) ? srcWebuiHtml : null);
+  const webuiEnabled = webuiHtmlPath !== null;
+  // bundle 路径独立计算：始终在 dist/webui/index.js（esbuild 输出）
+  const distWebuiBundle = path.join(process.cwd(), 'dist/webui/index.js');
+  const webuiBundlePath = fs.existsSync(distWebuiBundle) ? distWebuiBundle : undefined;
+  if (webuiEnabled) {
+    log.info('webui enabled — serving Lit WebUI from ' + webuiHtmlPath);
+  } else {
+    log.warn('webui bundle not found — falling back to 0.2.x chat-page. Run `npm run webui:build` to enable Lit WebUI.');
+  }
   // Task 11 (0.2.3): learn system 装配
   // articlesDir 优先从 src/learn/articles/ 读取（tsx dev 和生产部署均有效）
   // production dist/ 模式下回退到 projectRoot/src/learn/articles/
@@ -431,23 +450,35 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
   const srcArticlesDir = path.join(process.cwd(), 'src', 'learn', 'articles');
   const articlesDir = fs.existsSync(distArticlesDir) ? distArticlesDir : srcArticlesDir;
   const learnWiring = await resolveLearnWiring({ aptbotConfig, articlesDir });
+  // §0.3.0 WebUI: 读取 webui HTML 内容（启动时一次性加载，热重载需重启 server）
+  const webuiHtmlContent = webuiHtmlPath ? await fs.promises.readFile(webuiHtmlPath, 'utf-8') : undefined;
   const wsServer = await startWebSocketServer({
     port: config.port,
     bus,
     authToken: config.authToken,
     host: config.host,
-    // Task 11: learnEnabled 时向落地页注入 articleState 供知识 section 渲染
+    // §0.3.0 WebUI 集成: webuiEnabled 时优先服务 Lit WebUI；否则降级到 0.2.x chat-page / landing-page
+    // landing 启用：/ 是落地页，/demo 是 WebUI（替换原 chat-page）
+    // landing 未启用：/ 是 WebUI（替换原 chat-page），/demo 不提供
     serveHtml: landingEnabled
       ? createLandingPageHtml({
           learnEnabled: learnWiring.learnEnabled,
           articleState: learnWiring.learnEnabled ? learnWiring.articleLoader?.getState() : undefined,
         })
-      : createChatPageHtml('/ws'),
-    // Task 5: 启用落地页时，/demo 路由提供聊天页作为 CTA 跳转目标；未启用时不提供
-    serveDemoHtml: landingEnabled ? createChatPageHtml('/ws') : undefined,
+      : (webuiHtmlContent ?? createChatPageHtml('/ws')),
+    // Task 5: 启用落地页时，/demo 路由提供 WebUI（0.3.0 替换原 chat-page）；未启用时不提供
+    serveDemoHtml: landingEnabled ? (webuiHtmlContent ?? createChatPageHtml('/ws')) : undefined,
+    // §0.3.0 WebUI: webui bundle JS 静态资源路径（dist/webui/index.js）
+    webuiBundlePath,
+    // §0.3.0 WebUI: 默认模型 ID，用于 footer 显示
+    defaultModel: aptbotConfig.defaultModel,
     userStorage,
     // Task 5: 客户端未携带 ?session= 时绑定到 server 当前活跃 sessionId
-    fallbackSessionKey: sessionId,
+    // §0.3.0 multi-user 修复：userStorage 存在时禁用 fallbackSessionKey，
+    // 否则所有匿名连接会被绑定到同一个 server-side agent session，
+    // 导致 multi-user 模式下不同用户的 session 互相污染。
+    // userStorage 不存在时（authToken-only 模式）保留 fallback，与 0.2.x 单用户行为一致。
+    fallbackSessionKey: userStorage ? undefined : sessionId,
     // 验收修复：提供 agent 当前内部 sessionId，供 user_identified 事件对齐前端 localStorage
     getCurrentSessionId: () => sessionRef.currentKey,
     // Task 5: 每个新连接绑定其 sessionKey 到 wsChannel，使 dispatch 能路由到该 session
@@ -463,6 +494,11 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
     // 会话重命名后广播 session_renamed 控制消息到同 session 其他客户端
     onSessionRenamed: (sid, label) => {
       wsServer.sendToSessionKey(sid, { type: 'session_renamed', sessionId: sid, label });
+    },
+    // 会话删除后广播 session_deleted 控制消息到同 session 其他客户端
+    // 注：perSenderSessions 的清理由 runInboundLoop 在用户切换 session 时自然处理
+    onSessionDeleted: (sid) => {
+      wsServer.sendToSessionKey(sid, { type: 'session_deleted', sessionId: sid });
     },
     // Task 3 (0.2.2): ring buffer 未命中时从 JSONL 兜底回放历史
     // 仅限 wsServer 调用，agent 仍受 data/sessions/ 访问禁令
@@ -725,6 +761,23 @@ export async function runInboundLoop(
   const runningTurns = new Map<string, Promise<void>>();
 
   /**
+   * §0.3.0 multi-user 修复: per-senderSessionKey 的 AgentSession map。
+   *
+   * 原 0.2.x 设计假设单用户 — 全局 sessionRef.current 被 /new 切换。
+   * 0.3.0 multi-user 模式下，不同用户连不同 sessionKey，
+   * 全局 sessionRef 会导致 user A 的消息被 user B 的 session 处理。
+   *
+   * 修复：每个 senderSessionKey 维护独立的 AgentSession 实例，
+   * 通过 sessionFactory(sid) 懒加载（首次消息时创建）。
+   * /new 命令切换 sessionRef.currentKey 时仅影响对应 senderSessionKey 的 entry，
+   * 不再污染其他用户。
+   *
+   * 降级：sessionFactory 为 undefined 时（理论上不会发生，server.ts 必传），
+   * fallback 到全局 sessionRef.current。
+   */
+  const perSenderSessions = new Map<string, ReturnType<typeof createAgentSession>>();
+
+  /**
    * Task 2: per-sessionKey 链长跟踪，用于计算 turn_busy 的 position。
    * chainLength = 当前 sessionKey 上正在执行 + 排队中的 turn 总数。
    * 新消息到达时若有 running turn，position = chainLength + 1（包含自身）。
@@ -778,8 +831,23 @@ export async function runInboundLoop(
         // §0.3.0 final-review: 内存工具的 getter 直接读取 slashHandler.ctx.userId，
         // 此处更新后内存工具即获得最新 userId（无需额外同步 agentMemoryCtx）。
         if (senderUserId && slashHandler) slashHandler.ctx.userId = senderUserId;
+        // §0.3.0 multi-user 修复: 获取/懒加载 per-senderSessionKey 的 AgentSession
+        // 不同 senderSessionKey 用独立 session 实例，避免全局 sessionRef 互相污染。
+        let activeSession: ReturnType<typeof createAgentSession>;
+        if (sessionFactory) {
+          let s = perSenderSessions.get(senderSessionKey);
+          if (!s) {
+            loopLog.info('creating new AgentSession for senderSessionKey', { senderSessionKey });
+            s = sessionFactory(senderSessionKey);
+            perSenderSessions.set(senderSessionKey, s);
+          }
+          activeSession = s;
+        } else {
+          activeSession = sessionRef.current;
+        }
+        loopLog.info('processing inbound message', { senderSessionKey, textPreview: text.substring(0, 50) });
         // Task 11: 每个 turn 刷新 sessionAttrs 句柄，使 /new /resume /热重载后的新 session 生效
-        if (slashHandler) slashHandler.ctx.sessionAttrs = sessionRef.current;
+        if (slashHandler) slashHandler.ctx.sessionAttrs = activeSession;
         // §4.6 beforeTurn：检查 config mtimeNs 变化（当前 turn 用旧快照，pending 等 afterTurn 应用）
         // rebuild 可同步或异步（§4.9 Skills 热重载联动需 await skillState.reload()）
         let pendingConfigApply: (() => void | Promise<void>) | null = null;
@@ -819,12 +887,15 @@ export async function runInboundLoop(
               if (result.action === 'new_session' && sessionFactory) {
                 const oldKey = senderSessionKey;
                 const newId = result.continueSessionId ?? randomUUID();
-                sessionRef.current = sessionFactory(newId);
-                sessionRef.currentKey = newId;
+                // §0.3.0 multi-user 修复: 仅切换该 senderSessionKey 的 session 实例，
+                // 不再修改全局 sessionRef.currentKey（避免污染其他用户的 session）。
+                const newSession = sessionFactory(newId);
+                perSenderSessions.delete(oldKey);
+                perSenderSessions.set(newId, newSession);
                 if (slashHandler) {
                   slashHandler.ctx.sessionId = newId;
                   // Task 11: 同步刷新 sessionAttrs 句柄到新 session
-                  slashHandler.ctx.sessionAttrs = sessionRef.current;
+                  slashHandler.ctx.sessionAttrs = newSession;
                 }
                 // Task 6: 通知 server 推送 session_changed 到发起方 sessionKey 的 connection
                 onNewSession?.(oldKey, newId);
@@ -856,9 +927,14 @@ export async function runInboundLoop(
           // 验收修复：agent 处理前 emit user_message 事件，使其他客户端能同步看到用户发送的消息
           const senderClientId = msg.metadata.clientId as string | undefined;
           await emit(senderSessionKey, chatId, channelName, { type: 'user_message', text, senderId: senderClientId ?? '' });
-          for await (const event of sessionRef.current.run(text)) {
+          // §0.3.0 multi-user 修复: 使用 per-senderSessionKey 的 activeSession 而非全局 sessionRef.current
+          loopLog.info('starting agent.run', { senderSessionKey });
+          let eventCount = 0;
+          for await (const event of activeSession.run(text)) {
+            eventCount++;
             await emit(senderSessionKey, chatId, channelName, event);
           }
+          loopLog.info('agent.run completed', { senderSessionKey, eventCount });
         } catch (err) {
           loopLog.error('turn failed', { sessionKey: senderSessionKey, error: String(err) });
           // C1 fix: catch 块内的 emit 单独 try/catch，防止 catch 自身抛错导致 turn promise reject

@@ -1,0 +1,6 @@
+{
+  "name": "Aptbot Workspace",
+  "description": "An advanced AI Agent Workspace with customizable specialized agents, quick commands, and multi-model processing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

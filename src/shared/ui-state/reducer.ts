@@ -21,6 +21,7 @@ export const initialUIState: UIState = {
 
 /**
  * §8.3 coreReducer: 纯函数 UIState 状态机。
+ * - user_message → 追加 user 消息（跨客户端同步）
  * - turn_start → isWorking=true
  * - message_start → 追加流式 assistant 消息
  * - message_delta → 累积文本到当前消息
@@ -32,6 +33,15 @@ export const initialUIState: UIState = {
  */
 export function coreReducer(state: UIState, event: AgentEvent): UIState {
   switch (event.type) {
+    case 'user_message': {
+      const newMsg: MessageViewItem = {
+        id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        role: 'user',
+        text: event.text,
+      };
+      return { ...state, messages: [...state.messages, newMsg] };
+    }
+
     case 'turn_start':
       return { ...state, isWorking: true };
 

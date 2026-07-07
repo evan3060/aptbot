@@ -4,8 +4,10 @@ export class InputBox extends LitElement {
   static override styles = css`
     :host {
       display: block;
-      padding: 8px 12px;
-      border-top: 1px solid #e5e7eb;
+      background: var(--bg-base, rgb(255, 255, 255));
+      border-top: 1px solid var(--border, rgb(229, 231, 235));
+      padding: 16px 20px;
+      font-family: Inter, system-ui, 'PingFang SC', sans-serif;
     }
     form {
       display: flex;
@@ -13,27 +15,30 @@ export class InputBox extends LitElement {
     }
     input {
       flex: 1;
-      padding: 8px 10px;
-      border: 1px solid #d1d5db;
+      padding: 10px 14px;
+      border: 1px solid var(--border, rgb(229, 231, 235));
       border-radius: 6px;
-      font-family: system-ui, sans-serif;
+      font-family: inherit;
       font-size: 14px;
       outline: none;
     }
     input:focus {
-      border-color: #3b82f6;
+      border-color: var(--accent, rgb(13, 113, 73));
+      outline: 2px solid var(--accent, rgb(13, 113, 73));
+      outline-offset: 1px;
     }
     button {
-      padding: 8px 16px;
-      background: #3b82f6;
-      color: white;
+      padding: 10px 20px;
+      background: var(--accent, rgb(13, 113, 73));
+      color: var(--bg-base, rgb(255, 255, 255));
       border: none;
-      border-radius: 6px;
+      border-radius: 9999px;
       font-size: 14px;
       cursor: pointer;
+      font-family: inherit;
     }
     button:hover {
-      background: #2563eb;
+      background: rgb(10, 95, 60);
     }
   `;
 
