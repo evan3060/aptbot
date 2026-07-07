@@ -32,6 +32,11 @@ export interface Message {
   role: 'user' | 'assistant';
   text: string;
   isStreaming?: boolean;
+  /** Task 5: ChatArea 显示字段（可选，由 App.tsx 在 Task 9 填充） */
+  timestamp?: string;
+  modelUsed?: string;
+  agentName?: string;
+  files?: { name: string; size: string }[];
 }
 
 /** 工具调用条目，与 message 解耦存储在 Map（按 toolCallId 索引） */
