@@ -23,7 +23,6 @@ interface ChatAreaProps {
   activeAgent: AgentProfile | null;
   messages: Message[];
   isWorking: boolean;
-  onRegenerate: (messageId: string) => void;
 }
 
 export default function ChatArea({ activeAgent, messages, isWorking }: ChatAreaProps) {
@@ -35,7 +34,6 @@ export default function ChatArea({ activeAgent, messages, isWorking }: ChatAreaP
   }, [messages]);
 
   // 当前后端不支持 /regenerate — 显示暂未支持提示
-  // 后端支持后，可通过 onRegenerate prop 接入 /resume 逻辑（Task 9 App.tsx 接入）
   const handleRegenerate = (_messageId: string) => {
     alert('暂未支持：重新生成功能尚未实现');
   };

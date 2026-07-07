@@ -49,7 +49,7 @@ export default function MessageActions({ text, messageId, onRegenerate }: Messag
         title="复制内容"
       >
         {copied ? (
-          <Check className="w-[16px] h-[16px] text-green-600" />
+          <Check className="w-[16px] h-[16px] text-neutral-600" />
         ) : (
           <Copy className="w-[16px] h-[16px]" />
         )}
