@@ -98,7 +98,15 @@ export class WsClient {
     this.openInternal(/* resetDelay */ false);
   }
 
-  /** 构建 WebSocket URL，含 token、session、lastEventSeq 三个 query 参数 */
+  /**
+   * 构建 WebSocket URL，含 token、session、lastEventSeq、historyLimit 四个 query 参数。
+   *
+   * historyLimit 触发服务端 full history replay 路径（replayHistory），合并
+   * inbound（用户消息）+ outbound（assistant 事件），并在 ring buffer 空时
+   * fallback 到 JSONL 历史。这是 /resume 后历史消息能正确加载的关键 —
+   * 仅靠 lastEventSeq 路径（replayBufferedEvents）只回放出站事件，用户消息
+   * 不会出现在历史回放中。
+   */
   private buildUrl(): string {
     const proto = typeof location !== 'undefined' && location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = typeof location !== 'undefined' ? location.host : 'localhost';
@@ -107,6 +115,7 @@ export class WsClient {
     if (this.currentToken) params.set('token', this.currentToken);
     if (this.currentSessionId) params.set('session', this.currentSessionId);
     params.set('lastEventSeq', String(this.lastEventSeq));
+    params.set('historyLimit', '50');
     return `${base}?${params.toString()}`;
   }
 

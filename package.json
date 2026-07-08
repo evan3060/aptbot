@@ -9,6 +9,7 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:uat": "playwright test",
     "build": "tsc && node scripts/build-webui.mjs",
     "dev": "tsx --env-file=.env src/server.ts",
     "webui:build": "node scripts/build-webui.mjs",
@@ -16,6 +17,7 @@
     "webui:dev": "vite --config src/webui-react/vite.config.ts"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "^4.3.2",
     "@types/node": "^26.0.1",
     "@types/react": "^19.2.17",

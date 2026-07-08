@@ -1537,6 +1537,19 @@ async function handleWebuiBootstrap(
 
   const skills = skillState ? [...skillState.skills] : [];
 
+  // §0.3.0 multi-user fix: 在 userStorage 多用户模式下，currentSessionId 必须按用户隔离。
+  // 旧实现直接返回全局 getCurrentSessionId()（server 单实例 sessionRef.currentKey），
+  // 导致多用户共享同一 sessionKey → 跨用户消息污染 + preview 错乱。
+  // 修复：用户已有 session 时返回最近活跃的（sessions[0].id，按 updatedAt 降序）；
+  //       用户无 session 时生成新 UUID（首次访问，等用户发消息时 claimSession 绑定 userId）。
+  // 单用户/authToken-only 模式（无 userStorage）保留旧逻辑（全局 sessionRef）。
+  let currentSessionId: string;
+  if (userStorage) {
+    currentSessionId = sessions.length > 0 ? sessions[0].id : randomUUID();
+  } else {
+    currentSessionId = getCurrentSessionId ? getCurrentSessionId() : (fallbackSessionKey ?? '');
+  }
+
   res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify({
     agents,
@@ -1544,7 +1557,7 @@ async function handleWebuiBootstrap(
     visibleSkills: uiConfig.visibleSkills ?? [],
     skills,
     currentAgentSlug: 'default',
-    currentSessionId: getCurrentSessionId ? getCurrentSessionId() : (fallbackSessionKey ?? ''),
+    currentSessionId,
     model: defaultModel ?? '',
   }));
 }

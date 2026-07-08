@@ -129,7 +129,10 @@ export default function Sidebar({
   };
 
   return (
-    <aside className="flex flex-col h-full py-6 px-4 w-64 fixed left-0 top-0 bg-white border-r border-slate-200 z-20">
+    <aside
+      data-testid="sidebar"
+      className="flex flex-col h-full py-6 px-4 w-64 fixed left-0 top-0 bg-white border-r border-slate-200 z-20"
+    >
       {/* Brand Logo */}
       <div className="mb-6 flex items-center gap-3 px-2">
         <div className="w-10 h-10 text-black flex items-center justify-center bg-white">
@@ -148,6 +151,7 @@ export default function Sidebar({
       {/* New Session CTA — 触发 onCreateSession()，App.tsx 转 /new slash */}
       <button
         onClick={onCreateSession}
+        data-testid="new-session-button"
         className="w-full flex items-center gap-2 bg-transparent text-black hover:bg-black hover:text-white rounded-lg font-bold transition-all mb-6 active:scale-[0.98] justify-start px-2 py-1.5 text-xs cursor-pointer"
       >
         <Plus className="w-3.5 h-3.5" />
@@ -211,7 +215,7 @@ export default function Sidebar({
         })}
 
         {/* Specialized Agents Section */}
-        <section>
+        <section data-testid="specialized-agents-section">
           <div className="flex items-center justify-between px-2 mb-2">
             <div className="flex items-center gap-2 font-bold text-black">
               <Sparkles className="w-4 h-4 text-black animate-bounce" />
@@ -230,7 +234,12 @@ export default function Sidebar({
               const agentSessions = sessions.filter((s) => s.agentId === agent.slug);
 
               return (
-                <div key={agent.slug} className="mb-1">
+                <div
+                  key={agent.slug}
+                  data-testid={`agent-item-${agent.slug}`}
+                  data-agent-slug={agent.slug}
+                  className="mb-1"
+                >
                   <div
                     className={`flex items-center justify-between px-3 py-1.5 rounded-lg group hover:bg-neutral-50 transition-colors ${
                       activeAgentSlug === agent.slug ? 'bg-neutral-50/50' : ''
@@ -259,6 +268,7 @@ export default function Sidebar({
                     <div className="flex items-center gap-1 shrink-0">
                       <button
                         title="设置智能体"
+                        data-testid={`agent-edit-${agent.slug}`}
                         onClick={(e) => {
                           e.stopPropagation();
                           onOpenEditAgentModal(agent);
@@ -322,6 +332,7 @@ export default function Sidebar({
 
           <button
             onClick={onOpenCreateAgentModal}
+            data-testid="create-agent-button"
             className="w-full flex items-center gap-2 bg-transparent text-black rounded-lg font-bold hover:bg-black hover:text-white transition-all mt-4 active:scale-[0.98] justify-start px-2 py-1.5 text-xs cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -410,7 +421,10 @@ function SessionItem({
 }: SessionItemProps) {
   if (isPendingDelete) {
     return (
-      <div className="px-3 py-1.5 rounded-lg bg-rose-50 border border-rose-200 space-y-1">
+      <div
+        data-testid={`session-delete-confirm-${session.id}`}
+        className="px-3 py-1.5 rounded-lg bg-rose-50 border border-rose-200 space-y-1"
+      >
         <div className="flex items-center gap-1.5 text-[11px] text-rose-700 font-bold">
           <AlertCircle className="w-3 h-3 shrink-0" />
           <span className="truncate">确认删除此会话？</span>
@@ -422,6 +436,7 @@ function SessionItem({
           <button
             onClick={onConfirmDelete}
             disabled={isDeleting}
+            data-testid={`session-delete-confirm-button-${session.id}`}
             className="flex-1 px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             {isDeleting ? '删除中...' : '确认'}
@@ -429,6 +444,7 @@ function SessionItem({
           <button
             onClick={onCancelDelete}
             disabled={isDeleting}
+            data-testid={`session-delete-cancel-${session.id}`}
             className="flex-1 px-2 py-1 bg-white hover:bg-slate-50 text-slate-700 text-[11px] font-bold rounded border border-slate-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             取消
@@ -439,7 +455,11 @@ function SessionItem({
   }
 
   return (
-    <div className="group relative flex items-center">
+    <div
+      className="group relative flex items-center"
+      data-testid={`session-item-${session.id}`}
+      data-session-id={session.id}
+    >
       <button
         onClick={() => onSelect(session.id)}
         className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-left transition-colors border cursor-pointer ${
@@ -454,6 +474,7 @@ function SessionItem({
       <button
         onClick={onRequestDelete}
         title="删除会话"
+        data-testid={`session-delete-${session.id}`}
         className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 text-neutral-400 hover:text-rose-600 transition-all p-0.5 cursor-pointer"
       >
         <Trash2 className="w-3.5 h-3.5" />

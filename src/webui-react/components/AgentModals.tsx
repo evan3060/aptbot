@@ -131,7 +131,7 @@ export default function AgentModals({
     <>
       {/* Create Agent Modal */}
       {isCreateOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <div data-testid="create-agent-modal" className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           {/* Backdrop */}
           <div
             className="absolute inset-0 bg-black/40 backdrop-blur-xs"
@@ -149,6 +149,7 @@ export default function AgentModals({
                 className="text-neutral-400 hover:text-black transition-colors cursor-pointer"
                 onClick={onCloseCreate}
                 aria-label="关闭"
+                data-testid="create-agent-close"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -171,6 +172,7 @@ export default function AgentModals({
                   type="text"
                   value={createName}
                   onChange={(e) => setCreateName(e.target.value)}
+                  data-testid="create-agent-name"
                   className="w-full bg-white border border-slate-200 rounded-lg px-4 py-2.5 text-sm focus:ring-1 focus:ring-black focus:border-black focus:outline-none text-black"
                   placeholder="输入智能体名称"
                 />
@@ -184,6 +186,7 @@ export default function AgentModals({
                   type="text"
                   value={createDescription}
                   onChange={(e) => setCreateDescription(e.target.value)}
+                  data-testid="create-agent-description"
                   className="w-full bg-white border border-slate-200 rounded-lg px-4 py-2.5 text-sm focus:ring-1 focus:ring-black focus:border-black focus:outline-none text-black"
                   placeholder="输入简短的智能体功能描述..."
                 />
@@ -199,6 +202,7 @@ export default function AgentModals({
                       key={opt.id}
                       type="button"
                       onClick={() => setCreateIcon(opt.id)}
+                      data-testid={`create-agent-icon-${opt.id}`}
                       className={`flex flex-col items-center gap-1.5 p-2.5 rounded-lg border text-xs font-semibold cursor-pointer transition-all ${
                         createIcon === opt.id
                           ? 'border-black bg-neutral-50 text-black shadow-xs'
@@ -219,6 +223,7 @@ export default function AgentModals({
                 <textarea
                   value={createPrompt}
                   onChange={(e) => setCreatePrompt(e.target.value)}
+                  data-testid="create-agent-prompt"
                   className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 text-sm focus:ring-1 focus:ring-black focus:border-black focus:outline-none resize-none font-mono text-xs leading-relaxed text-black"
                   placeholder="定义智能体的性格、专业背景、任务约束等。例如：'你是一个精通 React 和 TypeScript 的高级前端专家...'"
                   rows={4}
@@ -232,11 +237,13 @@ export default function AgentModals({
                 className="px-5 py-2.5 rounded-lg text-sm font-bold text-neutral-500 hover:text-black transition-all cursor-pointer"
                 onClick={onCloseCreate}
                 disabled={createSubmitting}
+                data-testid="create-agent-cancel"
               >
                 取消
               </button>
               <button
                 disabled={!createName.trim() || createSubmitting}
+                data-testid="create-agent-save"
                 className="px-5 py-2.5 rounded-lg bg-black text-white text-sm font-bold shadow-sm hover:bg-neutral-900 transition-all active:scale-95 disabled:bg-neutral-200 disabled:text-neutral-400 disabled:shadow-none disabled:active:scale-100 cursor-pointer"
                 onClick={handleCreateSubmit}
               >
@@ -249,7 +256,7 @@ export default function AgentModals({
 
       {/* Edit Agent Modal */}
       {isEditOpen && editingAgent && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <div data-testid="edit-agent-modal" className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           {/* Backdrop */}
           <div
             className="absolute inset-0 bg-black/40 backdrop-blur-xs"
@@ -267,6 +274,7 @@ export default function AgentModals({
                 className="text-neutral-400 hover:text-black transition-colors cursor-pointer"
                 onClick={onCloseEdit}
                 aria-label="关闭"
+                data-testid="edit-agent-close"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -289,6 +297,7 @@ export default function AgentModals({
                   type="text"
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
+                  data-testid="edit-agent-name"
                   className="w-full bg-white border border-slate-200 rounded-lg px-4 py-2.5 text-sm focus:ring-1 focus:ring-black focus:border-black focus:outline-none text-black"
                   placeholder="输入智能体名称"
                 />
@@ -302,6 +311,7 @@ export default function AgentModals({
                   type="text"
                   value={editDescription}
                   onChange={(e) => setEditDescription(e.target.value)}
+                  data-testid="edit-agent-description"
                   className="w-full bg-white border border-slate-200 rounded-lg px-4 py-2.5 text-sm focus:ring-1 focus:ring-black focus:border-black focus:outline-none text-black"
                   placeholder="输入简短的智能体功能描述..."
                 />
@@ -317,6 +327,7 @@ export default function AgentModals({
                       key={opt.id}
                       type="button"
                       onClick={() => setEditIcon(opt.id)}
+                      data-testid={`edit-agent-icon-${opt.id}`}
                       className={`flex flex-col items-center gap-1.5 p-2.5 rounded-lg border text-xs font-semibold cursor-pointer transition-all ${
                         editIcon === opt.id
                           ? 'border-black bg-neutral-50 text-black shadow-xs'
@@ -337,6 +348,7 @@ export default function AgentModals({
                 <textarea
                   value={editPrompt}
                   onChange={(e) => setEditPrompt(e.target.value)}
+                  data-testid="edit-agent-prompt"
                   className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 text-sm focus:ring-1 focus:ring-black focus:border-black focus:outline-none resize-none font-mono text-xs leading-relaxed text-black"
                   placeholder="定义智能体的性格和任务..."
                   rows={4}
@@ -350,11 +362,13 @@ export default function AgentModals({
                 className="px-5 py-2.5 rounded-lg text-sm font-bold text-neutral-500 hover:text-black transition-all cursor-pointer"
                 onClick={onCloseEdit}
                 disabled={editSubmitting}
+                data-testid="edit-agent-cancel"
               >
                 取消
               </button>
               <button
                 disabled={!editName.trim() || editSubmitting}
+                data-testid="edit-agent-save"
                 className="px-5 py-2.5 rounded-lg bg-black text-white text-sm font-bold shadow-sm hover:bg-neutral-900 transition-all active:scale-95 disabled:bg-neutral-200 disabled:text-neutral-400 disabled:shadow-none disabled:active:scale-100 cursor-pointer"
                 onClick={handleEditSubmit}
               >

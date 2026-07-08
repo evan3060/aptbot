@@ -210,6 +210,18 @@ export function createAgentSession(config: AgentSessionConfig): AgentSession {
             bufferedEntries = [];
             drainSteeringQueue();
             break;
+          case 'agent_end':
+            // 兜底持久化：当 turn 因 provider 异常未触发 turn_end 时，
+            // bufferedEntries 仍含 user message（assistant partial 未入列因 message_end 未触发）。
+            // 此处 flush 确保至少 user message 落盘，使 .jsonl 文件存在 →
+            // listSessions 可扫描到 session → 刷新页面后历史可恢复。
+            if (bufferedEntries.length > 0) {
+              for (const entry of bufferedEntries) {
+                await storage.appendSession(sessionId, entry);
+              }
+              bufferedEntries = [];
+            }
+            break;
         }
       }
     } finally {

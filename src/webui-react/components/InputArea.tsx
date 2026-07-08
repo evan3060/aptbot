@@ -168,11 +168,14 @@ export default function InputArea({
   const tokenCount = inputText.length > 0 ? Math.ceil(inputText.length * 0.4 + 1200) : 1200;
 
   return (
-    <div className="px-6 lg:px-8 py-6 bg-white border-t border-slate-200">
+    <div data-testid="input-area" className="px-6 lg:px-8 py-6 bg-white border-t border-slate-200">
       <div className="mx-auto space-y-4 w-full max-w-4xl">
         {/* 快捷指令栏 — 仅在通用智能体（activeAgentSlug === 'default'）时显示 */}
         {activeAgentSlug === 'default' && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2 w-full select-none">
+          <div
+            data-testid="quick-actions"
+            className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2 w-full select-none"
+          >
             <button
               onClick={() => triggerQuickAction('translate')}
               className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-neutral-600 hover:text-black hover:border-black transition-all justify-center cursor-pointer select-none active:scale-95 w-full"
@@ -298,6 +301,7 @@ export default function InputArea({
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
+            data-testid="input-textarea"
             className="w-full bg-transparent border-none p-4 text-[15px] focus:ring-0 resize-none placeholder:text-neutral-300 focus:outline-none custom-scrollbar"
             placeholder={`给 ${activeAgent?.name || 'Aptbot'} 发送消息...`}
             rows={4}
@@ -307,6 +311,7 @@ export default function InputArea({
             {/* 文件附件 — 后端暂未支持，点击提示开发中 */}
             <button
               onClick={handleAttachClick}
+              data-testid="attach-button"
               className="w-10 h-10 flex items-center justify-center rounded-full text-neutral-500 hover:bg-neutral-100 transition-colors cursor-pointer"
               title="附加代码文件/文档"
             >
@@ -315,6 +320,7 @@ export default function InputArea({
             <button
               onClick={handleSend}
               disabled={!inputText.trim()}
+              data-testid="send-button"
               className="w-12 h-12 flex items-center justify-center rounded-lg bg-black text-white shadow-md hover:bg-neutral-900 transition-all active:scale-95 disabled:bg-neutral-200 disabled:text-neutral-400 disabled:shadow-none disabled:active:scale-100 cursor-pointer"
               title="发送"
             >
@@ -331,6 +337,7 @@ export default function InputArea({
             <select
               value={activeAgentSlug}
               onChange={(e) => onSelectAgent(e.target.value)}
+              data-testid="agent-select"
               className="bg-transparent border-none p-0 pr-6 text-[10px] font-bold text-black focus:ring-0 cursor-pointer focus:outline-none"
             >
               {agents.map((a) => (

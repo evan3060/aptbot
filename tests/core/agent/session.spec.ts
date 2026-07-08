@@ -98,7 +98,7 @@ describe('AgentSession', () => {
     expect(roles).toContain('assistant');
   });
 
-  it('error response is not persisted (turn atomicity)', async () => {
+  it('error response: user message persisted, assistant response not (turn atomicity)', async () => {
     const { storage, appended } = makeMockStorage();
     const events: AgentEvent[] = [
       { type: 'agent_start' },
@@ -121,7 +121,12 @@ describe('AgentSession', () => {
 
     await collect(session.run('hi'));
 
-    expect(appended.length).toBe(0);
+    // User message IS persisted on agent_end (durable input — session must exist in .jsonl
+    // for listSessions to find it, enabling history restore after page refresh).
+    // Assistant error response is NOT persisted (message_end never fired → not in bufferedEntries).
+    const msgs = messageEntries(appended);
+    expect(msgs.length).toBe(1);
+    expect(msgs[0].message.role).toBe('user');
   });
 
   it('pushSteering message included in next run context', async () => {

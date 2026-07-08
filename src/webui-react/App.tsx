@@ -168,6 +168,13 @@ export default function App() {
       dispatch(event);
       // Also handle message events locally for display
       handleMessageEvent(event);
+      // turn_end → refresh session list (memory constraint:
+      // "Session list must refresh after turn_end to display new session with preview")
+      // First user message in a new session generates the session entry + preview
+      // server-side after the turn completes; frontend must re-fetch to display it.
+      if (event.type === 'turn_end') {
+        void loadAgentsAndSessions();
+      }
     });
     ws.on('replay', (payload) => handleReplay(payload));
     ws.on('session_changed', (payload) => handleSessionChanged(payload));

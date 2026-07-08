@@ -125,7 +125,11 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 backdrop-blur-xs p-4 animate-fade-in">
+    <div
+      data-testid="auth-modal"
+      data-mode={mode}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 backdrop-blur-xs p-4 animate-fade-in"
+    >
       <div className="bg-white border border-slate-200 shadow-2xl rounded-2xl w-full max-w-[390px] overflow-hidden flex flex-col relative">
 
         {/* Close Button on Top Right */}
@@ -180,6 +184,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
                 placeholder="请输入用户名"
                 className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-black focus:bg-white transition-all text-black"
                 required
+                data-testid="auth-username"
               />
             </div>
           </div>
@@ -196,6 +201,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
                 placeholder="请输入密码"
                 className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-black focus:bg-white transition-all text-black"
                 required
+                data-testid="auth-password"
               />
             </div>
           </div>
@@ -213,6 +219,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
                   placeholder="请再次输入密码"
                   className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-black focus:bg-white transition-all text-black"
                   required
+                  data-testid="auth-confirm-password"
                 />
               </div>
             </div>
@@ -228,6 +235,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
                 onClick={handleCancel}
                 disabled={loading}
                 className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg transition-colors cursor-pointer select-none active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                data-testid="auth-cancel"
               >
                 取消
               </button>
@@ -237,6 +245,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
                 type="submit"
                 disabled={loading}
                 className="px-4 py-2 bg-black text-white hover:bg-neutral-800 font-bold text-xs rounded-lg transition-colors cursor-pointer select-none active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                data-testid="auth-confirm"
               >
                 确认
               </button>
@@ -249,6 +258,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
                 onClick={() => setMode('register')}
                 disabled={loading}
                 className="w-full px-4 py-2 bg-white border border-slate-200 hover:border-slate-400 text-slate-700 font-bold text-xs rounded-lg transition-all cursor-pointer select-none active:scale-[0.98] mt-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                data-testid="auth-register-trigger"
               >
                 没有账号？注册账号
               </button>

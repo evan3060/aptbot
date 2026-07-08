@@ -381,7 +381,8 @@ export class FileStorage implements StorageAdapter {
     // §0.3.0 Task 4: 扫描 legacy flat dir — ${dataDir}/*.jsonl
     if (existsSync(this.dataDir)) {
       try {
-        const files = readdirSync(this.dataDir).filter((f) => f.endsWith('.jsonl'));
+        const allFiles = readdirSync(this.dataDir);
+        const files = allFiles.filter((f) => f.endsWith('.jsonl'));
         for (const file of files) {
           const sessionId = file.replace(/\.jsonl$/, '');
           if (!isValidSessionId(sessionId)) continue;

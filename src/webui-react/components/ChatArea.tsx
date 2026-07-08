@@ -48,7 +48,11 @@ export default function ChatArea({ activeAgent, messages, isWorking }: ChatAreaP
   }
 
   return (
-    <div className="flex-1 overflow-y-auto custom-scrollbar p-6 lg:p-8 bg-white min-h-[400px]">
+    <div
+      data-testid="chat-area"
+      data-streaming={isWorking ? 'true' : 'false'}
+      className="flex-1 overflow-y-auto custom-scrollbar p-6 lg:p-8 bg-white min-h-[400px]"
+    >
       <div className="max-w-4xl mx-auto w-full flex flex-col gap-6">
         {messages.length === 0 ? (
           <EmptyState activeAgent={activeAgent} />
@@ -62,6 +66,8 @@ export default function ChatArea({ activeAgent, messages, isWorking }: ChatAreaP
               return (
                 <div
                   key={msg.id}
+                  data-testid={`message-assistant-${msg.id}`}
+                  data-role="assistant"
                   className="flex flex-col items-start message-enter w-full"
                 >
                   {/* Meta details */}
@@ -85,7 +91,10 @@ export default function ChatArea({ activeAgent, messages, isWorking }: ChatAreaP
                   </div>
 
                   {/* Content bubble */}
-                  <div className="bg-neutral-50/50 p-5 rounded-xl rounded-tl-none border border-neutral-200 text-neutral-800 shadow-sm leading-relaxed max-w-[85%] relative group">
+                  <div
+                    data-testid={`message-content-${msg.id}`}
+                    className="bg-neutral-50/50 p-5 rounded-xl rounded-tl-none border border-neutral-200 text-neutral-800 shadow-sm leading-relaxed max-w-[85%] relative group"
+                  >
                     {renderMarkdown(msg.text)}
 
                     {/* 流式光标 — 仅在 isWorking 且为最后一条 assistant 消息时显示 */}
@@ -107,6 +116,8 @@ export default function ChatArea({ activeAgent, messages, isWorking }: ChatAreaP
               return (
                 <div
                   key={msg.id}
+                  data-testid={`message-user-${msg.id}`}
+                  data-role="user"
                   className="flex flex-col message-enter max-w-[85%] w-fit items-end ml-auto pr-0"
                 >
                   <div className="flex items-center gap-2 mb-2 mr-1">
@@ -173,7 +184,10 @@ function EmptyState({ activeAgent }: { activeAgent: AgentProfile | null }) {
   };
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-8 border border-neutral-200/80 rounded-xl w-full py-16 bg-neutral-50/30">
+    <div
+      data-testid="empty-state"
+      className="flex-1 flex flex-col items-center justify-center p-8 border border-neutral-200/80 rounded-xl w-full py-16 bg-neutral-50/30"
+    >
       <div className="w-16 h-16 rounded-full border border-neutral-200 flex items-center justify-center bg-white mb-6 shadow-xs">
         <Cpu className="w-8 h-8 text-black animate-pulse" />
       </div>
