@@ -418,8 +418,40 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
 
   // /new 命令支持：可变 session 引用 + 工厂函数
   const sessionRef: SessionRef = { current: session, currentKey: sessionId };
-  const sessionFactory: SessionFactory = (sid) =>
-    createAgentSession({ storage, sessionId: sid, agentLoop, provider, model, tools: registry, systemPrompt });
+  // §0.3.0 UAT fix: sessionFactory 在创建新 session 时解析当前 agent 的 profile + MEMORY.md，
+  // 构建正确的 systemPrompt（而非启动时的 stale placeholder），
+  // 并调用 claimSession 绑定 userId + agentId（使 session 归属到正确的 agent）。
+  const sessionFactory: SessionFactory = async (sid, opts) => {
+    // §0.3.0 UAT Bug G fix: 当 opts 未提供 agentSlug 时（服务器重启后懒加载 session），
+    // 从 .meta.json 读取 agentId，避免 fallback 到 DEFAULT_AGENT_SLUG
+    // 导致专用智能体 session 被错误地用 default agent 的 systemPrompt 重建。
+    let agentSlug = opts?.agentSlug ?? slashHandler?.ctx.currentAgentSlug;
+    let userId = opts?.userId ?? slashHandler?.ctx.userId;
+    if (!agentSlug || !userId) {
+      const meta = storage.getSessionOwnerAndAgentSync(sid);
+      if (meta) {
+        if (!agentSlug) agentSlug = meta.agentId;
+        if (!userId) userId = meta.userId;
+      }
+    }
+    agentSlug = agentSlug ?? DEFAULT_AGENT_SLUG;
+    // claimSession 绑定 userId + agentId（写 .meta.json，不依赖 .jsonl）
+    if (userId) {
+      try {
+        await storage.claimSession(sid, userId, agentSlug);
+      } catch (e) {
+        log.warn('sessionFactory: claimSession failed', { sid, userId, agentSlug, error: String(e) });
+      }
+    }
+    // §0.3.0 UAT Bug G fix: 同步 currentAgentSlug（懒加载 session 后保持上下文一致）
+    if (slashHandler && agentSlug !== slashHandler.ctx.currentAgentSlug) {
+      slashHandler.ctx.currentAgentSlug = agentSlug;
+    }
+    // 解析当前 agent 的 profile + MEMORY.md → 构建 systemPrompt
+    const { agent, memoryContent } = await resolveAgentForPrompt(userId, agentSlug, agentStorage, aptbotConfig.dataDir);
+    const sp = buildSessionSystemPrompt(agent, memoryContent, skillState);
+    return createAgentSession({ storage, sessionId: sid, agentLoop, provider, model, tools: registry, systemPrompt: sp, userId, agentId: agentSlug });
+  };
 
   const bus = new InMemoryMessageBus();
   const channelManager = createChannelManager(bus);
@@ -604,6 +636,8 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
         model: newModel,
         tools: registry,
         systemPrompt: newSystemPrompt,
+        userId: slashHandler.ctx.userId,
+        agentId: slashHandler.ctx.currentAgentSlug ?? DEFAULT_AGENT_SLUG,
       });
       if (slashHandler) slashHandler.ctx.model = newModel.id;
       log.info('config hot-reloaded', { model: newModel.id, provider: newDecl.id });
@@ -638,6 +672,8 @@ export async function startServer(config: ServerConfig): Promise<ServerHandle> {
         model,
         tools: registry,
         systemPrompt: switchSystemPrompt,
+        userId,
+        agentId: newSlug,
       });
       log.info('agent switched', { from: oldSlug, to: newSlug, userId: userId?.slice(0, 8) });
     } catch (e) {
@@ -689,7 +725,7 @@ export interface SessionRef {
 /**
  * SessionFactory：创建新 session 的工厂函数。
  */
-export type SessionFactory = (sessionId: string) => ReturnType<typeof createAgentSession>;
+export type SessionFactory = (sessionId: string, opts?: { userId?: string; agentSlug?: string }) => Promise<ReturnType<typeof createAgentSession>>;
 
 /**
  * §4.6/§12.2 Config 热重载句柄：runInboundLoop 在 beforeTurn 检查 mtimeNs 变化，
@@ -833,7 +869,15 @@ export async function runInboundLoop(
         // I5 fix: ctx.userId 在链内设置，避免并行 sessionKey 间的竞态
         // §0.3.0 final-review: 内存工具的 getter 直接读取 slashHandler.ctx.userId，
         // 此处更新后内存工具即获得最新 userId（无需额外同步 agentMemoryCtx）。
-        if (senderUserId && slashHandler) slashHandler.ctx.userId = senderUserId;
+        // §0.3.0 multi-user fix: userId 变化时重置 currentAgentSlug 到 default，
+        // 避免前一个用户切换的专用 agent 遗留到新用户（导致 session 绑定到错误 agent）。
+        if (senderUserId && slashHandler) {
+          const prevUserId = slashHandler.ctx.userId;
+          slashHandler.ctx.userId = senderUserId;
+          if (prevUserId && prevUserId !== senderUserId) {
+            slashHandler.ctx.currentAgentSlug = DEFAULT_AGENT_SLUG;
+          }
+        }
         // §0.3.0 multi-user 修复: 获取/懒加载 per-senderSessionKey 的 AgentSession
         // 不同 senderSessionKey 用独立 session 实例，避免全局 sessionRef 互相污染。
         let activeSession: ReturnType<typeof createAgentSession>;
@@ -841,7 +885,7 @@ export async function runInboundLoop(
           let s = perSenderSessions.get(senderSessionKey);
           if (!s) {
             loopLog.info('creating new AgentSession for senderSessionKey', { senderSessionKey });
-            s = sessionFactory(senderSessionKey);
+            s = await sessionFactory(senderSessionKey);
             perSenderSessions.set(senderSessionKey, s);
           }
           activeSession = s;
@@ -892,7 +936,15 @@ export async function runInboundLoop(
                 const newId = result.continueSessionId ?? randomUUID();
                 // §0.3.0 multi-user 修复: 仅切换该 senderSessionKey 的 session 实例，
                 // 不再修改全局 sessionRef.currentKey（避免污染其他用户的 session）。
-                const newSession = sessionFactory(newId);
+                // §0.3.0 UAT fix: 传入 userId + agentSlug，使新 session 绑定到当前 agent
+                // （claimSession 写 agentId 到 .meta.json + 用当前 agent profile 构建 systemPrompt）
+                // §0.3.0 UAT Bug J fix: /resume 时不传 agentSlug — 让 sessionFactory 从
+                // .meta.json 读取会话原始 agentId，保持会话归属一致（而非用当前 agent 覆盖）
+                const isResume = !!result.resumeFromArg;
+                const newSession = await sessionFactory(newId, {
+                  userId: slashHandler?.ctx.userId,
+                  ...(isResume ? {} : { agentSlug: slashHandler?.ctx.currentAgentSlug }),
+                });
                 perSenderSessions.delete(oldKey);
                 perSenderSessions.set(newId, newSession);
                 if (slashHandler) {
@@ -904,12 +956,36 @@ export async function runInboundLoop(
                 onNewSession?.(oldKey, newId);
                 loopLog.info('session switched', { senderSessionKey: oldKey, newSessionKey: newId, resumed: !!result.continueSessionId });
               }
-              // §0.3.0 final-review: /agent <slug> 切换 agent — 更新 currentAgentSlug + agentMemoryCtx
-              // 并用新 agent 的 profile + MEMORY.md 重建 session systemPrompt。
-              // 交由 onSwitchAgent 回调处理（回调在 startServer 闭包内，能访问 provider/model 等）。
-              if (result.action === 'switch_agent' && result.agentSlug && onSwitchAgent) {
+              // §0.3.0 final-review: /agent <slug> 切换 agent — 更新 currentAgentSlug + 切换到该 agent 的最新 session
+              // §0.3.0 UAT fix: 若有 continueSessionId（/agent 命令返回的目标 session），则切换 session
+              // 而非复用当前 sessionId（会导致 specialized agent 读取 default agent 的历史）。
+              // 切换方式与 /new /resume 一致：用 sessionFactory 创建新 session + 通知前端 session_changed。
+              if (result.action === 'switch_agent' && result.agentSlug) {
                 const oldSlug = slashHandler.ctx.currentAgentSlug ?? DEFAULT_AGENT_SLUG;
-                await onSwitchAgent(slashHandler.ctx.userId, oldSlug, result.agentSlug);
+                const newSlug = result.agentSlug;
+                if (result.continueSessionId && sessionFactory) {
+                  const oldKey = senderSessionKey;
+                  const newId = result.continueSessionId;
+                  // 更新 currentAgentSlug（sessionFactory 会读取此值构建 systemPrompt）
+                  if (slashHandler) slashHandler.ctx.currentAgentSlug = newSlug;
+                  // 创建新 session（绑定到新 agent：claimSession 写 agentId + 用新 agent profile 构建 systemPrompt）
+                  const newSession = await sessionFactory(newId, {
+                    userId: slashHandler?.ctx.userId,
+                    agentSlug: newSlug,
+                  });
+                  perSenderSessions.delete(oldKey);
+                  perSenderSessions.set(newId, newSession);
+                  if (slashHandler) {
+                    slashHandler.ctx.sessionId = newId;
+                    slashHandler.ctx.sessionAttrs = newSession;
+                  }
+                  onNewSession?.(oldKey, newId);
+                  loopLog.info('agent switched session', { senderSessionKey: oldKey, newSessionKey: newId, from: oldSlug, to: newSlug });
+                } else if (onSwitchAgent) {
+                  // Fallback: 无 continueSessionId 时仅更新 agent 上下文
+                  await onSwitchAgent(slashHandler.ctx.userId, oldSlug, newSlug);
+                  perSenderSessions.delete(senderSessionKey);
+                }
               }
               // 所有命令都发送完整 turn 事件序列，确保客户端清除 working 状态
               const turnId = createTurnId();

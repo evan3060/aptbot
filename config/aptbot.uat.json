@@ -3,13 +3,13 @@
     {
       "id": "custom",
       "name": "Custom API",
-      "baseUrl": "http://192.168.0.11:3000/v1",
+      "baseUrl": "https://opencode.ai/zen/v1",
       "auth": {
         "envVar": "CUSTOM_API_KEY"
       },
       "models": [
         {
-          "id": "deepseek-v4-flash",
+          "id": "deepseek-v4-flash-free",
           "api": "openai-completions",
           "contextWindow": 64000,
           "maxTokens": 4096
@@ -17,7 +17,7 @@
       ]
     }
   ],
-  "defaultModel": "deepseek-v4-flash",
+  "defaultModel": "deepseek-v4-flash-free",
   "dataDir": "./data-uat",
   "deploy": "local",
   "landingPage": true,

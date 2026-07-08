@@ -163,9 +163,23 @@ async function waitForAssistantText(page: Page, timeout = 60_000): Promise<strin
  *
  * ChatArea 组件暴露 data-streaming 属性（isWorking ? 'true' : 'false'），
  * turn_end 触发 isWorking=false → data-streaming="false"。
+ *
+ * §0.3.0 OpenCode free 模型适配：模型可能因多次工具调用产生多个 turn，
+ * turn 间隙 data-streaming 会瞬时变为 false。使用 3s 二次确认避免过早判定完成。
  */
-async function waitForTurnEnd(page: Page, timeout = 90_000): Promise<void> {
-  await expect(page.getByTestId('chat-area')).toHaveAttribute('data-streaming', 'false', { timeout });
+async function waitForTurnEnd(page: Page, timeout = 120_000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const streaming = await page.getByTestId('chat-area').getAttribute('data-streaming');
+    if (streaming === 'false') {
+      // 3s 二次确认，避免工具调用 turn 之间的瞬时 false
+      await page.waitForTimeout(3000);
+      const again = await page.getByTestId('chat-area').getAttribute('data-streaming');
+      if (again === 'false') return;
+    }
+    await page.waitForTimeout(500);
+  }
+  throw new Error(`turn did not complete within ${timeout}ms`);
 }
 
 test.describe('React WebUI UAT — 10 user scenarios', () => {
@@ -235,12 +249,19 @@ test.describe('React WebUI UAT — 10 user scenarios', () => {
     await expect(page.locator('[data-testid^="session-item-"]').first()).toBeVisible({
       timeout: 15_000,
     });
+    // §0.3.0 OpenCode free 模型适配：等待 session1 turn 完成后再创建新会话，
+    // 避免 streaming 时 /new 命令处理时序混乱导致 empty-state 不出现
+    await waitForTurnEnd(page, 120_000);
     const initialSessionCount = await page.locator('[data-testid^="session-item-"]').count();
 
-    // 点击"新会话"按钮
+    // 点击"新会话"按钮 → 显示智能体选择卡片（NewSessionPicker）
+    // §0.3.0 UAT: 点击新会话按钮不再直接清空，而是显示 agent 选择卡片
     await page.getByTestId('new-session-button').click();
-
-    // 等待消息清空（empty-state 重新出现）
+    await expect(page.getByTestId('new-session-picker')).toBeVisible({ timeout: 5_000 });
+    await page.getByTestId('new-session-agent-default').click();
+    await expect(page.getByTestId('new-session-picker')).toBeHidden({ timeout: 15_000 });
+    // 等待 /new 命令处理完成（/agent 先发，200ms 后 /new，需等待服务端处理）
+    await page.waitForTimeout(1500);
     await expect(page.getByTestId('empty-state')).toBeVisible({ timeout: 15_000 });
 
     // 在新会话中发一条消息使其持久化（确保新 session 出现在列表中）
@@ -272,10 +293,17 @@ test.describe('React WebUI UAT — 10 user scenarios', () => {
     await expect(page.locator('[data-testid^="session-item-"]').first()).toBeVisible({
       timeout: 15_000,
     });
+    // §0.3.0 OpenCode free 模型适配：等待 session1 turn 完成后再创建新会话，
+    // 避免 streaming 时 /new 命令处理时序混乱导致 empty-state 不出现
+    await waitForTurnEnd(page, 120_000);
     const sessionsBefore = await page.locator('[data-testid^="session-item-"]').all();
 
-    // 创建新会话2 + 发消息
+    // 创建新会话2 + 发消息（通过 NewSessionPicker 选择通用智能体）
     await page.getByTestId('new-session-button').click();
+    await expect(page.getByTestId('new-session-picker')).toBeVisible({ timeout: 5_000 });
+    await page.getByTestId('new-session-agent-default').click();
+    await expect(page.getByTestId('new-session-picker')).toBeHidden({ timeout: 15_000 });
+    await page.waitForTimeout(1500);
     await expect(page.getByTestId('empty-state')).toBeVisible({ timeout: 15_000 });
     await page.getByTestId('input-textarea').fill('会话2标记消息');
     await page.getByTestId('send-button').click();

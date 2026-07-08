@@ -182,6 +182,50 @@ aptbot 从「单 agent 多会话」演进为「双轨 agent 系统」。八大�
 - `package.json` 版本升至 `0.3.0`
 - git tag `v0.3.0` 由 finishing 步骤单独处理（本版本未在本 commit 创建）
 
+### React WebUI 重设计（0.3.0 增量）
+
+基于 [docs/superpowers/plans/2026-07-07-react-webui-redesign.md](./docs/superpowers/plans/2026-07-07-react-webui-redesign.md) 实施，10 task 全部完成。将原 Lit Web Components 实现替换为 React 18 + TypeScript 重构，提升组件复用性与状态管理清晰度。
+
+#### Added — React WebUI 重设计
+
+- `src/webui-react/`：全新 React 18 实现
+  - `App.tsx`：根组件 + 状态管理（useReducer + coreReducer）+ WebSocket 客户端集成
+  - `components/Sidebar.tsx`：侧边栏（agent 列表 + session 列表 + NewSessionPicker 智能体选择卡片 + session 重命名/删除）
+  - `components/ChatArea.tsx`：聊天区（消息渲染 + InlineToolCalls 折叠工具调用 + streaming 状态）
+  - `components/InputArea.tsx`：输入区（快捷指令 + agent/model/思考深度选择）
+  - `components/AgentModals.tsx`：agent 创建/编辑弹窗
+  - `components/MemoryToast.tsx`：记忆写入 toast 通知
+  - `components/FooterBar.tsx`：底部状态栏
+  - `lib/reducer.ts`：核心 reducer（消息复用 + 空消息清理 + toolCalls 合并）
+  - `lib/ws-client.ts`：WebSocket 客户端（session_changed 自动重连）
+  - `lib/api.ts`：API 客户端
+- `src/webui-react/index.html` + `src/webui-react/main.tsx`：React 入口
+- `scripts/build-webui-react.mjs`：Vite 构建脚本
+
+#### Fixed — UAT bug 修复（Round 1-4）
+
+- **Bug A-D**：删除会话递归清理 + 新建会话 NewSessionPicker 流程 + 专用 agent 会话归属 + session 重命名
+- **Bug E-G**：多工具调用空消息合并 + 输入框工具提示移除 + 专用 agent 角色身份保持
+- **Bug H-J**：工具调用内联展示 + 历史会话加载（JSONL 优先于 ring buffer）+ agent 切换时 agentId 同步
+- **Bug K-M**：工具调用无空 assistant 消息 + React.memo 防闪烁 + 重进会话工具调用记录保持
+- **Bug M round 2**：readHistoryForReplay 保留含 toolCalls 的 assistant 消息（不再过滤）
+- **Bug N**：NewSessionPicker 状态下直接输入消息创建新 default 会话
+- **多用户 currentAgentSlug 状态泄漏**：server.ts runInboundLoop 中 userId 变化时重置 currentAgentSlug
+
+#### Changed — UAT 测试适配 OpenCode free 模型
+
+- `config/aptbot.json` / `config/aptbot.uat.json`：切换到 OpenCode free 模型（`https://opencode.ai/zen/v1` + `deepseek-v4-flash-free`）
+- UAT 测试 `waitForTurnEnd` 增加 3s 二次确认，避免工具调用 turn 间隙 data-streaming 瞬时 false 导致过早判定完成
+- UAT 测试放宽 assistant 消息数量断言（OpenCode 模型可能在工具调用前输出非空文本）
+- UAT 测试增加超时（reasoning_content 阶段耗时较长）
+- vitest `websocket-history-replay.spec.ts` 更新测试匹配 Bug I/M 修复后的行为
+
+### Test Coverage（增量）
+
+- Playwright UAT 27/27 通过（含 6 个 bug-fix UAT 场景 + 10 个 React WebUI UAT 场景）
+- vitest 1769/1770 通过（1 个 pre-existing auth-api ECONNRESET flaky 失败，单独跑通过）
+- `npx tsc --noEmit` 0 错误
+
 ---
 
 ## [0.2.3] - 2026-07-02

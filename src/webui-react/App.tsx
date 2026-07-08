@@ -38,7 +38,6 @@ import Sidebar from './components/Sidebar.js';
 import ChatArea from './components/ChatArea.js';
 import InputArea from './components/InputArea.js';
 import AgentModals from './components/AgentModals.js';
-import ToolCallView from './components/ToolCallView.js';
 import MemoryToast from './components/MemoryToast.js';
 import FooterBar, { type ConnectionState } from './components/FooterBar.js';
 
@@ -80,7 +79,19 @@ export default function App() {
   const [isEditAgentOpen, setIsEditAgentOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState<AgentProfile | null>(null);
 
+  // §0.3.0 UAT: 新会话选择器 — 点击"新会话"时显示智能体选择卡片
+  const [showNewSessionPicker, setShowNewSessionPicker] = useState(false);
+
   const wsRef = useRef<WsClient | null>(null);
+
+  // §0.3.0 UAT Bug H fix: 跟踪 pending message id。
+  // message_start 时只记录 id，不创建消息；message_delta 时才创建消息（避免空消息框出现又消失）。
+  const pendingMessageIdRef = useRef<string | null>(null);
+
+  // §0.3.0 UAT Bug N fix: 用户在 NewSessionPicker 状态下直接输入消息时，
+  // 先创建新会话（/agent default + /new），消息暂存到 pendingUserMessage，
+  // session_changed 后自动发送。
+  const pendingUserMessageRef = useRef<{ content: string; files?: { name: string; size: string }[] } | null>(null);
 
   // --- Derived values ---
   const activeAgent = useMemo(
@@ -191,6 +202,11 @@ export default function App() {
     ws.on('error', (payload) => {
       const msg = payload as { type: 'error'; code: string; message: string };
       console.error('[App] ws error:', msg.code, msg.message);
+      // session_ownership_mismatch: 当前 sessionKey 属于其他用户（可能是切换用户后缓存过期）。
+      // 重新 bootstrap 获取当前用户的有效 sessionId，然后重连。
+      if (msg.code === 'session_ownership_mismatch') {
+        void bootstrap();
+      }
     });
 
     ws.connect(authController.token, sessionId);
@@ -204,18 +220,15 @@ export default function App() {
   const handleMessageEvent = (event: AgentEvent) => {
     switch (event.type) {
       case 'message_start':
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: event.messageId,
-            role: 'assistant',
-            text: '',
-            isStreaming: true,
-            timestamp: formatTime(new Date()),
-          },
-        ]);
+        // §0.3.0 UAT Bug H fix: 不在 message_start 时创建消息。
+        // 只记录 pending messageId，等 message_delta 有实际文本时才创建消息。
+        // 这样工具调用轮次（无文本输出）不会产生空消息框。
+        pendingMessageIdRef.current = event.messageId;
         break;
       case 'message_delta': {
+        // §0.3.0 UAT Bug H/K fix: 只在 event.text 非空时才创建/追加消息
+        // 避免空 delta 创建空消息框
+        if (!event.text) break;
         setMessages((prev) => {
           // Find last assistant message and append text
           let lastAssistantIndex = -1;
@@ -225,12 +238,14 @@ export default function App() {
               break;
             }
           }
-          if (lastAssistantIndex === -1) {
-            // Defensive: delta before start — create new assistant message
+          // If no existing assistant message or the last one is not the pending message,
+          // create a new message (this is the first delta for this message)
+          if (lastAssistantIndex === -1 ||
+            (pendingMessageIdRef.current && prev[lastAssistantIndex].id !== pendingMessageIdRef.current)) {
             return [
               ...prev,
               {
-                id: localId('m'),
+                id: pendingMessageIdRef.current ?? localId('m'),
                 role: 'assistant',
                 text: event.text,
                 isStreaming: true,
@@ -245,6 +260,10 @@ export default function App() {
         break;
       }
       case 'message_end':
+        // §0.3.0 UAT Bug H fix: 清除 pending messageId。
+        // 如果消息从未被创建（工具调用轮次无文本），不做任何操作 — 不会有空消息框。
+        // 如果消息已存在，标记为非 streaming。
+        pendingMessageIdRef.current = null;
         setMessages((prev) =>
           prev.map((m) =>
             m.id === event.messageId ? { ...m, isStreaming: false } : m,
@@ -286,17 +305,25 @@ export default function App() {
     // Clear local messages + reducer state before loading replay
     setMessages([]);
     dispatch({ type: 'clear' });
+    pendingMessageIdRef.current = null;
 
     for (const m of msg.messages) {
       if (typeof m !== 'object' || m === null) continue;
 
-      // JSONL format: { id, role, content, timestamp, replay }
+      // JSONL format: { id, role, content, timestamp, replay, toolCalls? }
       if ('role' in m && 'content' in m) {
         const rm = m as {
           id: string;
           role: 'user' | 'assistant';
           content: string;
           timestamp: number;
+          toolCalls?: Array<{
+            id: string;
+            name: string;
+            arguments: string;
+            status: 'running' | 'success' | 'failed';
+            summary?: string;
+          }>;
         };
         setMessages((prev) => [
           ...prev,
@@ -305,6 +332,8 @@ export default function App() {
             role: rm.role,
             text: rm.content,
             timestamp: formatTime(rm.timestamp),
+            // §0.3.0 UAT Bug M fix: 保留历史消息的工具调用记录
+            toolCalls: rm.toolCalls,
           },
         ]);
       }
@@ -347,6 +376,28 @@ export default function App() {
     setActiveSessionId(msg.sessionId);
     setMessages([]);
     dispatch({ type: 'clear' });
+    pendingMessageIdRef.current = null;
+    // §0.3.0 UAT: session 切换后隐藏新会话选择器
+    setShowNewSessionPicker(false);
+    // §0.3.0 UAT Bug N fix: 如果有 pending user message（用户在 NewSessionPicker 状态下直接输入），
+    // 在新会话创建后自动发送
+    const pending = pendingUserMessageRef.current;
+    if (pending) {
+      pendingUserMessageRef.current = null;
+      // 添加乐观用户消息并发送
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: localId('local'),
+          role: 'user',
+          text: pending.content,
+          timestamp: formatTime(new Date()),
+          files: pending.files,
+        },
+      ]);
+      // 延迟发送确保 ws 已重连到新 session
+      setTimeout(() => wsRef.current?.send(pending.content), 500);
+    }
     // Refresh session list (e.g., /new creates a new session that should appear)
     void loadAgentsAndSessions();
   };
@@ -360,6 +411,17 @@ export default function App() {
     content: string,
     files?: { name: string; size: string }[],
   ) => {
+    // §0.3.0 UAT Bug N fix: 当显示 NewSessionPicker 时用户直接输入消息，
+    // 根据输入框下方当前显示的智能体（activeAgentSlug）新建对应智能体的会话，
+    // 消息暂存到 pendingUserMessage，session_changed 后发送
+    if (showNewSessionPicker) {
+      const targetSlug = activeAgentSlug || 'default';
+      pendingUserMessageRef.current = { content, files };
+      setShowNewSessionPicker(false);
+      wsRef.current?.sendSlash(`/agent ${targetSlug}`);
+      setTimeout(() => wsRef.current?.sendSlash('/new'), 200);
+      return;
+    }
     setMessages((prev) => [
       ...prev,
       {
@@ -380,18 +442,35 @@ export default function App() {
 
   /** Select existing session: send /resume <id> slash command */
   const handleSelectSession = (sessionId: string) => {
+    // §0.3.0 UAT Bug J fix: 点击会话时自动切换到该会话所属的智能体
+    const session = sessions.find((s) => s.id === sessionId);
+    if (session?.agentId) {
+      setActiveAgentSlug(session.agentId);
+    }
     wsRef.current?.sendSlash(`/resume ${sessionId}`);
   };
 
-  /** Create new session: send /new slash command */
+  /** Create new session: show agent picker instead of directly sending /new */
   const handleCreateSession = () => {
-    wsRef.current?.sendSlash('/new');
+    setShowNewSessionPicker(true);
+  };
+
+  /** §0.3.0 UAT: 新会话选择器 — 点击智能体后切换到该 agent 并创建新会话 */
+  const handleStartNewSessionWithAgent = (slug: string) => {
+    setActiveAgentSlug(slug);
+    // 先发 /agent <slug> 切换 agent 上下文（更新 currentAgentSlug），
+    // 再发 /new 创建新会话（归属当前 agent）。
+    // /agent <slug> 会切换到该 agent 的最新 session，/new 会创建新 session 覆盖。
+    wsRef.current?.sendSlash(`/agent ${slug}`);
+    setTimeout(() => wsRef.current?.sendSlash('/new'), 200);
+    setShowNewSessionPicker(false);
   };
 
   /** Select agent: update local state + send /agent <slug> to backend */
   const handleSelectAgent = (slug: string) => {
     setActiveAgentSlug(slug);
     wsRef.current?.sendSlash(`/agent ${slug}`);
+    setShowNewSessionPicker(false);
   };
 
   /** Login success callback from AuthModal */
@@ -437,8 +516,15 @@ export default function App() {
     setIsEditAgentOpen(false);
     setEditingAgent(null);
   };
-  const handleAgentSaved = () => {
+  const handleAgentSaved = (createdSlug?: string) => {
     void loadAgentsAndSessions();
+    // §0.3.0 UAT fix: 创建专用 agent 后自动切换到该 agent。
+    // /agent <slug> 会自动查找该 agent 的最新 session（新 agent 无 session → 自动新建），
+    // 无需额外发 /new（会导致创建第二个 session）。
+    if (createdSlug) {
+      setActiveAgentSlug(createdSlug);
+      wsRef.current?.sendSlash(`/agent ${createdSlug}`);
+    }
   };
 
   const handleDeleteAgent = async (slug: string) => {
@@ -454,6 +540,23 @@ export default function App() {
   /** Session deleted via Sidebar (after api.deleteSession) — remove from state */
   const handleSessionDeleted = (sessionId: string) => {
     setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+  };
+
+  /** §0.3.0 UAT Bug D: 会话重命名 — 通过 /label <name> slash 命令修改当前会话显示名 */
+  const handleRenameSession = (sessionId: string, newLabel: string) => {
+    // 乐观更新本地 sessions 列表（/label slash 不广播 session_renamed 事件）
+    setSessions((prev) =>
+      prev.map((s) => (s.id === sessionId ? { ...s, label: newLabel } : s)),
+    );
+    if (activeSessionId === sessionId) {
+      // 当前会话：通过 /label slash 命令（server-side 持久化到 .meta.json）
+      wsRef.current?.sendSlash(`/label ${newLabel}`);
+    } else {
+      // 非当前会话：直接调用 API（POST /api/sessions/:id/label 会广播 session_renamed）
+      api.renameSession(sessionId, newLabel).catch((err) => {
+        console.error('[App] renameSession (direct api) failed', err);
+      });
+    }
   };
 
   /** Model selection (MVP: single model from bootstrap, no-op essentially) */
@@ -490,6 +593,7 @@ export default function App() {
         onOpenEditAgentModal={handleOpenEditAgentModal}
         onDeleteAgent={handleDeleteAgent}
         onSessionDeleted={handleSessionDeleted}
+        onRenameSession={handleRenameSession}
         currentUser={currentUser}
         onLoggedOut={handleLoggedOut}
         onLoginTrigger={handleLoginTrigger}
@@ -500,15 +604,11 @@ export default function App() {
           activeAgent={activeAgent}
           messages={messages}
           isWorking={ui.isWorking}
+          showNewSessionPicker={showNewSessionPicker}
+          agents={agents}
+          onSelectAgentForNewSession={handleStartNewSessionWithAgent}
+          toolCalls={toolCallList}
         />
-
-        {toolCallList.length > 0 && (
-          <div className="border-t border-neutral-200 px-6 py-2 max-h-40 overflow-y-auto custom-scrollbar bg-white">
-            {toolCallList.map((tc) => (
-              <ToolCallView key={tc.id} toolCall={tc} />
-            ))}
-          </div>
-        )}
 
         <InputArea
           agents={agents}

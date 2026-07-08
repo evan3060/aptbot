@@ -29,3 +29,9 @@ DEPLOYMENT-VPS.md
 
 # 网站克隆研究产物（设计参考，非项目代码）
 docs/research/
+
+# UAT 测试截图（运行时产物，不上传）
+tests/uat/screenshots/
+
+# 临时调试脚本（不上传）
+tmp-*.py

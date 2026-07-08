@@ -37,6 +37,8 @@ export interface Message {
   modelUsed?: string;
   agentName?: string;
   files?: { name: string; size: string }[];
+  /** §0.3.0 UAT Bug M: 历史回放时附带的消息级工具调用记录（用于离开会话再进入时显示） */
+  toolCalls?: ToolCall[];
 }
 
 /** 工具调用条目，与 message 解耦存储在 Map（按 toolCallId 索引） */
@@ -82,9 +84,12 @@ function ephemeralId(prefix: string): string {
 export function uiReducer(state: UiState, action: UiAction): UiState {
   switch (action.type) {
     case 'agent_start':
-      return { ...state, isWorking: true };
+      // §0.3.0 UAT Bug E fix: 在 agent run 开始时清空上一轮的 toolCalls，
+      // 使工具调用在整个 agent run 内跨 turn 累积，最终整合到一条消息中展示
+      return { ...state, isWorking: true, toolCalls: new Map() };
 
     case 'turn_start':
+      // 不在此处清空 toolCalls —— 工具调用需跨 turn 累积（Bug E: 整合为一条消息）
       return { ...state, isWorking: true, currentTurnId: action.turnId };
 
     case 'message_start':

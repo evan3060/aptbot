@@ -171,6 +171,15 @@ export class WsClient {
         break;
       case 'error':
         this.emit('error', msg);
+        // session_ownership_mismatch 是 fatal 错误 — 当前 sessionKey 属于其他用户，
+        // 继续重连只会死循环。停止自动重连，由 App.tsx 重新 bootstrap 获取有效 sessionId。
+        if (msg.code === 'session_ownership_mismatch') {
+          this.shouldReconnect = false;
+          if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+          }
+        }
         break;
       case 'presence':
         this.emit('presence', msg);

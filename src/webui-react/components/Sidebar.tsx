@@ -31,6 +31,7 @@ import {
   Trash2,
   Cpu,
   AlertCircle,
+  Pencil,
 } from 'lucide-react';
 import type { AgentProfile, SessionMetadata, AuthUser } from '../types.js';
 import { authController } from '../lib/auth.js';
@@ -48,6 +49,7 @@ interface SidebarProps {
   onOpenEditAgentModal: (agent: AgentProfile) => void;
   onDeleteAgent: (slug: string) => void;
   onSessionDeleted: (sessionId: string) => void;
+  onRenameSession: (sessionId: string, newLabel: string) => void;
   currentUser: AuthUser | null;
   onLoggedOut: () => void;
   onLoginTrigger: () => void;
@@ -72,6 +74,7 @@ export default function Sidebar({
   onOpenEditAgentModal,
   onDeleteAgent,
   onSessionDeleted,
+  onRenameSession,
   currentUser,
   onLoggedOut,
   onLoginTrigger,
@@ -206,6 +209,7 @@ export default function Sidebar({
                       }}
                       onCancelDelete={() => setPendingDeleteSessionId(null)}
                       onConfirmDelete={() => handleConfirmDeleteSession(session.id)}
+                      onRename={onRenameSession}
                     />
                   ))
                 )}
@@ -320,6 +324,7 @@ export default function Sidebar({
                             }}
                             onCancelDelete={() => setPendingDeleteSessionId(null)}
                             onConfirmDelete={() => handleConfirmDeleteSession(session.id)}
+                            onRename={onRenameSession}
                           />
                         ))
                       )}
@@ -406,6 +411,7 @@ interface SessionItemProps {
   onRequestDelete: () => void;
   onCancelDelete: () => void;
   onConfirmDelete: () => void;
+  onRename: (sessionId: string, newLabel: string) => void;
 }
 
 function SessionItem({
@@ -418,7 +424,29 @@ function SessionItem({
   onRequestDelete,
   onCancelDelete,
   onConfirmDelete,
+  onRename,
 }: SessionItemProps) {
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+
+  const handleStartRename = () => {
+    setRenameValue(sessionDisplay(session));
+    setIsRenaming(true);
+  };
+
+  const handleConfirmRename = () => {
+    const trimmed = renameValue.trim();
+    if (trimmed && trimmed !== sessionDisplay(session)) {
+      onRename(session.id, trimmed);
+    }
+    setIsRenaming(false);
+  };
+
+  const handleCancelRename = () => {
+    setIsRenaming(false);
+    setRenameValue('');
+  };
+
   if (isPendingDelete) {
     return (
       <div
@@ -454,6 +482,29 @@ function SessionItem({
     );
   }
 
+  if (isRenaming) {
+    return (
+      <div
+        data-testid={`session-rename-${session.id}`}
+        className="flex items-center gap-1 px-2 py-1"
+      >
+        <input
+          type="text"
+          value={renameValue}
+          onChange={(e) => setRenameValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleConfirmRename();
+            if (e.key === 'Escape') handleCancelRename();
+          }}
+          onBlur={handleConfirmRename}
+          autoFocus
+          data-testid={`session-rename-input-${session.id}`}
+          className="flex-1 px-2 py-1 text-xs border border-neutral-300 rounded focus:outline-none focus:border-black bg-white"
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       className="group relative flex items-center"
@@ -462,6 +513,7 @@ function SessionItem({
     >
       <button
         onClick={() => onSelect(session.id)}
+        onDoubleClick={handleStartRename}
         className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-left transition-colors border cursor-pointer ${
           isActive
             ? 'bg-neutral-100 border-neutral-200/50 text-neutral-700 font-normal'
@@ -469,16 +521,26 @@ function SessionItem({
         }`}
       >
         <MessageSquare className="w-3.5 h-3.5 shrink-0 text-neutral-400" />
-        <span className="text-xs truncate pr-6">{sessionDisplay(session)}</span>
+        <span className="text-xs truncate pr-12">{sessionDisplay(session)}</span>
       </button>
-      <button
-        onClick={onRequestDelete}
-        title="删除会话"
-        data-testid={`session-delete-${session.id}`}
-        className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 text-neutral-400 hover:text-rose-600 transition-all p-0.5 cursor-pointer"
-      >
-        <Trash2 className="w-3.5 h-3.5" />
-      </button>
+      <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+        <button
+          onClick={handleStartRename}
+          title="重命名会话"
+          data-testid={`session-rename-button-${session.id}`}
+          className="text-neutral-400 hover:text-black transition-colors p-0.5 cursor-pointer"
+        >
+          <Pencil className="w-3 h-3" />
+        </button>
+        <button
+          onClick={onRequestDelete}
+          title="删除会话"
+          data-testid={`session-delete-${session.id}`}
+          className="text-neutral-400 hover:text-rose-600 transition-colors p-0.5 cursor-pointer"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
     </div>
   );
 }

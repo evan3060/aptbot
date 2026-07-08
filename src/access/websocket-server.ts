@@ -833,19 +833,23 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
           touchSession(sessionKey);
           const inboundBuffer = getInboundBuffer(sessionKey);
           const outboundBuffer = getRingBuffer(sessionKey);
-          // Task 3 (0.2.2): ring buffer 未命中时（服务重启后清空）从 JSONL 兜底回放
-          // 仅当 inbound + outbound buffer 均为空且提供 readHistoryForReplay 回调时调用
-          // 性能优先：ring buffer 有数据时不读 JSONL
-          if (inboundBuffer.length === 0 && outboundBuffer.length === 0 && readHistoryForReplay) {
+          // §0.3.0 UAT Bug I fix: 优先从 JSONL 加载完整历史（持久化消息是权威源）。
+          // 仅当 JSONL 无数据时才 fallback 到 ring buffer（适用于 server 重启后 ring buffer 清空的场景）。
+          // 之前的逻辑：ring buffer 有数据时跳过 JSONL → 导致 /resume 历史会话只显示
+          // ring buffer 中的最近几条事件而非完整 JSONL 历史。
+          let replayed = false;
+          if (readHistoryForReplay) {
             try {
               const messages = await readHistoryForReplay(sessionKey, limit);
               if (messages.length > 0) {
                 safeSend(ws, { type: 'replay', replay: true, source: 'jsonl', messages });
+                replayed = true;
               }
             } catch (err) {
               log.warn('readHistoryForReplay failed', { error: String(err), sessionKey });
             }
-          } else {
+          }
+          if (!replayed && (inboundBuffer.length > 0 || outboundBuffer.length > 0)) {
             replayHistory(ws, inboundBuffer, outboundBuffer, limit);
           }
         } else if (lastEventSeqStr !== null) {
@@ -1367,6 +1371,8 @@ async function handleAuthApi(
         return;
       }
       const owner = await sessionStorage.getSessionOwner(sessionId);
+      // TEMP DEBUG: Bug 2 — diagnose forbidden on delete
+      log.warn('DELETE session debug', { sessionId, owner, currentUserId: user.userId, match: owner === user.userId });
       if (!owner) {
         sendJson(404, { error: 'session not found' });
         return;

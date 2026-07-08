@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Command } from './registry.js';
 import type { AgentStorage } from '../../core/agent/agent-storage.js';
 import type { MemoryAuditLog } from '../../core/agent/memory-audit-log.js';
@@ -153,10 +154,16 @@ export const agentCommand: Command = {
       }
       return { output: lines.join('\n') };
     }
+    // §0.3.0 UAT fix: 查找该 agent 的最新 session，若无则生成新 UUID。
+    // 切换 agent 时自动切换到该 agent 的最新 session（或新建 session），
+    // 而非复用当前 sessionId（会导致 specialized agent 读取 default agent 的历史）。
+    const sessions = await ctx.storage.listSessions(userId, slug);
+    const targetSessionId = sessions.length > 0 ? sessions[0].id : randomUUID();
     return {
       output: `Switched to agent: ${agent.name} (${agent.slug})`,
       action: 'switch_agent',
       agentSlug: slug,
+      continueSessionId: targetSessionId,
     };
   },
 };

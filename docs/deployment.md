@@ -2,7 +2,7 @@
 
 > 本文记录 aptbot 部署到 VPS 的完整流程，覆盖 systemd 进程管理、反向代理（nginx 或 Caddy）、TLS 签发、SSH 加固与 sudoers 配置。所有敏感字段以 `<placeholder>` 表示。
 
-> **当前部署版本：** v0.2.3（知识体系 + 双语文章 + i18n）。详见 [CHANGELOG.md](../CHANGELOG.md)。
+> **当前部署版本：** v0.3.0（双轨 agent 系统 + React WebUI 重设计 + OpenCode free 模型）。详见 [CHANGELOG.md](../CHANGELOG.md)。
 
 ## 部署架构
 
@@ -370,11 +370,11 @@ server {
 # 以 aptbot 用户 SSH 登录（仅密钥）
 ssh aptbot@<your-vps-ip>
 
-# 更新部署（v0.2.3 → main）
+# 更新部署（v0.3.0 → main）
 cd /opt/aptbot && git fetch origin && git checkout main && git pull origin main
 # 注意：config/aptbot.json 含本地配置，git pull 前用 git stash 保留
 git stash push -m "preserve config" config/aptbot.json
-git pull origin l1-user-system
+git pull origin main
 git stash pop 2>/dev/null || cp /tmp/aptbot.json.backup config/aptbot.json  # 防止冲突
 npm ci && npm run build && sudo systemctl restart aptbot
 
@@ -389,21 +389,78 @@ sudo journalctl -u aptbot -f
 # 新链接：https://<your-domain>/  → 注册新用户或登录已有账号
 ```
 
-### 11.1 数据文件位置（v0.2.0+）
+### 11.1 数据文件位置（v0.3.0+）
 
 | 文件 | 用途 | 清理策略 |
 |------|------|----------|
 | `data/users.jsonl` | 注册用户（scrypt 哈希密码 + token） | 永久保留 |
-| `data/sessions/*.jsonl` | 会话消息历史（per-sessionId） | 永久保留（L2 计划自动归档） |
-| `data/sessions/*.meta.json` | 会话元数据（owner / label） | 永久保留 |
-| `data/telegram_sessions.jsonl` | Telegram chatId 映射（L2+） | 永久保留 |
+| `data/users/<userId>/agents/<slug>/AGENT.md` | agent 配置（profile + systemPrompt body） | 永久保留 |
+| `data/users/<userId>/agents/<slug>/sessions/*.jsonl` | 会话消息历史（per-sessionId） | 永久保留 |
+| `data/users/<userId>/agents/<slug>/sessions/*.meta.json` | 会话元数据（owner / label / agentId） | 永久保留 |
+| `data/users/<userId>/agents/<slug>/MEMORY.md` | agent 跨 session 记忆（8KB 上限） | 永久保留 |
+| `data/users/<userId>/agents/<slug>/memory.log.jsonl` | 记忆写入审计日志（append-only） | 永久保留 |
+| `data/users/<userId>/archived-agents/` | 归档的 agent（复制+验证+删除） | 永久保留 |
+| `data/sessions/*.jsonl`（legacy） | v0.2.x 旧路径会话历史（启动时自动迁移到新路径） | 迁移后可删 |
 
-> **重要：** Agent 进程不可直接读 `data/sessions/` 目录（受 Global Constraint 限制）。仅 `websocket-server.ts` 通过 `readHistoryForReplay` 受限路径访问，用于服务器重启后历史回放。
+> **重要：** Agent 进程不可直接读 `data/users/*/agents/*/sessions/` 目录（受 Global Constraint 限制）。仅 `websocket-server.ts` 通过 `readHistoryForReplay` 受限路径访问，用于服务器重启后历史回放。
 
-### 11.2 切换分支/回滚
+### 11.2 v0.3.0 配置变化
+
+#### config/aptbot.json 新增字段
+
+```json
+{
+  "providers": [{
+    "id": "custom",
+    "name": "Custom API",
+    "baseUrl": "https://opencode.ai/zen/v1",
+    "auth": { "envVar": "CUSTOM_API_KEY" },
+    "models": [{
+      "id": "deepseek-v4-flash-free",
+      "api": "openai-completions",
+      "contextWindow": 64000,
+      "maxTokens": 4096
+    }]
+  }],
+  "defaultModel": "deepseek-v4-flash-free",
+  "dataDir": "./data",
+  "deploy": "local",
+  "landingPage": true,
+  "learnPage": true,
+  "feedbackEnabled": true
+}
+```
+
+> **模型切换：** v0.3.0 切换到 OpenCode free 模型（`https://opencode.ai/zen/v1` + `deepseek-v4-flash-free`）。该模型会先输出 `reasoning_content`（思考过程），再输出 `content`（实际回复），现有解析器已正确处理（忽略 reasoning_content，只处理 delta.content）。
+
+#### 构建命令
+
+v0.3.0 引入 React WebUI，构建分为两步：
 
 ```bash
-# 回滚到 v0.2.2（main 分支）
+npm run build    # = tsc && node scripts/build-webui.mjs
+                 # 1. TypeScript 编译到 dist/
+                 # 2. Vite 构建 React WebUI 到 dist/webui/
+```
+
+> **部署注意：** systemd ExecStart 仍为 `/usr/bin/node --env-file=/opt/aptbot/.env /opt/aptbot/dist/server.js`，无需修改。React WebUI 构建产物在 `dist/webui/`，由 server.ts 静态文件服务自动托管。
+
+#### 数据迁移（自动）
+
+v0.3.0 启动时会自动检测 legacy 路径 `data/sessions/*.jsonl` 并迁移到新路径 `data/users/<userId>/agents/<slug>/sessions/`。迁移过程：
+
+1. 扫描 `data/sessions/` 下所有 `.jsonl` 文件
+2. 读取对应 `.meta.json` 获取 owner userId
+3. 创建 `data/users/<userId>/agents/default/sessions/` 目录（legacy 会话归属 default agent）
+4. 移动 `.jsonl` 和 `.meta.json` 到新路径
+5. 在 `.meta.json` 中补充 `agentId: "default"` 字段
+
+> **回滚安全：** 迁移前会备份 `data/sessions/` 到 `data/sessions.backup.<timestamp>/`。如需回滚到 v0.2.x，恢复备份即可。
+
+### 11.3 切换分支/回滚
+
+```bash
+# 回滚到 v0.2.x（main 分支）
 cd /opt/aptbot
 git checkout main && git pull origin main
 ```

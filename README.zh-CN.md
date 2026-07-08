@@ -1,6 +1,6 @@
 <div align="center">
   <p>
-    <img src="https://img.shields.io/badge/tests-1228%20passed-brightgreen" alt="Tests">
+    <img src="https://img.shields.io/badge/tests-1770%20passed-brightgreen" alt="Tests">
     <img src="https://img.shields.io/badge/TypeScript-strict-blue" alt="TypeScript">
     <img src="https://img.shields.io/badge/node-%3E%3D20-green" alt="Node">
     <img src="https://img.shields.io/badge/version-0.3.0-blue" alt="Version">

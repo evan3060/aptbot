@@ -24,8 +24,8 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   reporter: [['list']],
-  timeout: 90_000,
-  expect: { timeout: 15_000 },
+  timeout: 180_000,
+  expect: { timeout: 30_000 },
   use: {
     baseURL: 'http://localhost:8081',
     trace: 'on-first-retry',

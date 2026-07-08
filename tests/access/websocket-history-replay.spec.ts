@@ -618,12 +618,18 @@ describe('WebSocket history replay — JSONL fallback (Task 3, 0.2.2)', () => {
     const replayMsg = await replayPromise;
 
     expect(replayMsg.type).toBe('replay');
-    // 仅 user + assistant (无 toolCalls)，其余全部过滤
-    expect(replayMsg.messages.length).toBe(2);
+    // §0.3.0 Bug M round 2 修复：assistant with toolCalls 不再被过滤（重进会话后
+    // 需要显示工具调用记录）。tool role / compaction / working_memory 仍被过滤。
+    // 返回 user + assistant + assistant(with toolCalls) = 3 条
+    expect(replayMsg.messages.length).toBe(3);
     expect(replayMsg.messages[0].role).toBe('user');
     expect(replayMsg.messages[0].content).toBe('user msg');
     expect(replayMsg.messages[1].role).toBe('assistant');
     expect(replayMsg.messages[1].content).toBe('assistant msg');
+    expect(replayMsg.messages[2].role).toBe('assistant');
+    expect(replayMsg.messages[2].content).toBe('calling tool');
+    expect(replayMsg.messages[2].toolCalls).toBeDefined();
+    expect(replayMsg.messages[2].toolCalls.length).toBe(1);
   });
 
   it('limit 参数生效（仅返回最近 N 条）', async () => {
@@ -691,7 +697,7 @@ describe('WebSocket history replay — JSONL fallback (Task 3, 0.2.2)', () => {
     expect(repairedContent).toContain('msg2');
   });
 
-  it('ring buffer 有数据时不读 JSONL（性能优先）', async () => {
+  it('historyLimit 存在时优先从 JSONL 读取（Bug I 修复：JSONL 优先于 ring buffer）', async () => {
     const sessionId = '44444444-5555-6666-7777-888888888888';
     // 写入 JSONL 历史
     await storage.appendSession(sessionId, makeMessageEntry('user', 'jsonl msg', 'm1', 1000));
@@ -706,7 +712,7 @@ describe('WebSocket history replay — JSONL fallback (Task 3, 0.2.2)', () => {
     // 先广播一条出站事件填充 ring buffer
     server!.broadcast(makeEnvelope(0, sessionId, 'agent_start'));
 
-    // 连接请求历史 — ring buffer 有数据，应走 ring buffer replay 而非 JSONL
+    // 连接请求历史 — Bug I 修复后 historyLimit 存在时优先从 JSONL 读取
     const { ws, open } = connectWithListener(TEST_PORT, { session: sessionId, historyLimit: 20 });
     clients.push(ws);
     const replayPromise = waitForMessage(ws);
@@ -714,13 +720,12 @@ describe('WebSocket history replay — JSONL fallback (Task 3, 0.2.2)', () => {
     const replayMsg = await replayPromise;
 
     expect(replayMsg.type).toBe('replay');
-    // ring buffer replay 返回 outbound 事件（含 event 字段），JSONL replay 返回 role/content
+    // JSONL replay 返回 role/content 消息（非 ring buffer 的 event 消息）
     expect(replayMsg.messages.length).toBe(1);
-    expect(replayMsg.messages[0].event).toBeDefined();
-    expect(replayMsg.messages[0].event.type).toBe('agent_start');
-    // 不应包含 JSONL 的 'jsonl msg'
-    const contents = replayMsg.messages.map((m: any) => m.content).filter(Boolean);
-    expect(contents).not.toContain('jsonl msg');
+    expect(replayMsg.messages[0].role).toBe('user');
+    expect(replayMsg.messages[0].content).toBe('jsonl msg');
+    // 不应包含 ring buffer 的 event 字段
+    expect(replayMsg.messages[0].event).toBeUndefined();
   });
 });
 

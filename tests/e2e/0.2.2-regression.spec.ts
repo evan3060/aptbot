@@ -798,15 +798,15 @@ describe('0.2.2 E2E Regression', () => {
       expect(out[1].content).toBe('hi there');
     });
 
-    it('happy: tool_call entries (role=tool / assistant.toolCalls) filtered out', async () => {
+    it('happy: tool 角色消息 filtered out，assistant.toolCalls 保留（Bug M 修复后行为）', async () => {
       const storage = new FileStorage(tempDir);
       const sid = randomUUID();
       const { createMessage } = await import('../../src/core/memory/agent-message.js');
       const u1 = createMessage('user', 'run bash');
-      // assistant 带 toolCalls
+      // assistant 带 toolCalls（content 非空 — 应保留并附带 toolCalls 数据）
       const a1 = createMessage('assistant', 'calling tool');
       a1.toolCalls = [{ id: 'tc1', name: 'bash', arguments: '{}' }];
-      // tool 角色消息
+      // tool 角色消息（filtered out，但 summary 关联到 a1 的 toolCalls）
       const t1 = createMessage('tool', 'tool output');
       t1.toolCallId = 'tc1';
       // 正常 assistant 消息
@@ -818,9 +818,14 @@ describe('0.2.2 E2E Regression', () => {
       await storage.appendSession(sid, { type: 'message', id: a2.id, message: a2, timestamp: 4 });
 
       const out = await readHistoryForReplay(storage, sid, 20);
-      // 仅 u1 + a2 应返回
-      expect(out).toHaveLength(2);
-      expect(out.map((m) => m.content)).toEqual(['run bash', 'final answer']);
+      // §0.3.0 UAT Bug M: u1 + a1（含 toolCalls）+ a2 = 3 条（tool 角色消息被过滤）
+      expect(out).toHaveLength(3);
+      expect(out.map((m) => m.content)).toEqual(['run bash', 'calling tool', 'final answer']);
+      // a1 应附带 toolCalls 数据（含 result summary）
+      expect(out[1].toolCalls).toBeDefined();
+      expect(out[1].toolCalls).toHaveLength(1);
+      expect(out[1].toolCalls![0].name).toBe('bash');
+      expect(out[1].toolCalls![0].summary).toBe('tool output');
     });
 
     it('error: corrupt JSONL → readSession auto-truncates repair, valid entries still returned', async () => {

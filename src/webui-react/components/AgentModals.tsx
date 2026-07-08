@@ -25,8 +25,9 @@ interface AgentModalsProps {
   editingAgent: AgentProfile | null;
   onCloseCreate: () => void;
   onCloseEdit: () => void;
-  /** 创建/编辑成功后触发（父组件刷新 agent 列表）。 */
-  onSaved: () => void;
+  /** 创建/编辑成功后触发（父组件刷新 agent 列表）。
+   *  创建时传入新 agent 的 slug，父组件可切换到该 agent 并新建 session。 */
+  onSaved: (createdSlug?: string) => void;
 }
 
 /** 4 个图标选项（brief Step 1.4：保留 cpu / brain / terminal / palette） */
@@ -92,13 +93,13 @@ export default function AgentModals({
     setCreateSubmitting(true);
     setCreateError('');
     try {
-      await api.createAgent({
+      const created = await api.createAgent({
         name: createName.trim(),
         description: createDescription.trim(),
         personality: createPrompt,
         iconName: createIcon,
       });
-      onSaved();
+      onSaved(created.slug);
       onCloseCreate();
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : '创建智能体失败');

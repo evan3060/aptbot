@@ -23,7 +23,8 @@ export interface SessionRepo {
 /**
  * Task 3 (0.2.2): JSONL 历史回放消息结构。
  * 仅包含 user/assistant 角色消息，标记 replay: true 供前端去重。
- * 不包含 tool 角色消息和含 toolCalls 的 assistant 消息（避免泄漏内部状态）。
+ * 不包含 tool 角色消息（避免泄漏内部状态）。
+ * §0.3.0 UAT Bug M fix: assistant 消息可附带 toolCalls 数据（含 status + summary）。
  */
 export interface ReplayMessage {
   id: string;
@@ -31,6 +32,14 @@ export interface ReplayMessage {
   content: string;
   timestamp: number;
   replay: true;
+  /** §0.3.0 UAT Bug M: assistant 消息关联的工具调用记录（含 result summary） */
+  toolCalls?: Array<{
+    id: string;
+    name: string;
+    arguments: string;
+    status: 'running' | 'success' | 'failed';
+    summary?: string;
+  }>;
 }
 
 /**
@@ -38,7 +47,12 @@ export interface ReplayMessage {
  *
  * 行为：
  * - 仅返回 type === 'message' 的 SessionEntry
- * - 过滤 tool 角色消息和含 toolCalls 的 assistant 消息（避免泄漏内部状态）
+ * - 过滤 tool 角色消息（避免泄漏内部状态）
+ * - §0.3.0 UAT Bug M fix: 保留含 toolCalls 的 assistant 消息，并附带 toolCalls 数据
+ *   使前端离开会话再进入时仍能显示工具调用记录
+ * - §0.3.0 UAT Bug M fix (round 2): 空内容 + 有 toolCalls 的 assistant 消息（工具调用轮次）
+ *   不作为独立消息返回，其 toolCalls 合并到下一条非空 assistant 消息上
+ * - 关联 tool 角色消息的 summary 到对应 toolCall（按 toolCallId 匹配）
  * - 仅返回最近 limit 条（默认 20）
  * - 每条消息标记 replay: true，前端不重复渲染
  * - JSONL 文件损坏时由 storage.readSession 内部的 repairJsonl 自动截断修复
@@ -51,22 +65,81 @@ export async function readHistoryForReplay(
   limit: number = 20,
 ): Promise<ReplayMessage[]> {
   const entries = await storage.readSession(sessionId);
-  const messages = entries
-    .filter((e): e is Extract<SessionEntry, { type: 'message' }> => e.type === 'message')
-    .filter((e) => {
-      // 不返回 tool 角色消息（避免泄漏内部状态）
-      if (e.message.role === 'tool') return false;
-      // 不返回含 toolCalls 的 assistant 消息（避免泄漏内部状态）
-      if (e.message.toolCalls && e.message.toolCalls.length > 0) return false;
-      return true;
-    })
-    .map((e) => ({
-      id: e.message.id,
-      role: e.message.role as 'user' | 'assistant',
-      content: typeof e.message.content === 'string' ? e.message.content : '',
+  const messageEntries = entries
+    .filter((e): e is Extract<SessionEntry, { type: 'message' }> => e.type === 'message');
+
+  // §0.3.0 UAT Bug M fix: 收集 tool 角色消息的 summary，按 toolCallId 索引
+  const toolResultMap = new Map<string, { success: boolean; summary: string }>();
+  for (const e of messageEntries) {
+    if (e.message.role === 'tool' && e.message.toolCallId) {
+      // tool 角色消息的 content 是 summary，success 默认 true（JSONL 不存失败状态）
+      toolResultMap.set(e.message.toolCallId, {
+        success: true,
+        summary: typeof e.message.content === 'string' ? e.message.content : '',
+      });
+    }
+  }
+
+  // §0.3.0 UAT Bug M fix (round 2): 将空内容 + 有 toolCalls 的 assistant 消息的 toolCalls
+  // 累积到 pendingToolCalls，合并到下一条非空 assistant 消息
+  let pendingToolCalls: NonNullable<ReplayMessage['toolCalls']> = [];
+  const messages: ReplayMessage[] = [];
+
+  for (const e of messageEntries) {
+    // 不返回 tool 角色消息（避免泄漏内部状态）
+    if (e.message.role === 'tool') continue;
+
+    const msg = e.message;
+    const contentStr = typeof msg.content === 'string' ? msg.content : '';
+
+    // §0.3.0 UAT Bug M fix (round 2): assistant 消息内容为空但有 toolCalls
+    // → 不作为独立消息返回，累积 toolCalls 到 pendingToolCalls
+    if (msg.role === 'assistant' && contentStr === '' && msg.toolCalls && msg.toolCalls.length > 0) {
+      for (const tc of msg.toolCalls) {
+        const result = toolResultMap.get(tc.id);
+        pendingToolCalls.push({
+          id: tc.id,
+          name: tc.name,
+          arguments: tc.arguments,
+          status: result ? (result.success ? 'success' : 'failed') : 'success',
+          summary: result?.summary,
+        });
+      }
+      continue;
+    }
+
+    const base: ReplayMessage = {
+      id: msg.id,
+      role: msg.role as 'user' | 'assistant',
+      content: contentStr,
       timestamp: e.timestamp,
       replay: true as const,
-    }));
+    };
+
+    // §0.3.0 UAT Bug M fix: assistant 消息有 toolCalls 时附带返回
+    // 优先使用 pendingToolCalls（合并的工具调用轮次），否则用消息自身的 toolCalls
+    if (msg.role === 'assistant') {
+      if (pendingToolCalls.length > 0) {
+        // 使用合并累积的 toolCalls（已含 status + summary）
+        base.toolCalls = pendingToolCalls;
+      } else if (msg.toolCalls && msg.toolCalls.length > 0) {
+        // 使用消息自身的 toolCalls，构建带 result 的版本
+        base.toolCalls = msg.toolCalls.map((tc) => {
+          const result = toolResultMap.get(tc.id);
+          return {
+            id: tc.id,
+            name: tc.name,
+            arguments: tc.arguments,
+            status: result ? (result.success ? 'success' as const : 'failed' as const) : 'success' as const,
+            summary: result?.summary,
+          };
+        });
+      }
+      pendingToolCalls = [];
+    }
+
+    messages.push(base);
+  }
   // 仅返回最近 limit 条
   return messages.slice(-limit);
 }

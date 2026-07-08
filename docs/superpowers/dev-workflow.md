@@ -137,6 +137,28 @@ E2E 测试通过后、封仓前（B3 步骤）。
 - 用户逐项核验，结果记入清单文件，逐项勾选
 - 不通过项标记为 ❌，必须修复后重新 UAT
 
+### 4.4 Bug 修复验收（强制）
+
+**适用场景：** UAT 验收阶段或日常 bug 修复后，每次代码修改都必须通过浏览器自动化验收才能视为完成。
+
+**强制流程：**
+
+1. 代码修改完成 + `npx tsc --noEmit` 通过 + 相关单元测试 GREEN
+2. `npm run webui:build` 重建前端（若涉及前端）
+3. 重启服务器（确认日志输出 `server started`）
+4. **启动独立子 agent**（`subagent_type: general_purpose_task`）执行 Playwright 自动化 UAT：
+   - 用 `webapp-testing` skill 的 `scripts/with_server.py` 或直接连接已运行的服务器
+   - 编写 Playwright 脚本模拟用户操作，覆盖修复的 bug 场景 + 相关联功能
+   - 必须见证验收通过（断言成功）才能算修改完成
+5. 验收通过后在对话中明确报告验收结果
+
+**禁止行为：**
+- 禁止仅凭 tsc 通过 / 单元测试通过就声称 bug 修复完成
+- 禁止跳过浏览器自动化验收直接交付
+- 禁止用"应该能工作"等推测代替实际验证
+
+**Chrome DevTools MCP 集成：** 若需检查网络请求 / WebSocket 帧 / 控制台日志等深层行为，可在 Playwright 脚本中捕获 console / network 事件，或使用 Chrome DevTools MCP 完成相关联功能的测试。
+
 ---
 
 ## 5. 熔断机制

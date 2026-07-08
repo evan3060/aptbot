@@ -21,6 +21,10 @@ export interface AgentSessionConfig {
   systemPrompt: string;
   reserveTokens?: number;
   hooks?: HookRegistry;
+  /** §0.3.0 UAT fix: userId + agentId 用于 agent-scoped 存储路径（消息持久化到 users/<userId>/agents/<agentId>/sessions/）。
+   * 缺省时 fallback 到 legacy flat path（data/<sessionId>.jsonl），用于启动时无 userId 的初始 session。 */
+  userId?: string;
+  agentId?: string;
 }
 
 export interface AgentSession {
@@ -47,6 +51,9 @@ export function createAgentSession(config: AgentSessionConfig): AgentSession {
   const log = createLogger('agent-session');
   const { storage, sessionId, agentLoop, provider, model, tools, systemPrompt } = config;
   const hookRegistry = config.hooks;
+  // §0.3.0 UAT fix: userId + agentId 用于 agent-scoped 存储路径
+  const userId = config.userId;
+  const agentId = config.agentId;
   const contextMessages: ContextMessage[] = [];
   const steeringQueue: AgentMessage[] = [];
   // I5 修复：per-session turn 互斥锁，防止并发 run() 交错 mutating contextMessages
@@ -56,11 +63,22 @@ export function createAgentSession(config: AgentSessionConfig): AgentSession {
   // Task 11: /session 动态属性内存态存储（重启还原，不持久化）
   const providerAttrs = new Map<string, unknown>();
 
+  /**
+   * §0.3.0 UAT fix: 根据 userId/agentId 是否提供，选择 agent-scoped 或 legacy 存储方法。
+   * userId + agentId 都有值 → 用 4 参数签名（agent-scoped 路径）
+   * 否则 → 用 legacy 签名（flat path）
+   */
+  function hasAgentScope(): boolean {
+    return userId !== undefined && agentId !== undefined;
+  }
+
   async function loadHistory(): Promise<void> {
     if (historyLoaded) return;
     historyLoaded = true;
     try {
-      const entries = await storage.readSession(sessionId);
+      const entries = hasAgentScope()
+        ? await storage.readSession(sessionId, userId!, agentId!)
+        : await storage.readSession(sessionId);
       for (const entry of entries) {
         if (entry.type === 'message') {
           contextMessages.push({
@@ -204,7 +222,11 @@ export function createAgentSession(config: AgentSessionConfig): AgentSession {
           case 'turn_end':
             if (!turnHasError) {
               for (const entry of bufferedEntries) {
-                await storage.appendSession(sessionId, entry);
+                if (hasAgentScope()) {
+                  await storage.appendSession(sessionId, userId!, agentId!, entry);
+                } else {
+                  await storage.appendSession(sessionId, entry);
+                }
               }
             }
             bufferedEntries = [];
@@ -217,7 +239,11 @@ export function createAgentSession(config: AgentSessionConfig): AgentSession {
             // listSessions 可扫描到 session → 刷新页面后历史可恢复。
             if (bufferedEntries.length > 0) {
               for (const entry of bufferedEntries) {
-                await storage.appendSession(sessionId, entry);
+                if (hasAgentScope()) {
+                  await storage.appendSession(sessionId, userId!, agentId!, entry);
+                } else {
+                  await storage.appendSession(sessionId, entry);
+                }
               }
               bufferedEntries = [];
             }
@@ -240,7 +266,9 @@ export function createAgentSession(config: AgentSessionConfig): AgentSession {
   }
 
   async function getWorkingMemory(): Promise<string | null> {
-    return storage.readWorkingMemory(sessionId);
+    return hasAgentScope()
+      ? storage.readWorkingMemory(sessionId, userId!, agentId!)
+      : storage.readWorkingMemory(sessionId);
   }
 
   /**

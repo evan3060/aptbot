@@ -167,7 +167,8 @@ describe('Task 9: Agent HTTP API', () => {
       });
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
-      expect(res.body).toHaveLength(2);
+      // §0.3.0 WebUI 集成修复：/api/agents 自动 ensureDefaultAgent → 额外 +1 default agent
+      expect(res.body).toHaveLength(3);
       // 列表项应包含基本字段，不暴露敏感字段
       expect(res.body[0].name).toBeTruthy();
       expect(res.body[0].slug).toMatch(AGENT_SLUG_REGEX);
@@ -183,8 +184,12 @@ describe('Task 9: Agent HTTP API', () => {
         authorization: `Bearer ${aliceToken}`,
       });
       expect(res.status).toBe(200);
-      expect(res.body).toHaveLength(1);
-      expect(res.body[0].name).toBe('Alice Agent');
+      // §0.3.0 WebUI 集成修复：/api/agents 自动 ensureDefaultAgent → 额外 +1 default agent
+      expect(res.body).toHaveLength(2);
+      // 应包含手动创建的 Alice Agent
+      expect(res.body.some((a: any) => a.name === 'Alice Agent')).toBe(true);
+      // 不应包含 Bob 的 agent
+      expect(res.body.some((a: any) => a.name === 'Bob Agent')).toBe(false);
     });
   });
 

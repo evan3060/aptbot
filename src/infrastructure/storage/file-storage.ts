@@ -269,13 +269,32 @@ export class FileStorage implements StorageAdapter {
       return [];
     }
     // Legacy mode: dataDir 视为 sessions dir
-    const path = this.resolveLegacyPath(id);
-    if (!existsSync(path)) return [];
-    return withJsonlLock(id, async () => {
-      await repairJsonl(path);
-      const result = await readJsonlTolerant(path);
-      return result.entries as SessionEntry[];
-    });
+    // §0.3.0 UAT fix: 先尝试 legacy flat path，找不到时通过 meta 查找 agent-scoped 路径
+    const legacyPath = this.resolveLegacyPath(id);
+    if (existsSync(legacyPath)) {
+      return withJsonlLock(id, async () => {
+        await repairJsonl(legacyPath);
+        const result = await readJsonlTolerant(legacyPath);
+        return result.entries as SessionEntry[];
+      });
+    }
+    // §0.3.0 UAT fix: legacy flat path 不存在 → 查找 agent-scoped 路径
+    // 通过 findSessionMetaPathSync 找到 meta 文件，从中读取 userId + agentId，然后用 agent-scoped 路径读取
+    const metaPath = this.findSessionMetaPathSync(id);
+    if (metaPath) {
+      const meta = this.readMetaFromPath(metaPath);
+      if (meta.userId && meta.agentId) {
+        const agentScopedPath = this.resolveNewPath(id, meta.userId, meta.agentId);
+        if (existsSync(agentScopedPath)) {
+          return withJsonlLock(id, async () => {
+            await repairJsonl(agentScopedPath);
+            const result = await readJsonlTolerant(agentScopedPath);
+            return result.entries as SessionEntry[];
+          });
+        }
+      }
+    }
+    return [];
   }
 
   async appendSession(id: string, entry: SessionEntry): Promise<void>;
@@ -328,6 +347,8 @@ export class FileStorage implements StorageAdapter {
   async listSessions(userId: string, agentId: string): Promise<SessionMetadata[]>;
   async listSessions(userId?: string, agentId?: string): Promise<SessionMetadata[]> {
     const metas: SessionMetadata[] = [];
+    // §0.3.0 UAT fix: 去重 — 已在 new path 找到的 session 不再从 legacy path 重复添加
+    const seenIds = new Set<string>();
 
     // §0.3.0 Task 4: 递归扫描 new path — ${dataDir}/users/*/agents/*/sessions/*.jsonl
     const usersDir = join(this.dataDir, 'users');
@@ -370,6 +391,7 @@ export class FileStorage implements StorageAdapter {
                 label: meta.label,
                 preview: meta.preview,
               });
+              seenIds.add(sessionId);
             }
           }
         }
@@ -386,6 +408,8 @@ export class FileStorage implements StorageAdapter {
         for (const file of files) {
           const sessionId = file.replace(/\.jsonl$/, '');
           if (!isValidSessionId(sessionId)) continue;
+          // §0.3.0 UAT fix: 跳过已在 new path 找到的 session（避免 stale legacy meta 导致重复 + ownership 错乱）
+          if (seenIds.has(sessionId)) continue;
           const meta = this.readMeta(sessionId);
           // userId 过滤
           if (userId !== undefined && meta.userId !== userId) continue;
@@ -501,6 +525,30 @@ export class FileStorage implements StorageAdapter {
       paths.push(this.resolveNewPath(id, userId, agentId));
       paths.push(this.resolveNewMetaPath(id, userId, agentId));
     }
+    // §0.3.0 UAT fix: 扫描所有 agent-scoped 路径删除 .jsonl + .meta.json
+    // findSessionMetaPathSync 只返回第一个找到的 meta，可能遗漏其他位置的 .jsonl 副本
+    // 导致 listSessions 从 legacy flat dir 扫描到残留 .jsonl → 已删除 session 重新出现
+    const usersDir = join(this.dataDir, 'users');
+    if (existsSync(usersDir)) {
+      try {
+        for (const userDir of readdirSync(usersDir)) {
+          if (!USER_ID_REGEX.test(userDir)) continue;
+          const agentsDir = join(usersDir, userDir, 'agents');
+          if (!existsSync(agentsDir)) continue;
+          for (const agentDir of readdirSync(agentsDir)) {
+            if (!AGENT_SLUG_REGEX.test(agentDir)) continue;
+            const sessionsDir = join(agentsDir, agentDir, 'sessions');
+            if (!existsSync(sessionsDir)) continue;
+            const jsonlPath = join(sessionsDir, `${id}.jsonl`);
+            const metaPath = join(sessionsDir, `${id}.meta.json`);
+            paths.push(jsonlPath, metaPath);
+          }
+        }
+      } catch (err) {
+        metaLog.warn('deleteSession recursive scan failed', { id, error: String(err) });
+      }
+    }
+    // Legacy 路径
     paths.push(this.resolveLegacyPath(id));
     paths.push(this.resolveLegacyMetaPath(id));
     paths.push(this.resolveLegacyFallbackPath(id));
@@ -549,44 +597,52 @@ export class FileStorage implements StorageAdapter {
   }
 
   /**
-   * §0.3.0 Task 4: 同步查找 session owner（用于 claimSession 内部调用，避免 async 嵌套）。
-   * 检查顺序：legacy path → legacy fallback → recursive scan。
+   * §0.3.0 Task 4: 同步查找 session owner（用于 claimSession 内部调用 + getSessionOwner）。
+   * §0.3.0 UAT fix: 复用 findSessionMetaPathSync（new path 权威 → legacy），
+   * 避免与 findSessionMetaPathSync 顺序不一致导致 getSessionOwner 返回 stale legacy owner
+   * → DELETE forbidden。
    */
   private findSessionOwnerSync(id: string): string | undefined {
     if (!isValidSessionId(id)) return undefined;
-    // 1. Legacy path
-    const legacyMeta = this.readMeta(id);
-    if (legacyMeta.userId) return legacyMeta.userId;
-    // 2. Legacy fallback
-    const legacyFallbackMetaPath = this.resolveLegacyFallbackMetaPath(id);
-    if (existsSync(legacyFallbackMetaPath)) {
-      const meta = this.readMetaFromPath(legacyFallbackMetaPath);
-      if (meta.userId) return meta.userId;
-    }
-    // 3. Recursive scan
-    const usersDir = join(this.dataDir, 'users');
-    if (existsSync(usersDir)) {
-      try {
-        const userDirs = readdirSync(usersDir);
-        for (const userDir of userDirs) {
-          if (!USER_ID_REGEX.test(userDir)) continue;
-          const agentsDir = join(usersDir, userDir, 'agents');
-          if (!existsSync(agentsDir)) continue;
-          const agentDirs = readdirSync(agentsDir);
-          for (const agentDir of agentDirs) {
-            if (!AGENT_SLUG_REGEX.test(agentDir)) continue;
-            const sessionsDir = join(agentsDir, agentDir, 'sessions');
-            if (!existsSync(sessionsDir)) continue;
-            const metaPath = join(sessionsDir, `${id}.meta.json`);
-            if (existsSync(metaPath)) {
-              const meta = this.readMetaFromPath(metaPath);
-              if (meta.userId) return meta.userId;
-            }
-          }
-        }
-      } catch (err) {
-        metaLog.warn('findSessionOwnerSync recursive scan failed', { id, error: String(err) });
-      }
+    const metaPath = this.findSessionMetaPathSync(id);
+    if (!metaPath) return undefined;
+    const meta = this.readMetaFromPath(metaPath);
+    return meta.userId;
+  }
+
+  /**
+   * §0.3.0 UAT Bug G fix: 从 session meta 查找 agentId。
+   *
+   * 用于 sessionFactory 在无 opts 调用时（服务器重启后懒加载 session），
+   * 从 .meta.json 读取 agentId，避免 fallback 到 DEFAULT_AGENT_SLUG
+   * 导致专用智能体 session 被错误地用 default agent 的 systemPrompt 重建。
+   *
+   * @returns agentId（若 meta 存在且含 agentId）；否则 undefined
+   */
+  getSessionAgentIdSync(id: string): string | undefined {
+    if (!isValidSessionId(id)) return undefined;
+    const metaPath = this.findSessionMetaPathSync(id);
+    if (!metaPath) return undefined;
+    const meta = this.readMetaFromPath(metaPath);
+    return meta.agentId;
+  }
+
+  /**
+   * §0.3.0 UAT Bug G fix: 从 session meta 查找 userId + agentId。
+   *
+   * 用于 sessionFactory 在无 opts 调用时（服务器重启后懒加载 session），
+   * 从 .meta.json 读取 userId + agentId，避免 fallback 到 DEFAULT_AGENT_SLUG
+   * 导致专用智能体 session 被错误地用 default agent 的 systemPrompt 重建。
+   *
+   * @returns { userId, agentId }（若 meta 存在且含字段）；否则 undefined
+   */
+  getSessionOwnerAndAgentSync(id: string): { userId: string; agentId: string } | undefined {
+    if (!isValidSessionId(id)) return undefined;
+    const metaPath = this.findSessionMetaPathSync(id);
+    if (!metaPath) return undefined;
+    const meta = this.readMetaFromPath(metaPath);
+    if (meta.userId && meta.agentId) {
+      return { userId: meta.userId, agentId: meta.agentId };
     }
     return undefined;
   }
@@ -697,18 +753,14 @@ export class FileStorage implements StorageAdapter {
 
   /**
    * §0.3.0 Task 4: 查找 session 现有 meta 文件路径（同步）。
-   * 检查顺序：legacy path → legacy fallback → recursive scan。
+   * §0.3.0 UAT fix: 检查顺序改为 new path（权威）→ legacy path → legacy fallback。
+   * 旧顺序（legacy 优先）会返回 stale legacy meta（owner 可能已迁移），
+   * 导致 getSessionOwner 返回错误 owner → DELETE forbidden。
    * 返回找到的第一个 meta 文件路径（不存在返回 undefined）。
    */
   private findSessionMetaPathSync(id: string): string | undefined {
     if (!isValidSessionId(id)) return undefined;
-    // 1. Legacy path
-    const legacyMetaPath = this.resolveLegacyMetaPath(id);
-    if (existsSync(legacyMetaPath)) return legacyMetaPath;
-    // 2. Legacy fallback
-    const legacyFallbackMetaPath = this.resolveLegacyFallbackMetaPath(id);
-    if (existsSync(legacyFallbackMetaPath)) return legacyFallbackMetaPath;
-    // 3. Recursive scan
+    // 1. New path（权威）— ${dataDir}/users/*/agents/*/sessions/${id}.meta.json
     const usersDir = join(this.dataDir, 'users');
     if (existsSync(usersDir)) {
       try {
@@ -730,6 +782,12 @@ export class FileStorage implements StorageAdapter {
         metaLog.warn('findSessionMetaPathSync recursive scan failed', { id, error: String(err) });
       }
     }
+    // 2. Legacy path
+    const legacyMetaPath = this.resolveLegacyMetaPath(id);
+    if (existsSync(legacyMetaPath)) return legacyMetaPath;
+    // 3. Legacy fallback
+    const legacyFallbackMetaPath = this.resolveLegacyFallbackMetaPath(id);
+    if (existsSync(legacyFallbackMetaPath)) return legacyFallbackMetaPath;
     return undefined;
   }
 }
