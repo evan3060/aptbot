@@ -59,7 +59,7 @@ export default function ChatArea({ activeAgent, messages, isWorking, showNewSess
     <div
       data-testid="chat-area"
       data-streaming={isWorking ? 'true' : 'false'}
-      className="flex-1 overflow-y-auto custom-scrollbar p-6 lg:p-8 bg-white min-h-[400px]"
+      className="flex-1 overflow-y-auto custom-scrollbar p-3 sm:p-4 md:p-6 lg:p-8 bg-white min-h-[400px]"
     >
       <div className="max-w-4xl mx-auto w-full flex flex-col gap-6">
         {showNewSessionPicker && onSelectAgentForNewSession && agents ? (
@@ -277,7 +277,7 @@ function InlineToolCalls({ toolCalls }: { toolCalls: ToolCall[] }) {
         <ChevronRight
           className={`w-3.5 h-3.5 text-neutral-400 shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}
         />
-        <span className="text-[11px] font-bold text-neutral-600 tracking-wide">
+        <span className="text-xs md:text-sm font-bold text-neutral-600 tracking-wide">
           工具调用 ({toolCalls.length})
         </span>
         <span className="text-[10px] text-neutral-400 font-mono ml-1">
@@ -285,7 +285,7 @@ function InlineToolCalls({ toolCalls }: { toolCalls: ToolCall[] }) {
         </span>
       </button>
       {expanded && (
-        <div className="border-t border-neutral-200/70 px-3 py-2 space-y-1.5">
+        <div className="border-t border-neutral-200/70 px-3 py-2 space-y-1.5 text-[11px] md:text-xs">
           {toolCalls.map((tc) => (
             <InlineToolCallItem key={tc.id} toolCall={tc} />
           ))}
@@ -397,7 +397,7 @@ function EmptyState({ activeAgent }: { activeAgent: AgentProfile | null }) {
       <h3 className="font-bold text-2xl text-black mb-2 tracking-tight">
         欢迎使用 Aptbot 精度工作区
       </h3>
-      <p className="text-sm text-neutral-500 max-w-lg mb-8 leading-relaxed text-center">
+      <p className="text-sm text-neutral-500 max-w-lg mb-8 leading-relaxed text-center hidden md:block">
         开启高效、专业且具有深度的智能协作。我们将工作场景划分为通用与专用两个维度，帮助您在不同任务中精确掌控 AI 输出。
       </p>
 
@@ -508,7 +508,7 @@ function NewSessionPicker({
             <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mb-3 px-1">
               通用智能体
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-4">
               {generalAgents.map(renderAgentCard)}
             </div>
           </div>
@@ -519,7 +519,7 @@ function NewSessionPicker({
             <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mb-3 px-1">
               专用智能体
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-4">
               {specializedAgents.map(renderAgentCard)}
             </div>
           </div>

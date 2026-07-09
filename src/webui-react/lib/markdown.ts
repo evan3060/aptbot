@@ -42,7 +42,7 @@ export function renderMarkdown(content: string): ReactNode[] {
           {
             key: `code-${partIndex}`,
             className:
-              'bg-neutral-50 text-neutral-800 p-4 rounded-lg border border-neutral-200 font-mono text-[13px] overflow-x-auto my-3 shadow-xs relative',
+              'bg-neutral-50 text-neutral-800 p-4 rounded-lg border border-neutral-200 font-mono text-xs md:text-sm overflow-x-auto max-w-full my-3 shadow-xs relative',
           },
           language
             ? createElement(
