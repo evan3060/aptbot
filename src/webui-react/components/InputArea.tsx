@@ -134,6 +134,12 @@ export default function InputArea({
    * 0.3.1: 测量快捷指令容器宽度。
    * useLayoutEffect 内同步读取一次 getBoundingClientRect（避免首次渲染闪烁），
    * 随后挂载 ResizeObserver 监听后续变化；卸载时 disconnect。
+   *
+   * §0.3.1 Task 10 fix: 依赖 activeAgentSlug === 'default' — 切换 agent 时 quick-actions div
+   * 会被移除/重建，ResizeObserver 会因元素移除触发 width=0 回调重置 containerWidth。
+   * 当切回 default agent 时新 div 创建但旧 observer 已失效，effect 不再 re-run，
+   * 导致 containerWidth 停留在 0（isMeasuring=true，按钮不渲染）。
+   * 添加依赖确保 div 重建时 effect 重新挂载新 observer。
    */
   useLayoutEffect(() => {
     const el = quickActionsContainerRef.current;
@@ -146,7 +152,7 @@ export default function InputArea({
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [activeAgentSlug === 'default']);
 
   /**
    * 0.3.1: 点击溢出面板与「更多」按钮之外的区域时关闭面板。

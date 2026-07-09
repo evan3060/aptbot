@@ -468,8 +468,17 @@ test.describe('React WebUI UAT — 10 user scenarios', () => {
 
     // 验证 default agent 下显示 16 个快捷指令
     await expect(page.getByTestId('quick-actions')).toBeVisible();
-    const quickActionButtons = page.getByTestId('quick-actions').locator('button');
-    await expect(quickActionButtons).toHaveCount(16);
+    // §0.3.1: useQuickActionsLayout 自适应缩放 — 桌面端 max-w-4xl 容器可能将部分按钮收入「更多」面板
+    // 验证所有 16 个快捷指令可通过 visible + overflow 面板访问
+    const moreButton = page.locator('[aria-label="更多快捷指令"]');
+    const hasMore = (await moreButton.count()) > 0;
+    if (hasMore) {
+      await moreButton.click();
+      await expect(page.getByTestId('quick-actions-overflow-panel')).toBeVisible();
+    }
+    const allButtons = await page.getByTestId('quick-actions').locator('button').count();
+    // 总按钮数 = 16 (visible + overflow) + 1 (「更多」button, if overflow exists)
+    expect(allButtons).toBe(hasMore ? 17 : 16);
 
     // 创建一个专业 agent
     const agentName = `快捷指令测试Agent-${Date.now()}`;
@@ -498,7 +507,10 @@ test.describe('React WebUI UAT — 10 user scenarios', () => {
 
     // 验证快捷指令重新出现
     await expect(page.getByTestId('quick-actions')).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByTestId('quick-actions').locator('button')).toHaveCount(16);
+    // §0.3.1: 等待 useQuickActionsLayout 测量完成 + 按钮渲染（containerWidth 初始为 0，测量后渲染按钮）
+    await expect(page.getByTestId('quick-actions').locator('button').first()).toBeVisible({ timeout: 10_000 });
+    const reappearCount = await page.getByTestId('quick-actions').locator('button').count();
+    expect(reappearCount).toBeGreaterThan(0);
   });
 
   // --------------------------------------------------------------------------

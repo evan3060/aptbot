@@ -642,6 +642,7 @@ export default function App() {
 
       {!isDesktop && sidebarOpen && (
         <div
+          data-testid="sidebar-backdrop"
           className="fixed inset-0 bg-black/30 z-30 md:hidden backdrop-blur-[2px]"
           onClick={() => setSidebarOpen(false)}
           aria-hidden="true"
