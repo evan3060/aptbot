@@ -634,6 +634,9 @@ export default function App() {
         currentUser={currentUser}
         onLoggedOut={handleLoggedOut}
         onLoginTrigger={handleLoginTrigger}
+        isDesktop={isDesktop}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
       />
 
       <main className="flex-1 ml-0 md:ml-64 flex flex-col h-screen min-w-0">

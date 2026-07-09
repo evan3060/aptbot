@@ -53,6 +53,12 @@ interface SidebarProps {
   currentUser: AuthUser | null;
   onLoggedOut: () => void;
   onLoginTrigger: () => void;
+  /** §0.3.1 mobile adaptation: desktop flag (controls drawer behavior) */
+  isDesktop: boolean;
+  /** §0.3.1 mobile adaptation: drawer open state on mobile */
+  isOpen: boolean;
+  /** §0.3.1 mobile adaptation: close handler (used by Backdrop in Task 5) */
+  onClose: () => void;
 }
 
 /** Session 显示文本：优先 label，其次 preview，最后回退「新对话」 */
@@ -78,6 +84,10 @@ export default function Sidebar({
   currentUser,
   onLoggedOut,
   onLoginTrigger,
+  isDesktop,
+  isOpen,
+  // onClose 暂未在 Sidebar 内部使用（Task 5 Backdrop 会用），保留 props 以便 App.tsx 传入
+  onClose: _onClose,
 }: SidebarProps) {
   // 折叠状态：专用 agent 展开记录（默认全部折叠）
   const [expandedAgents, setExpandedAgents] = useState<Record<string, boolean>>({});
@@ -134,7 +144,22 @@ export default function Sidebar({
   return (
     <aside
       data-testid="sidebar"
-      className="flex flex-col h-full py-6 px-4 w-64 fixed left-0 top-0 bg-white border-r border-slate-200 z-20"
+      className={[
+        // 基础布局
+        'flex flex-col h-full py-6 px-4 w-64 max-w-[85vw]',
+        'fixed left-0 top-0 bg-white border-r border-slate-200',
+        // §0.3.1 mobile drawer: 抽屉位移 + 过渡
+        'transform transition-transform duration-300',
+        isOpen ? 'translate-x-0' : '-translate-x-full',
+        // 桌面端覆盖：强制无位移、无 max-w 限制、无阴影
+        'md:translate-x-0 md:max-w-none md:shadow-none',
+        // 移动端打开时阴影（增强抽屉层次感）
+        isOpen && !isDesktop ? 'shadow-2xl' : '',
+        // z-index: 移动端高于 Backdrop(z-30)，桌面端保持 z-20
+        'z-40 md:z-20',
+      ]
+        .filter(Boolean)
+        .join(' ')}
     >
       {/* Brand Logo */}
       <div className="mb-6 flex items-center gap-3 px-2">
@@ -523,7 +548,7 @@ function SessionItem({
         <MessageSquare className="w-3.5 h-3.5 shrink-0 text-neutral-400" />
         <span className="text-xs truncate pr-12">{sessionDisplay(session)}</span>
       </button>
-      <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+      <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all">
         <button
           onClick={handleStartRename}
           title="重命名会话"
