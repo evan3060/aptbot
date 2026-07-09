@@ -509,8 +509,17 @@ test.describe('React WebUI UAT — 10 user scenarios', () => {
     await expect(page.getByTestId('quick-actions')).toBeVisible({ timeout: 10_000 });
     // §0.3.1: 等待 useQuickActionsLayout 测量完成 + 按钮渲染（containerWidth 初始为 0，测量后渲染按钮）
     await expect(page.getByTestId('quick-actions').locator('button').first()).toBeVisible({ timeout: 10_000 });
+    // §0.3.1: 切回 default agent 后，验证完整按钮数恢复（与切换前一致的 hasMore ? 17 : 16 逻辑）。
+    // 这验证了 InputArea useLayoutEffect deps 修复后按钮完整渲染，而非仅"部分按钮存在"。
+    // (useLayoutEffect deps 修复前，切回 default 时 ResizeObserver 不重新挂载，containerWidth 停留 0，按钮数为 0)
+    const moreButtonAfter = page.locator('[aria-label="更多快捷指令"]');
+    const hasMoreAfter = (await moreButtonAfter.count()) > 0;
+    if (hasMoreAfter) {
+      await moreButtonAfter.click();
+      await expect(page.getByTestId('quick-actions-overflow-panel')).toBeVisible();
+    }
     const reappearCount = await page.getByTestId('quick-actions').locator('button').count();
-    expect(reappearCount).toBeGreaterThan(0);
+    expect(reappearCount).toBe(hasMoreAfter ? 17 : 16);
   });
 
   // --------------------------------------------------------------------------

@@ -100,6 +100,26 @@ function hasStandaloneClass(cls: string, target: string): boolean {
   return cls.split(/\s+/).includes(target);
 }
 
+/**
+ * 等待当前 turn 完成（chat-area data-streaming === 'false' 且 3s 二次确认仍为 false）。
+ * 复用 react-webui-uat.spec.ts 的 waitForTurnEnd 模式：在创建新会话前等待 streaming 结束，
+ * 避免 streaming 时 /new 命令处理时序混乱导致 empty-state 不出现。
+ */
+async function waitForTurnEnd(page: Page, timeout = 120_000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const streaming = await page.getByTestId('chat-area').getAttribute('data-streaming');
+    if (streaming === 'false') {
+      // 3s 二次确认，避免工具调用 turn 之间的瞬时 false
+      await page.waitForTimeout(3000);
+      const again = await page.getByTestId('chat-area').getAttribute('data-streaming');
+      if (again === 'false') return;
+    }
+    await page.waitForTimeout(500);
+  }
+  throw new Error(`turn did not complete within ${timeout}ms`);
+}
+
 test.describe('Mobile adaptation UAT — 8 scenarios', () => {
   test.describe.configure({ mode: 'serial' });
 
@@ -227,25 +247,59 @@ test.describe('Mobile adaptation UAT — 8 scenarios', () => {
   // Scenario 5: 抽屉关闭-选会话 (390×844)
   // --------------------------------------------------------------------------
   test('5. 抽屉关闭-选会话 (390×844): 打开抽屉，点击会话 → 自动关闭 + 会话切换', async ({ page }) => {
-    // 先在桌面视口创建一个会话（移动端输入体验较差，桌面端更稳定）
+    // 先在桌面视口创建两个会话（移动端输入体验较差，桌面端更稳定）
+    // 需要 2 个会话才能验证"切换"——点击非 active 会话触发真实切换
     await page.setViewportSize(DESKTOP_VIEWPORT);
     const username = uniqueUsername('m5');
     await setupViaApi(page, username);
 
-    // 发送消息创建会话
-    await page.getByTestId('input-textarea').fill('测试会话切换标记');
+    // 发送消息创建第一个会话（session A）
+    await page.getByTestId('input-textarea').fill('会话A标记');
+    await page.getByTestId('send-button').click();
+    await expect(page.locator('[data-role="user"]')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('[data-testid^="session-item-"]').first()).toBeVisible({
+      timeout: 15_000,
+    });
+    // §0.3.0 OpenCode free 模型适配：等待 session A turn 完成后再创建新会话，
+    // 避免 streaming 时 /new 命令处理时序混乱导致 empty-state 不出现
+    await waitForTurnEnd(page, 120_000);
+
+    // 通过 preview 文本定位 session A 的 id（列表按 updatedAt 降序，不能用 .first()）
+    const sessionAItem = page
+      .locator('[data-testid^="session-item-"]')
+      .filter({ hasText: '会话A标记' });
+    const sessionAId = await sessionAItem.getAttribute('data-session-id');
+    expect(sessionAId).toBeTruthy();
+
+    // 创建第二个会话（session B）— 通过 NewSessionPicker 选择通用智能体
+    await page.getByTestId('new-session-button').click();
+    await expect(page.getByTestId('new-session-picker')).toBeVisible({ timeout: 5_000 });
+    await page.getByTestId('new-session-agent-default').click();
+    await expect(page.getByTestId('new-session-picker')).toBeHidden({ timeout: 15_000 });
+    // 等待 /new 命令处理完成（/agent 先发，200ms 后 /new，需等待服务端处理）
+    await page.waitForTimeout(1500);
+    await expect(page.getByTestId('empty-state')).toBeVisible({ timeout: 15_000 });
+
+    // 在 session B 中发消息使其持久化（出现在列表中）并成为 active session
+    await page.getByTestId('input-textarea').fill('会话B标记');
     await page.getByTestId('send-button').click();
     await expect(page.locator('[data-role="user"]')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('[data-testid^="session-item-"]').first()).toBeVisible({
       timeout: 15_000,
     });
 
-    // 获取 session id
-    const sessionId = await page
-      .locator('[data-testid^="session-item-"]')
-      .first()
-      .getAttribute('data-session-id');
-    expect(sessionId).toBeTruthy();
+    // 等待两个 session 都在列表中
+    await expect(async () => {
+      const count = await page.locator('[data-testid^="session-item-"]').count();
+      expect(count).toBeGreaterThanOrEqual(2);
+    }).toPass({ timeout: 20_000 });
+
+    // 此时 session B 是 active，session A 不是 active
+    // 验证 session A 初始为非 active（确保后续切换是真实切换，而非点击已选中项）
+    const sessionAClassBefore = await page
+      .locator(`[data-testid="session-item-${sessionAId}"] > button`)
+      .getAttribute('class') ?? '';
+    expect(sessionAClassBefore).not.toContain('bg-neutral-100');
 
     // 切换到移动视口
     await page.setViewportSize(MOBILE_VIEWPORT);
@@ -256,8 +310,8 @@ test.describe('Mobile adaptation UAT — 8 scenarios', () => {
     await page.locator('[aria-label="打开菜单"]').click();
     await expect(page.getByTestId('sidebar-backdrop')).toBeVisible();
 
-    // 点击会话项
-    await page.locator(`[data-testid="session-item-${sessionId}"]`).click();
+    // 点击非 active 会话（session A）— 触发会话切换 + 抽屉自动关闭
+    await page.locator(`[data-testid="session-item-${sessionAId}"]`).click();
 
     // 抽屉自动关闭（Backdrop 消失 + sidebar 隐藏）— 等待 CSS transition 完成
     await expect(page.getByTestId('sidebar-backdrop')).toHaveCount(0);
@@ -266,6 +320,16 @@ test.describe('Mobile adaptation UAT — 8 scenarios', () => {
       return hasStandaloneClass(cls, '-translate-x-full');
     }, { timeout: 2000 }).toBe(true);
     await expect.poll(async () => await sidebarX(page), { timeout: 2000 }).toBeLessThan(0);
+
+    // 断言：会话真实切换 — session A 现在应为 active（按钮含 bg-neutral-100 类）。
+    // Sidebar.tsx 的 SessionItem 用 isActive 三元切换 className：active 含 'bg-neutral-100'，
+    // inactive 含 'border-transparent'（无 bg-neutral-100）。sidebar 虽被 translate 隐藏，但元素仍在 DOM 中。
+    await expect.poll(async () => {
+      const cls = await page
+        .locator(`[data-testid="session-item-${sessionAId}"] > button`)
+        .getAttribute('class');
+      return cls ?? '';
+    }, { timeout: 10_000 }).toContain('bg-neutral-100');
   });
 
   // --------------------------------------------------------------------------
