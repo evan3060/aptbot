@@ -154,9 +154,9 @@ async function createNewSessionViaPicker(page: Page, agentSlug: string): Promise
   await expect(page.getByTestId('empty-state')).toBeVisible({ timeout: 15_000 });
 }
 
-/** 获取 agent-select 当前选中选项的文本（agent 名称）。 */
+/** 获取 agent-select-desktop 当前选中选项的文本（agent 名称）。 */
 async function getAgentSelectText(page: Page): Promise<string> {
-  return await page.getByTestId('agent-select').evaluate(
+  return await page.getByTestId('agent-select-desktop').evaluate(
     (el: HTMLSelectElement) => el.options[el.selectedIndex]?.text || '',
   );
 }
@@ -363,7 +363,7 @@ test.describe('Bug M (round 2) / N UAT — 2 bug fix scenarios', () => {
     ).toHaveCount(0);
 
     // === 核心断言 2：输入区的 agent 选择器显示"通用助手"（default agent）===
-    await expect(page.getByTestId('agent-select')).toHaveValue('default', { timeout: 10_000 });
+    await expect(page.getByTestId('agent-select-desktop')).toHaveValue('default', { timeout: 10_000 });
     const agentText = await getAgentSelectText(page);
     expect(agentText, 'agent selector should show 通用助手 (default agent)').toBe('通用助手');
 

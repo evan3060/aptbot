@@ -135,9 +135,9 @@ async function waitForTurnComplete(
   throw new Error(`turn did not complete within ${timeout}ms`);
 }
 
-/** 获取 agent-select 当前选中选项的文本（agent 名称）。 */
+/** 获取 agent-select-desktop 当前选中选项的文本（agent 名称）。 */
 async function getAgentSelectText(page: Page): Promise<string> {
-  return await page.getByTestId('agent-select').evaluate(
+  return await page.getByTestId('agent-select-desktop').evaluate(
     (el: HTMLSelectElement) => el.options[el.selectedIndex]?.text || '',
   );
 }
@@ -175,12 +175,12 @@ async function createSpecializedAgentViaApi(
 /**
  * 等待 InputArea agent selector 切换完成（/agent <slug> 触发 session_changed）。
  *
- * agent-select 的 value 由 handleSelectAgent 同步设置，但 /agent 命令触发的
+ * agent-select-desktop 的 value 由 handleSelectAgent 同步设置，但 /agent 命令触发的
  * session_changed 是异步的。此处等待 value 稳定 + data-streaming 归于 false +
  * 额外缓冲，确保 session_changed 处理完毕，避免与后续 /new 命令交错。
  */
 async function waitForAgentSwitchStable(page: Page, expectedSlug: string, timeout = 60_000): Promise<void> {
-  await expect(page.getByTestId('agent-select')).toHaveValue(expectedSlug, { timeout });
+  await expect(page.getByTestId('agent-select-desktop')).toHaveValue(expectedSlug, { timeout });
   await expect(page.getByTestId('chat-area')).toHaveAttribute('data-streaming', 'false', { timeout });
   // 额外缓冲：session_changed 异步处理（清空消息、刷新列表）需要时间
   await page.waitForTimeout(2500);
@@ -203,7 +203,7 @@ test.describe('Bug N (修正版) UAT — 当前智能体新建会话', () => {
     await setupViaApi(page, username);
 
     // 确认输入框下方当前显示的是"通用助手"（default agent）
-    await expect(page.getByTestId('agent-select')).toHaveValue('default', { timeout: 10_000 });
+    await expect(page.getByTestId('agent-select-desktop')).toHaveValue('default', { timeout: 10_000 });
     const initialAgentText = await getAgentSelectText(page);
     expect(initialAgentText, '初始 agent selector 应显示"通用助手"').toBe('通用助手');
 
@@ -268,7 +268,7 @@ test.describe('Bug N (修正版) UAT — 当前智能体新建会话', () => {
     ).toHaveCount(0);
 
     // === 核心断言 2：输入区的 agent 选择器显示"通用助手"（default agent）===
-    await expect(page.getByTestId('agent-select')).toHaveValue('default', { timeout: 10_000 });
+    await expect(page.getByTestId('agent-select-desktop')).toHaveValue('default', { timeout: 10_000 });
     const agentText = await getAgentSelectText(page);
     expect(agentText, 'agent selector should show 通用助手 (default agent)').toBe('通用助手');
 
@@ -308,22 +308,22 @@ test.describe('Bug N (修正版) UAT — 当前智能体新建会话', () => {
       '你是一个专业的英语学习助手',
     );
 
-    // 刷新页面让前端 bootstrap 重新拉取 agents 列表（agent-select 才会有新选项）
+    // 刷新页面让前端 bootstrap 重新拉取 agents 列表（agent-select-desktop 才会有新选项）
     await page.reload();
     await expect(page.getByTestId('sidebar')).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId('chat-area')).toBeVisible();
     await expect(page.getByTestId('input-area')).toBeVisible();
 
     // 确认初始显示的是 default 智能体
-    await expect(page.getByTestId('agent-select')).toHaveValue('default', { timeout: 10_000 });
+    await expect(page.getByTestId('agent-select-desktop')).toHaveValue('default', { timeout: 10_000 });
 
     // === 步骤 2：通过 InputArea 的 agent selector 切换到专业智能体 ===
-    await page.getByTestId('agent-select').selectOption(agentSlug);
+    await page.getByTestId('agent-select-desktop').selectOption(agentSlug);
 
     // 等待 /agent 命令完成（session_changed）
     await waitForAgentSwitchStable(page, agentSlug, 60_000);
 
-    // 验证 agent-select 当前显示专业智能体名称（输入框下方显示"英语学习助手CurrentAgent"）
+    // 验证 agent-select-desktop 当前显示专业智能体名称（输入框下方显示"英语学习助手CurrentAgent"）
     const switchedAgentText = await getAgentSelectText(page);
     expect(switchedAgentText, '切换后 agent selector 应显示专业智能体名称').toBe(agentName);
 
@@ -354,7 +354,7 @@ test.describe('Bug N (修正版) UAT — 当前智能体新建会话', () => {
     await expect(userMessages.first()).toContainText('新会话直接对话English');
 
     // === 核心断言 2：agent selector 显示"英语学习助手CurrentAgent"（专业智能体）===
-    await expect(page.getByTestId('agent-select')).toHaveValue(agentSlug, { timeout: 10_000 });
+    await expect(page.getByTestId('agent-select-desktop')).toHaveValue(agentSlug, { timeout: 10_000 });
     const finalAgentText = await getAgentSelectText(page);
     expect(finalAgentText, 'agent selector should show 专业智能体名称').toBe(agentName);
 

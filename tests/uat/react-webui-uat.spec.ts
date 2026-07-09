@@ -488,13 +488,13 @@ test.describe('React WebUI UAT — 10 user scenarios', () => {
     ).toBeVisible({ timeout: 10_000 });
 
     // 通过下拉框切换到专业 agent
-    await page.getByTestId('agent-select').selectOption({ label: agentName });
+    await page.getByTestId('agent-select-desktop').selectOption({ label: agentName });
 
     // 验证快捷指令消失
     await expect(page.getByTestId('quick-actions')).toHaveCount(0, { timeout: 10_000 });
 
     // 切回 default agent（option label 是 agent.name = "通用助手"，非侧边栏标题"通用智能体"）
-    await page.getByTestId('agent-select').selectOption({ label: '通用助手' });
+    await page.getByTestId('agent-select-desktop').selectOption({ label: '通用助手' });
 
     // 验证快捷指令重新出现
     await expect(page.getByTestId('quick-actions')).toBeVisible({ timeout: 10_000 });

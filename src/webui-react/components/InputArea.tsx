@@ -287,10 +287,14 @@ export default function InputArea({
   );
 
   /**
-   * 三个下拉框（agent / model / 思考深度）的 JSX 片段。
+   * 三个下拉框（agent / model / 思考深度）的 JSX 渲染函数。
    * 桌面端（hidden md:flex）横排显示，移动端（md:hidden）收入 collapsible 垂直堆叠。
+   *
+   * 0.3.1 fix: 接受 suffix 参数（'desktop' / 'mobile'）拼入 data-testid，
+   * 避免桌面/移动两个实例同时渲染时出现重复 testid（否则 getByTestId 会抛
+   * "multiple elements found"）。模型/思考深度下拉无 testid，仅 agent 下拉需要区分。
    */
-  const settingsDropdowns = (
+  const renderSettingsDropdowns = (suffix: 'desktop' | 'mobile') => (
     <>
       {/* 智能体选择下拉框（slug 维度，与 Sidebar 一致） */}
       <div className="flex items-center gap-1 bg-white px-2.5 py-1 border border-slate-200 rounded text-[10px] shadow-2xs">
@@ -298,7 +302,7 @@ export default function InputArea({
         <select
           value={activeAgentSlug}
           onChange={(e) => onSelectAgent(e.target.value)}
-          data-testid="agent-select"
+          data-testid={`agent-select-${suffix}`}
           className="bg-transparent border-none p-0 pr-6 text-[10px] font-bold text-black focus:ring-0 cursor-pointer focus:outline-none"
         >
           {agents.map((a) => (
@@ -421,7 +425,7 @@ export default function InputArea({
         {/* 控制栏 — agent / model / 思考深度 / token
             0.3.1: 桌面端横排（hidden md:flex），移动端收入「⚙️ 设置」collapsible（md:hidden） */}
         <div className="hidden md:flex items-center gap-2 mt-2 select-none">
-          {settingsDropdowns}
+          {renderSettingsDropdowns('desktop')}
 
           {/* 上下文 token 指示器（mock 计算） */}
           <div className="ml-auto flex items-center gap-1.5 text-[10px] text-neutral-400 font-mono font-medium">
@@ -451,7 +455,7 @@ export default function InputArea({
           <div
             className={`overflow-hidden transition-all duration-200 ${showSettings ? 'max-h-96' : 'max-h-0'}`}
           >
-            <div className="flex flex-col gap-2 pt-2">{settingsDropdowns}</div>
+            <div className="flex flex-col gap-2 pt-2">{renderSettingsDropdowns('mobile')}</div>
           </div>
         </div>
       </div>

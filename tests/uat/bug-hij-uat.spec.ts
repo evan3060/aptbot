@@ -176,9 +176,9 @@ async function createSpecializedAgentViaApi(
   return { slug: agent.slug };
 }
 
-/** 获取 agent-select 当前选中选项的文本（agent 名称）。 */
+/** 获取 agent-select-desktop 当前选中选项的文本（agent 名称）。 */
 async function getAgentSelectText(page: Page): Promise<string> {
-  return await page.getByTestId('agent-select').evaluate(
+  return await page.getByTestId('agent-select-desktop').evaluate(
     (el: HTMLSelectElement) => el.options[el.selectedIndex]?.text || '',
   );
 }
@@ -359,7 +359,7 @@ test.describe('Bug H/I/J UAT — 3 bug fix scenarios', () => {
     await createNewSessionViaPicker(page, 'default');
 
     // === 核心断言 1：agent 选择器显示通用助手 ===
-    await expect(page.getByTestId('agent-select')).toHaveValue('default', { timeout: 10_000 });
+    await expect(page.getByTestId('agent-select-desktop')).toHaveValue('default', { timeout: 10_000 });
     const defaultAgentText = await getAgentSelectText(page);
     expect(defaultAgentText, 'agent selector should show default agent name').toBe('通用助手');
 
@@ -374,7 +374,7 @@ test.describe('Bug H/I/J UAT — 3 bug fix scenarios', () => {
       .click({ force: true });
 
     // === 核心断言 2：agent 选择器切换到专用智能体 ===
-    await expect(page.getByTestId('agent-select')).toHaveValue(agentSlug, { timeout: 10_000 });
+    await expect(page.getByTestId('agent-select-desktop')).toHaveValue(agentSlug, { timeout: 10_000 });
     const switchedAgentText = await getAgentSelectText(page);
     expect(switchedAgentText, 'agent selector should switch to specialized agent').toBe(agentName);
     expect(switchedAgentText, 'agent selector should NOT show default').not.toBe('通用助手');
