@@ -26,6 +26,7 @@ import { WsClient } from './lib/ws-client.js';
 import { uiReducer, initialUiState } from './lib/reducer.js';
 import type { Message } from './lib/reducer.js';
 import { api } from './lib/api.js';
+import { useIsDesktop } from './lib/use-media-query.js';
 import type {
   AgentProfile,
   AgentEvent,
@@ -82,6 +83,10 @@ export default function App() {
   // §0.3.0 UAT: 新会话选择器 — 点击"新会话"时显示智能体选择卡片
   const [showNewSessionPicker, setShowNewSessionPicker] = useState(false);
 
+  // --- §0.3.1 mobile adaptation: sidebar drawer state ---
+  const isDesktop = useIsDesktop();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   const wsRef = useRef<WsClient | null>(null);
 
   // §0.3.0 UAT Bug H fix: 跟踪 pending message id。
@@ -129,6 +134,34 @@ export default function App() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // =========================================================================
+  // §0.3.1 mobile adaptation: sidebar drawer effects
+  // =========================================================================
+
+  // Body scroll lock: when sidebar drawer is open on mobile, prevent body scroll
+  useEffect(() => {
+    if (sidebarOpen && !isDesktop) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [sidebarOpen, isDesktop]);
+
+  // Esc key closes sidebar drawer when open
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSidebarOpen(false);
+    };
+    window.addEventListener('keydown', handler);
+    return () => {
+      window.removeEventListener('keydown', handler);
+    };
+  }, [sidebarOpen]);
 
   const bootstrap = async () => {
     try {
@@ -448,11 +481,13 @@ export default function App() {
       setActiveAgentSlug(session.agentId);
     }
     wsRef.current?.sendSlash(`/resume ${sessionId}`);
+    if (!isDesktop) setSidebarOpen(false);
   };
 
   /** Create new session: show agent picker instead of directly sending /new */
   const handleCreateSession = () => {
     setShowNewSessionPicker(true);
+    if (!isDesktop) setSidebarOpen(false);
   };
 
   /** §0.3.0 UAT: 新会话选择器 — 点击智能体后切换到该 agent 并创建新会话 */
@@ -464,6 +499,7 @@ export default function App() {
     wsRef.current?.sendSlash(`/agent ${slug}`);
     setTimeout(() => wsRef.current?.sendSlash('/new'), 200);
     setShowNewSessionPicker(false);
+    if (!isDesktop) setSidebarOpen(false);
   };
 
   /** Select agent: update local state + send /agent <slug> to backend */
@@ -471,6 +507,7 @@ export default function App() {
     setActiveAgentSlug(slug);
     wsRef.current?.sendSlash(`/agent ${slug}`);
     setShowNewSessionPicker(false);
+    if (!isDesktop) setSidebarOpen(false);
   };
 
   /** Login success callback from AuthModal */
@@ -599,7 +636,7 @@ export default function App() {
         onLoginTrigger={handleLoginTrigger}
       />
 
-      <main className="flex-1 ml-64 flex flex-col h-screen min-w-0">
+      <main className="flex-1 ml-0 md:ml-64 flex flex-col h-screen min-w-0">
         <ChatArea
           activeAgent={activeAgent}
           messages={messages}
