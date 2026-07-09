@@ -41,6 +41,7 @@ import InputArea from './components/InputArea.js';
 import AgentModals from './components/AgentModals.js';
 import MemoryToast from './components/MemoryToast.js';
 import FooterBar, { type ConnectionState } from './components/FooterBar.js';
+import { Menu } from 'lucide-react';
 
 /** 本地生成短随机 ID（用于乐观 user 消息，避免与 server UUID 冲突） */
 function localId(prefix: string): string {
@@ -639,7 +640,21 @@ export default function App() {
         onClose={() => setSidebarOpen(false)}
       />
 
+      {!isDesktop && sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/30 z-30 md:hidden backdrop-blur-[2px]"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
       <main className="flex-1 ml-0 md:ml-64 flex flex-col h-screen min-w-0">
+        <div className="md:hidden h-12 px-3 flex items-center gap-2 border-b border-slate-100 shrink-0">
+          <button onClick={() => setSidebarOpen(true)} aria-label="打开菜单">
+            <Menu className="w-5 h-5" />
+          </button>
+          <span className="text-sm font-bold truncate">{activeAgent?.name ?? 'Aptbot'}</span>
+        </div>
         <ChatArea
           activeAgent={activeAgent}
           messages={messages}
