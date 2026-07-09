@@ -24,14 +24,14 @@ interface FooterBarProps {
 }
 
 export default function FooterBar({ model, connectionState }: FooterBarProps) {
-  const { dotClass, label } = describeConnection(connectionState);
+  const { dotClass, label, shortLabel } = describeConnection(connectionState);
 
   return (
-    <footer className="flex items-center justify-between gap-3 px-5 py-1.5 border-t border-neutral-200 bg-white text-[11px] font-mono text-neutral-500">
+    <footer className="flex items-center justify-between gap-3 px-3 md:px-6 py-1.5 border-t border-neutral-200 bg-white text-[10px] md:text-xs font-mono text-neutral-500">
       {/* Left: model name */}
       <div className="flex items-center gap-2 min-w-0">
         <span className="text-neutral-400">model:</span>
-        <span className="text-black font-semibold truncate">
+        <span className="text-black font-semibold truncate max-w-[120px] md:max-w-none">
           {model || '—'}
         </span>
       </div>
@@ -39,7 +39,8 @@ export default function FooterBar({ model, connectionState }: FooterBarProps) {
       {/* Right: connection state indicator */}
       <div className="flex items-center gap-1.5 shrink-0">
         <span className={`inline-block w-2 h-2 rounded-full ${dotClass}`} />
-        <span className="uppercase tracking-wider text-neutral-500">{label}</span>
+        <span className="md:hidden uppercase tracking-wider text-neutral-500">{shortLabel}</span>
+        <span className="hidden md:inline uppercase tracking-wider text-neutral-500">{label}</span>
       </div>
     </footer>
   );
@@ -53,16 +54,17 @@ export default function FooterBar({ model, connectionState }: FooterBarProps) {
 function describeConnection(state: ConnectionState): {
   dotClass: string;
   label: string;
+  shortLabel: string;
 } {
   switch (state) {
     case 'open':
-      return { dotClass: 'bg-black', label: 'connected' };
+      return { dotClass: 'bg-black', label: 'connected', shortLabel: 'conn' };
     case 'connecting':
-      return { dotClass: 'bg-neutral-400 animate-pulse', label: 'connecting' };
+      return { dotClass: 'bg-neutral-400 animate-pulse', label: 'connecting', shortLabel: 'wait' };
     case 'closing':
-      return { dotClass: 'bg-neutral-300', label: 'closing' };
+      return { dotClass: 'bg-neutral-300', label: 'closing', shortLabel: 'close' };
     case 'closed':
     default:
-      return { dotClass: 'bg-neutral-300', label: 'disconnected' };
+      return { dotClass: 'bg-neutral-300', label: 'disconnected', shortLabel: 'disc' };
   }
 }
