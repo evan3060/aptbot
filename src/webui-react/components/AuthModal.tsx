@@ -128,9 +128,9 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
     <div
       data-testid="auth-modal"
       data-mode={mode}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 backdrop-blur-xs p-4 animate-fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 backdrop-blur-xs p-0 md:p-4 animate-fade-in"
     >
-      <div className="bg-white border border-slate-200 shadow-2xl rounded-2xl w-full max-w-[390px] overflow-hidden flex flex-col relative">
+      <div className="bg-white border border-slate-200 shadow-2xl rounded-none md:rounded-2xl w-full max-w-full md:max-w-[390px] h-full md:h-auto overflow-hidden flex flex-col fixed md:relative inset-0 md:inset-auto">
 
         {/* Close Button on Top Right */}
         <button
@@ -182,7 +182,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="请输入用户名"
-                className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-black focus:bg-white transition-all text-black"
+                className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-base md:text-sm focus:outline-none focus:ring-1 focus:ring-black focus:bg-white transition-all text-black"
                 required
                 data-testid="auth-username"
               />
@@ -199,7 +199,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="请输入密码"
-                className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-black focus:bg-white transition-all text-black"
+                className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-base md:text-sm focus:outline-none focus:ring-1 focus:ring-black focus:bg-white transition-all text-black"
                 required
                 data-testid="auth-password"
               />
@@ -217,7 +217,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="请再次输入密码"
-                  className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-black focus:bg-white transition-all text-black"
+                  className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-base md:text-sm focus:outline-none focus:ring-1 focus:ring-black focus:bg-white transition-all text-black"
                   required
                   data-testid="auth-confirm-password"
                 />
@@ -228,13 +228,13 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
           {/* Buttons Area */}
           <div className="flex flex-col gap-2 pt-2">
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="flex flex-col md:grid md:grid-cols-2 gap-2">
               {/* Cancel Button */}
               <button
                 type="button"
                 onClick={handleCancel}
                 disabled={loading}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg transition-colors cursor-pointer select-none active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg transition-colors cursor-pointer select-none active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                 data-testid="auth-cancel"
               >
                 取消
@@ -244,7 +244,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess }: AuthModal
               <button
                 type="submit"
                 disabled={loading}
-                className="px-4 py-2 bg-black text-white hover:bg-neutral-800 font-bold text-xs rounded-lg transition-colors cursor-pointer select-none active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full px-4 py-2 bg-black text-white hover:bg-neutral-800 font-bold text-xs rounded-lg transition-colors cursor-pointer select-none active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                 data-testid="auth-confirm"
               >
                 确认

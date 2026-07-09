@@ -126,11 +126,11 @@ export default function MemoryToast({ toolCalls }: MemoryToastProps) {
   };
 
   return (
-    <div className="fixed top-4 right-4 z-[1000] pointer-events-none">
+    <div className="fixed top-0 left-0 right-0 md:top-4 md:left-auto md:right-4 z-[1000] pointer-events-none">
       <div
         role="status"
         aria-live="polite"
-        className="flex items-start gap-2 max-w-[320px] px-3.5 py-2 bg-white text-neutral-800 border border-neutral-200 border-l-[3px] border-l-black rounded-md shadow-md text-[13px] leading-relaxed pointer-events-auto"
+        className="flex items-start gap-2 w-full md:max-w-[320px] px-3.5 py-2 bg-white text-neutral-800 border border-neutral-200 border-l-[3px] border-l-black rounded-none md:rounded-md shadow-md text-[13px] leading-relaxed pointer-events-auto"
       >
         <BookOpen className="w-3.5 h-3.5 text-black mt-[2px] shrink-0" />
         <span className="break-words flex-1 select-none">{message}</span>
