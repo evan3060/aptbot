@@ -191,9 +191,9 @@ describe('Task 7: learnEnabled 时知识 section 扩展', () => {
       expect(html).toContain('id="learn"');
     });
 
-    it('nav 含 "知识" 链接 → #learn', () => {
+    it('nav 含 "博客" 链接 → blog.aptbot.de', () => {
       const html = createLandingPageHtml({ learnEnabled: true, articleState: STATE });
-      expect(html).toMatch(/href="#learn"[^>]*>\s*知识/);
+      expect(html).toMatch(/href="https:\/\/blog\.aptbot\.de\?lang=zh"[^>]*>\s*博客/);
     });
 
     it('Hero 副标题含 "学习型项目"', () => {
@@ -239,10 +239,10 @@ describe('Task 7: learnEnabled 时知识 section 扩展', () => {
       expect(html).toContain('AI 辅助编码实践');
     });
 
-    it('含 "查看全部文章 →" pill 按钮 → /learn', () => {
+    it('含 "查看全部文章 →" pill 按钮 → blog.aptbot.de', () => {
       const html = createLandingPageHtml({ learnEnabled: true, articleState: STATE });
       expect(html).toContain('查看全部文章');
-      expect(html).toMatch(/href="\/learn"/);
+      expect(html).toMatch(/href="https:\/\/blog\.aptbot\.de\?lang=zh"/);
     });
 
     it('每 chapter 限显 4 张卡片超出含 "+N more" 链接（核心特性深入篇 8 篇 → +4 more）', () => {
@@ -281,9 +281,9 @@ describe('Task 7: learnEnabled 时知识 section 扩展', () => {
       expect(html).not.toContain('id="learn"');
     });
 
-    it('不含 "知识" nav 链接', () => {
+    it('不含 "博客" nav 链接', () => {
       const html = createLandingPageHtml();
-      expect(html).not.toMatch(/href="#learn"[^>]*>\s*知识/);
+      expect(html).not.toMatch(/href="https:\/\/blog\.aptbot\.de[^"]*"[^>]*>\s*博客/);
     });
 
     it('Hero 副标题为 v0.2.2 原文（含 "不只是聊天机器人"，不含 "学习型项目"）', () => {

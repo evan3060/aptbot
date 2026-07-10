@@ -76,7 +76,7 @@ function renderKnowledgeArticleCard(article: Article, state: ArticleState): stri
           </div>
         </div>`;
   }
-  return `        <a class="article-card" href="/learn/${escapeHtml(meta.slug)}?lang=zh" data-track="${escapeHtml(meta.track)}" data-slug="${escapeHtml(meta.slug)}">
+  return `        <a class="article-card" href="https://blog.aptbot.de/${escapeHtml(meta.slug)}?lang=zh" data-track="${escapeHtml(meta.track)}" data-slug="${escapeHtml(meta.slug)}">
           <div class="article-meta" data-zh="${escapeHtml(zhDifficulty)} · ${meta.estimatedReadingTime} 分钟" data-en="${escapeHtml(enDifficulty)} · ${meta.estimatedReadingTime} min">${escapeHtml(zhDifficulty)} · ${meta.estimatedReadingTime} <span data-i18n="learn.minutes">分钟</span></div>
           <h3 class="article-title" data-zh="${escapeHtml(meta.title)}" data-en="${escapeHtml(enTitle)}">${escapeHtml(meta.title)}</h3>
           <p class="article-desc" data-zh="${escapeHtml(meta.description)}" data-en="${escapeHtml(enDesc)}">${escapeHtml(meta.description)}</p>
@@ -86,13 +86,13 @@ function renderKnowledgeArticleCard(article: Article, state: ArticleState): stri
         </a>`;
 }
 
-/** 渲染单个 chapter：限显 4 张卡片，超出含 "+N 更多" 链接跳 /learn */
+/** 渲染单个 chapter：限显 4 张卡片，超出含 "+N 更多" 链接跳博客子域名 */
 function renderKnowledgeChapter(chapter: ChapterGroup, state: ArticleState): string {
   const visible = chapter.articles.slice(0, 4);
   const hiddenCount = chapter.articles.length - visible.length;
   const cardsHtml = visible.map((a) => renderKnowledgeArticleCard(a, state)).join('\n');
   const moreLink = hiddenCount > 0
-    ? `\n        <a class="chapter-more-link" href="/learn">+${hiddenCount}<span data-i18n="learn.more"> 更多</span></a>`
+    ? `\n        <a class="chapter-more-link blog-link" href="https://blog.aptbot.de?lang=zh">+${hiddenCount}<span data-i18n="learn.more"> 更多</span></a>`
     : '';
   const firstEn = state.bySlug.get(`${chapter.articles[0]?.meta.slug}:en`);
   const enChapterName = firstEn?.meta.chapter ?? chapter.name;
@@ -155,7 +155,7 @@ function renderKnowledgeSection(articleState: ArticleState | undefined): string 
         </div>
       </div>
 ${tracksHtml}
-      <a href="/learn" class="btn-pill btn-pill-primary knowledge-cta" data-i18n="learn.cta">查看全部文章 →</a>
+      <a href="https://blog.aptbot.de?lang=zh" class="btn-pill btn-pill-primary knowledge-cta blog-link" data-i18n="learn.cta">查看全部文章 →</a>
     </div>
   </section>`;
 }
@@ -170,7 +170,7 @@ export function createLandingPageHtml(opts: LandingPageOptions = {}): string {
   const articleState = opts.articleState;
 
   const learnNavLink = learnEnabled
-    ? '\n    <a href="#learn" data-i18n="nav.learn">知识</a>'
+    ? '\n    <a href="https://blog.aptbot.de?lang=zh" class="blog-link" data-i18n="nav.learn">博客</a>'
     : '';
 
   const heroSubtitleZh = learnEnabled
@@ -180,6 +180,10 @@ export function createLandingPageHtml(opts: LandingPageOptions = {}): string {
 
   const heroTaglineHtml = learnEnabled
     ? '\n      <p class="hero-tagline" data-i18n="hero.tagline">Demo 是学习内容的实操练习场 —— 看完文章来这里动手验证。</p>'
+    : '';
+
+  const heroSecondaryCtaHtml = learnEnabled
+    ? '\n        <a href="https://blog.aptbot.de?lang=zh" class="btn-pill btn-pill-secondary blog-link" data-i18n="hero.cta.secondary">博客</a>'
     : '';
 
   const archExtraDataBar = learnEnabled
@@ -202,9 +206,10 @@ export function createLandingPageHtml(opts: LandingPageOptions = {}): string {
   // learn 相关 i18n 条目仅在 learnEnabled 时注入字典，避免 !learnEnabled 时
   // "查看全部文章" / "篇文章" / "学习型项目" / "实操练习场" 等字符串污染 v0.2.2 渲染产物
   const learnI18nZh = learnEnabled
-    ? `,\n      'nav.learn': '知识',
+    ? `,\n      'nav.learn': '博客',
       'hero.subtitle.learn': '开源 · 自托管 · 完全属于你的 AI 助手 —— 同时也是一个学习型项目：边开发边记录，19 篇文章带你从 0 理解 agent 原理、实现与演进，以及 AI 辅助编码的实践方法论。',
       'hero.tagline': 'Demo 是学习内容的实操练习场 —— 看完文章来这里动手验证。',
+      'hero.cta.secondary': '博客',
       'architecture.eval5.label': '篇文章',
       'architecture.eval6.label': '个 Track',
       'learn.h2': '边用边学，从 0 理解 agent',
@@ -224,9 +229,10 @@ export function createLandingPageHtml(opts: LandingPageOptions = {}): string {
     : '';
 
   const learnI18nEn = learnEnabled
-    ? `,\n      'nav.learn': 'Learn',
+    ? `,\n      'nav.learn': 'Blog',
       'hero.subtitle.learn': "Open-source · Self-hosted · An AI assistant that's truly yours — also a learning project: 19 articles take you from 0 to understanding agent principles, implementation, and evolution, plus AI-assisted coding methodology.",
       'hero.tagline': 'The demo is a hands-on practice ground for the learning content — read the articles, then verify here.',
+      'hero.cta.secondary': 'Blog',
       'architecture.eval5.label': 'articles',
       'architecture.eval6.label': 'tracks',
       'learn.h2': 'Learn while using, understand agents from 0',
@@ -746,8 +752,7 @@ export function createLandingPageHtml(opts: LandingPageOptions = {}): string {
       <h1 data-i18n="hero.h1">开源 · 自托管 · 完全属于你的 AI 助手</h1>
       <p class="hero-subtitle" data-i18n="${heroSubtitleI18nKey}">${heroSubtitleZh}</p>${heroTaglineHtml}
       <div class="hero-ctas">
-        <a href="/demo" class="btn-pill btn-pill-primary" data-i18n="hero.cta.primary">体验 Demo →</a>
-        <a href="/learn" class="btn-pill btn-pill-secondary" data-i18n="hero.cta.secondary">学习入口</a>
+        <a href="/demo" class="btn-pill btn-pill-primary" data-i18n="hero.cta.primary">体验 Demo →</a>${heroSecondaryCtaHtml}
       </div>
     </div>
     <div class="hero-visual" aria-hidden="true">
@@ -904,7 +909,6 @@ ${knowledgeSectionHtml}
       'hero.h1': '开源 · 自托管 · 完全属于你的 AI 助手',
       'hero.subtitle': '不只是聊天机器人，而是一个会思考、会行动、会记忆的 agent。能通过工具操作你的本地环境，能记住你的跨会话偏好，能通过 CLI / WebUI / IM 多端接入。',
       'hero.cta.primary': '体验 Demo →',
-      'hero.cta.secondary': '学习入口',
       'features.h2': '不是框架，不是 SaaS，而是"你的"agent',
       'features.card1.title': '透明思考过程',
       'features.card1.desc': 'core 仅 ~3 文件，可读的 ReAct loop。每个思考、每次工具调用、每个决策都对你完全可见。',
@@ -956,7 +960,6 @@ ${knowledgeSectionHtml}
       'hero.h1': "Open-source · Self-hosted · An AI assistant that's truly yours",
       'hero.subtitle': 'Not just a chatbot, but an agent that thinks, acts, and remembers. It operates your local environment through tools, remembers your cross-session preferences, and connects via CLI / WebUI / IM.',
       'hero.cta.primary': 'Try Demo →',
-      'hero.cta.secondary': 'Learning Hub',
       'features.h2': 'Not a framework, not a SaaS, but "your" agent',
       'features.card1.title': 'Transparent Thinking',
       'features.card1.desc': 'Core is only ~3 files, a readable ReAct loop. Every thought, every tool call, every decision is fully visible to you.',
@@ -1011,7 +1014,11 @@ ${knowledgeSectionHtml}
     });
     document.querySelectorAll('.article-card[data-slug]').forEach(el => {
       const slug = el.getAttribute('data-slug');
-      if (slug) el.setAttribute('href', '/learn/' + slug + '?lang=' + lang);
+      if (slug) el.setAttribute('href', 'https://blog.aptbot.de/' + slug + '?lang=' + lang);
+    });
+    // 同步所有 blog-link 的 ?lang= 参数，保持子域名语言与首页一致
+    document.querySelectorAll('.blog-link').forEach(el => {
+      el.setAttribute('href', 'https://blog.aptbot.de?lang=' + lang);
     });
     const toggle = document.querySelector('[data-i18n="nav.lang"]');
     if (toggle) toggle.textContent = lang === 'zh' ? 'EN' : '中';
