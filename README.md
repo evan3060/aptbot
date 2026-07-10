@@ -22,7 +22,7 @@ It doesn't serve just you. Multi-user isolation lets family members and team mem
 
 **Long-term goal:** Starting from a concise, readable ReAct loop, gradually expand into a highly personalized, omnipotent personal work and life assistant — remembering your preferences, connecting your toolchain, learning your workflows, blending into your daily life. Ultimately, it doesn't just answer questions — it works for you proactively.
 
-> **Status:** v0.3.0 — 双轨 agent 系统（Mode A 通用 + Mode B 专业）+ 桌面模式（WebUI 左侧栏 agent 树形结构）+ skill chip 区（仅 default agent，点击填模板）+ 共享记忆（professional agent 跨 session MEMORY.md 自动注入 + KV 缓存 key 稳定性 + 审计日志 + 归档）+ legacy `data/sessions/` 自动迁移。20 个 task 全部完成，详 [PLAN-0.3.0.md](./PLAN-0.3.0.md)。
+> **Status:** v0.3.0 — 双轨 agent 系统（Mode A 通用 + Mode B 专业）+ 桌面模式（WebUI 左侧栏 agent 树形结构）+ skill chip 区（仅 default agent，点击填模板）+ 共享记忆（professional agent 跨 session MEMORY.md 自动注入 + KV 缓存 key 稳定性 + 审计日志 + 归档）+ legacy `data/sessions/` 自动迁移。20 个 task 全部完成，详 [docs/superpowers/plans/2026-07-06-0.3.0-dual-mode-agent.md](./docs/superpowers/plans/2026-07-06-0.3.0-dual-mode-agent.md)。
 
 ## Start Here
 
@@ -33,8 +33,8 @@ It doesn't serve just you. Multi-user isolation lets family members and team mem
 | Deploy to a VPS with TLS | [Deployment](#-deployment) |
 | Understand the layered architecture | [Architecture](./ARCHITECTURE.md) |
 | See what changed between versions | [Changelog](./CHANGELOG.md) |
-| Review the L1 task plan | [PLAN-L1.md](./PLAN-L1.md) |
-| Preview the L2 roadmap | [PLAN-L2.md](./PLAN-L2.md) |
+| Review the L1 task plan | [docs/superpowers/plans/2026-06-29-l1-user-system.md](./docs/superpowers/plans/2026-06-29-l1-user-system.md) |
+| Preview the L2 roadmap | L2 roadmap 待规划 |
 
 ## 💡 Why aptbot
 
@@ -284,9 +284,9 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full module map, event flow dia
 - [Architecture](./ARCHITECTURE.md) — layered design, module map, event flow
 - [Deployment](./docs/deployment.md) — VPS deployment with systemd + nginx/Caddy
 - [Changelog](./CHANGELOG.md) — versioned release notes
-- [PLAN-L1.md](./PLAN-L1.md) — L1 task plan (user system + multi-client sync, complete)
-- [PLAN-0.2.2.md](./PLAN-0.2.2.md) — 0.2.2 task plan (reliability + extensibility + UX, complete)
-- [PLAN-L2.md](./PLAN-L2.md) — L2 roadmap (reliability + IM integration, planned)
+- [docs/superpowers/plans/2026-06-29-l1-user-system.md](./docs/superpowers/plans/2026-06-29-l1-user-system.md) — L1 task plan (user system + multi-client sync, complete)
+- [docs/superpowers/plans/2026-07-01-0.2.2-main.md](./docs/superpowers/plans/2026-07-01-0.2.2-main.md) — 0.2.2 task plan (reliability + extensibility + UX, complete)
+- L2 roadmap (reliability + IM integration) — 待规划
 - [Comparison](./docs/comparison-pi-nanobot-ga.md) — architecture comparison with pi-agent / nanobot / GenericAgent
 
 ## 🚢 Deployment

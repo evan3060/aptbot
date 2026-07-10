@@ -67,7 +67,7 @@ aptbot 0.3.1 WebUI 移动端适配。将 0.3.0 完成的 React WebUI 从桌面�
 
 ## [0.3.0] - 2026-07-06
 
-aptbot 从「单 agent 多会话」演进为「双轨 agent 系统」。八大主题：双轨 agent（Mode A 通用 + Mode B 专业）+ 桌面模式（WebUI 为唯一主交互入口，左侧栏 agent 树形结构）+ skill chip 区（仅 default agent，点击填模板）+ 共享记忆（professional agent 跨 session MEMORY.md）+ 自动注入（systemPrompt builder + KV 缓存 key 稳定性）+ 审计日志（append-only JSONL memory.log.jsonl）+ 归档（archiveAgent 复制 + 验证 + 删除）+ 迁移（legacy `data/sessions/` 自动迁移到新数据模型）。基于 [docs/superpowers/specs/2026-07-06-0.3.0-dual-mode-agent-design.md](./docs/superpowers/specs/2026-07-06-0.3.0-dual-mode-agent-design.md) 实施，[PLAN-0.3.0.md](./PLAN-0.3.0.md) 共 20 task 全部完成。统一抽象：Mode A 是 Mode B 的退化特例，两者都是 AgentProfile 实例。
+aptbot 从「单 agent 多会话」演进为「双轨 agent 系统」。八大主题：双轨 agent（Mode A 通用 + Mode B 专业）+ 桌面模式（WebUI 为唯一主交互入口，左侧栏 agent 树形结构）+ skill chip 区（仅 default agent，点击填模板）+ 共享记忆（professional agent 跨 session MEMORY.md）+ 自动注入（systemPrompt builder + KV 缓存 key 稳定性）+ 审计日志（append-only JSONL memory.log.jsonl）+ 归档（archiveAgent 复制 + 验证 + 删除）+ 迁移（legacy `data/sessions/` 自动迁移到新数据模型）。基于 [docs/superpowers/specs/2026-07-06-0.3.0-dual-mode-agent-design.md](./docs/superpowers/specs/2026-07-06-0.3.0-dual-mode-agent-design.md) 实施，[docs/superpowers/plans/2026-07-06-0.3.0-dual-mode-agent.md](./docs/superpowers/plans/2026-07-06-0.3.0-dual-mode-agent.md) 共 20 task 全部完成。统一抽象：Mode A 是 Mode B 的退化特例，两者都是 AgentProfile 实例。
 
 ### Added
 
@@ -239,7 +239,7 @@ aptbot 从「单 agent 多会话」演进为「双轨 agent 系统」。八大�
 ### Release Finalization（封仓收尾）
 
 - 设计文档 [docs/superpowers/specs/2026-07-06-0.3.0-dual-mode-agent-design.md](./docs/superpowers/specs/2026-07-06-0.3.0-dual-mode-agent-design.md) 已就位
-- 实施计划 [PLAN-0.3.0.md](./PLAN-0.3.0.md) Task 1-20 全部完成
+- 实施计划 [docs/superpowers/plans/2026-07-06-0.3.0-dual-mode-agent.md](./docs/superpowers/plans/2026-07-06-0.3.0-dual-mode-agent.md) Task 1-20 全部完成
 - CHANGELOG / README / README.zh-CN / ARCHITECTURE 文档同步
 - UAT 核验清单 [docs/superpowers/plans/0.3.0-uat-checklist.md](./docs/superpowers/plans/0.3.0-uat-checklist.md) 就位
 - `package.json` 版本升至 `0.3.0`
@@ -489,7 +489,7 @@ aptbot 从"可用"演进为"可靠 + 可扩展 + 体验流畅"。引入 10 项�
 
 - `package.json` 版本升至 `0.2.2`
 - 设计文档 [docs/superpowers/specs/2026-06-30-0.2.2-design.md](./docs/superpowers/specs/2026-06-30-0.2.2-design.md) 已就位
-- 实施计划 [PLAN-0.2.2.md](./PLAN-0.2.2.md) Task 1-14 全部完成，状态 ✅ COMPLETED
+- 实施计划 [docs/superpowers/plans/2026-07-01-0.2.2-main.md](./docs/superpowers/plans/2026-07-01-0.2.2-main.md) Task 1-14 全部完成，状态 ✅ COMPLETED
 - UAT 核验清单 [docs/superpowers/plans/0.2.2-uat-checklist.md](./docs/superpowers/plans/0.2.2-uat-checklist.md) 71/77 通过
 - 打 `v0.2.2` git tag
 - VPS 部署验证推迟到 0.2.3 一起部署
@@ -554,7 +554,7 @@ aptbot.de 落地页 + Demo 页 adept.ai 风格克隆。新增 opt-in 落地页�
 
 ## [0.2.0] - 2026-06-29
 
-L1 迭代封仓：用户系统 + 多客户端同步 + Codex 风格侧边栏 + 会话重命名。13 任务 + 会话重命名增强 + agent session ownership 修复，58 测试文件 / 584 测试通过 / `tsc` 0 错误。基于 [PLAN-L1.md](./PLAN-L1.md) 与设计 [docs/superpowers/specs/2026-06-29-l1-user-system-multi-client-design.md](./docs/superpowers/specs/2026-06-29-l1-user-system-multi-client-design.md) 实施。
+L1 迭代封仓：用户系统 + 多客户端同步 + Codex 风格侧边栏 + 会话重命名。13 任务 + 会话重命名增强 + agent session ownership 修复，58 测试文件 / 584 测试通过 / `tsc` 0 错误。基于 [docs/superpowers/plans/2026-06-29-l1-user-system.md](./docs/superpowers/plans/2026-06-29-l1-user-system.md) 与设计 [docs/superpowers/specs/2026-06-29-l1-user-system-multi-client-design.md](./docs/superpowers/specs/2026-06-29-l1-user-system-multi-client-design.md) 实施。
 
 ### Added
 
@@ -628,11 +628,11 @@ L1 迭代封仓：用户系统 + 多客户端同步 + Codex 风格侧边栏 + �
 ### Release Finalization（封仓收尾）
 
 - `.gitignore` 补充 `.trae-cn/`（TRAE IDE 本地数据）
-- `PLAN-L1.md` 顶部状态更新为 `✅ L1 COMPLETED`，Task 13 全部 checkbox 完成
+- `docs/superpowers/plans/2026-06-29-l1-user-system.md` 顶部状态更新为 `✅ L1 COMPLETED`，Task 13 全部 checkbox 完成
 - 设计文档归档至 `docs/superpowers/specs/`
 - 实施计划归档至 `docs/superpowers/plans/`
 - `package.json` 版本升至 `0.2.0`
-- 下一迭代计划 [PLAN-L2.md](./PLAN-L2.md) 已生成
+- 下一迭代计划待生成（后续 0.2.1+ 版本）
 
 ---
 
@@ -738,4 +738,4 @@ MVP 首个封仓版本。42 任务 / 54 源文件 / 5714 LOC src + 6289 LOC test
 
 ---
 
-> **MVP v0.1.0 已于 2026-06-28 完整封仓。** 下一迭代见 [PLAN-L1.md](./PLAN-L1.md)：浏览器会话隔离 + 多客户端同步。
+> **MVP v0.1.0 已于 2026-06-28 完整封仓。** 下一迭代见 [docs/superpowers/plans/2026-06-29-l1-user-system.md](./docs/superpowers/plans/2026-06-29-l1-user-system.md)：浏览器会话隔离 + 多客户端同步。

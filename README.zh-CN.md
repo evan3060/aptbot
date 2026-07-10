@@ -22,7 +22,7 @@
 
 **长期目标：** 从一个简洁可读的 ReAct 循环出发，逐步扩展为高度个性化、全能的个人工作与生活助理——记住你的偏好、连接你的工具链、学习你的工作流、融入你的日常。最终，它不只是回答问题，而是主动为你工作。
 
-> **状态：** v0.3.0 — 双轨 agent 系统（Mode A 通用 + Mode B 专业）+ 桌面模式（WebUI 左侧栏 agent 树形结构）+ skill chip 区（仅 default agent，点击填模板）+ 共享记忆（professional agent 跨 session MEMORY.md 自动注入 + KV 缓存 key 稳定性 + 审计日志 + 归档）+ legacy `data/sessions/` 自动迁移。20 个 task 全部完成，详 [PLAN-0.3.0.md](./PLAN-0.3.0.md)。
+> **状态：** v0.3.0 — 双轨 agent 系统（Mode A 通用 + Mode B 专业）+ 桌面模式（WebUI 左侧栏 agent 树形结构）+ skill chip 区（仅 default agent，点击填模板）+ 共享记忆（professional agent 跨 session MEMORY.md 自动注入 + KV 缓存 key 稳定性 + 审计日志 + 归档）+ legacy `data/sessions/` 自动迁移。20 个 task 全部完成，详 [docs/superpowers/plans/2026-07-06-0.3.0-dual-mode-agent.md](./docs/superpowers/plans/2026-07-06-0.3.0-dual-mode-agent.md)。
 
 ## 从这里开始
 
@@ -33,8 +33,8 @@
 | 部署到 VPS 并启用 TLS | [部署](#-部署) |
 | 理解分层架构 | [架构](./ARCHITECTURE.md) |
 | 查看版本变更记录 | [更新日志](./CHANGELOG.md) |
-| 回顾 L1 任务计划 | [PLAN-L1.md](./PLAN-L1.md) |
-| 预览 L2 路线图 | [PLAN-L2.md](./PLAN-L2.md) |
+| 回顾 L1 任务计划 | [docs/superpowers/plans/2026-06-29-l1-user-system.md](./docs/superpowers/plans/2026-06-29-l1-user-system.md) |
+| 预览 L2 路线图 | L2 路线图待规划 |
 
 ## 💡 为什么选 aptbot
 
@@ -284,9 +284,9 @@ aptbot 自底向上分层：core → bus → infrastructure → access，加 `sh
 - [架构文档](./ARCHITECTURE.md) — 分层设计、模块映射、事件流
 - [部署指南](./docs/deployment.md) — VPS 部署含 systemd + nginx/Caddy
 - [更新日志](./CHANGELOG.md) — 版本发布说明
-- [PLAN-L1.md](./PLAN-L1.md) — L1 任务计划（用户系统 + 多客户端同步，已完成）
-- [PLAN-0.2.2.md](./PLAN-0.2.2.md) — 0.2.2 任务计划（可靠性 + 扩展性 + 体验，已完成）
-- [PLAN-L2.md](./PLAN-L2.md) — L2 路线图（可靠性 + IM 集成，已规划）
+- [docs/superpowers/plans/2026-06-29-l1-user-system.md](./docs/superpowers/plans/2026-06-29-l1-user-system.md) — L1 任务计划（用户系统 + 多客户端同步，已完成）
+- [docs/superpowers/plans/2026-07-01-0.2.2-main.md](./docs/superpowers/plans/2026-07-01-0.2.2-main.md) — 0.2.2 任务计划（可靠性 + 扩展性 + 体验，已完成）
+- L2 路线图（可靠性 + IM 集成）— 待规划
 - [架构对比](./docs/comparison-pi-nanobot-ga.md) — 与 pi-agent / nanobot / GenericAgent 的架构对比
 
 ## 🚢 部署
