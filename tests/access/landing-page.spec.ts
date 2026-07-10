@@ -193,7 +193,7 @@ describe('Task 7: learnEnabled 时知识 section 扩展', () => {
 
     it('nav 含 "博客" 链接 → blog.aptbot.de', () => {
       const html = createLandingPageHtml({ learnEnabled: true, articleState: STATE });
-      expect(html).toMatch(/href="https:\/\/blog\.aptbot\.de\?lang=zh"[^>]*>\s*博客/);
+      expect(html).toMatch(/href="https:\/\/blog\.aptbot\.de\/"[^>]*>\s*博客/);
     });
 
     it('Hero 副标题含 "学习型项目"', () => {
@@ -242,7 +242,13 @@ describe('Task 7: learnEnabled 时知识 section 扩展', () => {
     it('含 "查看全部文章 →" pill 按钮 → blog.aptbot.de', () => {
       const html = createLandingPageHtml({ learnEnabled: true, articleState: STATE });
       expect(html).toContain('查看全部文章');
-      expect(html).toMatch(/href="https:\/\/blog\.aptbot\.de\?lang=zh"/);
+      expect(html).toMatch(/href="https:\/\/blog\.aptbot\.de\/"/);
+    });
+
+    it('博客链接默认指向中文路径（无 /en/ 前缀）', () => {
+      const html = createLandingPageHtml({ learnEnabled: true, articleState: STATE });
+      expect(html).toMatch(/href="https:\/\/blog\.aptbot\.de\/"/);
+      expect(html).not.toMatch(/href="https:\/\/blog\.aptbot\.de\/en\//);
     });
 
     it('每 chapter 限显 4 张卡片超出含 "+N more" 链接（核心特性深入篇 8 篇 → +4 more）', () => {

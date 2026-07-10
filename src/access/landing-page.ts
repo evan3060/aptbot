@@ -76,7 +76,7 @@ function renderKnowledgeArticleCard(article: Article, state: ArticleState): stri
           </div>
         </div>`;
   }
-  return `        <a class="article-card" href="https://blog.aptbot.de/${escapeHtml(meta.slug)}?lang=zh" data-track="${escapeHtml(meta.track)}" data-slug="${escapeHtml(meta.slug)}">
+  return `        <a class="article-card" href="https://blog.aptbot.de/${escapeHtml(meta.slug)}" data-track="${escapeHtml(meta.track)}" data-slug="${escapeHtml(meta.slug)}">
           <div class="article-meta" data-zh="${escapeHtml(zhDifficulty)} · ${meta.estimatedReadingTime} 分钟" data-en="${escapeHtml(enDifficulty)} · ${meta.estimatedReadingTime} min">${escapeHtml(zhDifficulty)} · ${meta.estimatedReadingTime} <span data-i18n="learn.minutes">分钟</span></div>
           <h3 class="article-title" data-zh="${escapeHtml(meta.title)}" data-en="${escapeHtml(enTitle)}">${escapeHtml(meta.title)}</h3>
           <p class="article-desc" data-zh="${escapeHtml(meta.description)}" data-en="${escapeHtml(enDesc)}">${escapeHtml(meta.description)}</p>
@@ -92,7 +92,7 @@ function renderKnowledgeChapter(chapter: ChapterGroup, state: ArticleState): str
   const hiddenCount = chapter.articles.length - visible.length;
   const cardsHtml = visible.map((a) => renderKnowledgeArticleCard(a, state)).join('\n');
   const moreLink = hiddenCount > 0
-    ? `\n        <a class="chapter-more-link blog-link" href="https://blog.aptbot.de?lang=zh">+${hiddenCount}<span data-i18n="learn.more"> 更多</span></a>`
+    ? `\n        <a class="chapter-more-link blog-link" href="https://blog.aptbot.de/">+${hiddenCount}<span data-i18n="learn.more"> 更多</span></a>`
     : '';
   const firstEn = state.bySlug.get(`${chapter.articles[0]?.meta.slug}:en`);
   const enChapterName = firstEn?.meta.chapter ?? chapter.name;
@@ -155,7 +155,7 @@ function renderKnowledgeSection(articleState: ArticleState | undefined): string 
         </div>
       </div>
 ${tracksHtml}
-      <a href="https://blog.aptbot.de?lang=zh" class="btn-pill btn-pill-primary knowledge-cta blog-link" data-i18n="learn.cta">查看全部文章 →</a>
+      <a href="https://blog.aptbot.de/" class="btn-pill btn-pill-primary knowledge-cta blog-link" data-i18n="learn.cta">查看全部文章 →</a>
     </div>
   </section>`;
 }
@@ -170,7 +170,7 @@ export function createLandingPageHtml(opts: LandingPageOptions = {}): string {
   const articleState = opts.articleState;
 
   const learnNavLink = learnEnabled
-    ? '\n    <a href="https://blog.aptbot.de?lang=zh" class="blog-link" data-i18n="nav.learn">博客</a>'
+    ? '\n    <a href="https://blog.aptbot.de/" class="blog-link" data-i18n="nav.learn">博客</a>'
     : '';
 
   const heroSubtitleZh = learnEnabled
@@ -183,7 +183,7 @@ export function createLandingPageHtml(opts: LandingPageOptions = {}): string {
     : '';
 
   const heroSecondaryCtaHtml = learnEnabled
-    ? '\n        <a href="https://blog.aptbot.de?lang=zh" class="btn-pill btn-pill-secondary blog-link" data-i18n="hero.cta.secondary">博客</a>'
+    ? '\n        <a href="https://blog.aptbot.de/" class="btn-pill btn-pill-secondary blog-link" data-i18n="hero.cta.secondary">博客</a>'
     : '';
 
   const archExtraDataBar = learnEnabled
@@ -1012,13 +1012,18 @@ ${knowledgeSectionHtml}
     document.querySelectorAll('[data-en]').forEach(el => {
       el.textContent = el.getAttribute('data-' + lang) || el.textContent;
     });
+    // 同步所有文章卡片链接到博客子域名对应语言路径（zh: /slug, en: /en/slug）
     document.querySelectorAll('.article-card[data-slug]').forEach(el => {
       const slug = el.getAttribute('data-slug');
-      if (slug) el.setAttribute('href', 'https://blog.aptbot.de/' + slug + '?lang=' + lang);
+      if (slug) {
+        const prefix = lang === 'en' ? 'https://blog.aptbot.de/en/' : 'https://blog.aptbot.de/';
+        el.setAttribute('href', prefix + slug);
+      }
     });
-    // 同步所有 blog-link 的 ?lang= 参数，保持子域名语言与首页一致
+    // 同步所有 blog-link 到博客子域名对应语言路径，保持子域名语言与首页一致
     document.querySelectorAll('.blog-link').forEach(el => {
-      el.setAttribute('href', 'https://blog.aptbot.de?lang=' + lang);
+      const prefix = lang === 'en' ? 'https://blog.aptbot.de/en/' : 'https://blog.aptbot.de/';
+      el.setAttribute('href', prefix);
     });
     const toggle = document.querySelector('[data-i18n="nav.lang"]');
     if (toggle) toggle.textContent = lang === 'zh' ? 'EN' : '中';
