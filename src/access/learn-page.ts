@@ -276,7 +276,6 @@ export function createLearnListHtml(state: ArticleState, lang?: string): string 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="data:,">
 <title>${t('list.h1', currentLang)} - aptbot</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg-base: rgb(255, 255, 255);
@@ -1519,7 +1518,6 @@ function learnApplyLang(lang) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="data:,">
 <title data-i18n-title-suffix="article.titleSuffix">${escapeHtml(meta.title)} - aptbot ${t('article.titleSuffix', currentLang)}</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 ${css}
 </style>
@@ -1593,7 +1591,6 @@ export function createFeedbackHtml(lang?: string): string {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="data:,">
 <title data-i18n-title-prefix="feedback.title">${t('feedback.title', currentLang)} - aptbot</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg-base: rgb(255, 255, 255);

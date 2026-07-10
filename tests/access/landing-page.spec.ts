@@ -82,9 +82,7 @@ describe('Task 2: landing-page 骨架与 adept design tokens', () => {
 
   it('引入 Inter 字体 link', () => {
     const html = createLandingPageHtml();
-    expect(html).toContain(
-      '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">'
-    );
+    expect(html).not.toContain('fonts.googleapis.com');
   });
 
   it('定义 --bg-base token', () => {

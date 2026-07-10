@@ -1,7 +1,7 @@
 /**
  * Task 1 (React WebUI redesign): 全局样式入口。
  *
- * - Google Fonts（Hanken Grotesk + JetBrains Mono）
+ * - 系统字体栈（移除 Google Fonts 外部依赖，避免移动端风险提示）
  * - Tailwind v4 入口（@import "tailwindcss"）
  * - @theme 定义 Tailwind 字体 token
  * - 自定义 scrollbar 样式（4px 窄轨，浅灰 thumb）
@@ -9,12 +9,11 @@
  *
  * 设计参考：aistudio-design/src/index.css（保持设计原型一致，便于 Task 9 直接复用）
  */
-@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
 body {

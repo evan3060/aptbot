@@ -96,9 +96,7 @@ describe('Task 4: createLearnListHtml 列表页', () => {
 
     it('引入 Inter 字体 link（与 landing-page.ts 一致）', () => {
       const html = createLearnListHtml(STATE);
-      expect(html).toContain(
-        '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">',
-      );
+      expect(html).not.toContain('fonts.googleapis.com');
     });
 
     it('定义 adept tokens CSS 变量（--bg-base / --text-primary / --text-secondary / --bg-muted）', () => {
@@ -442,9 +440,7 @@ describe('Task 5: createLearnArticleHtml 文章页', () => {
 
     it('引入 Inter 字体 link（与列表页一致）', () => {
       const html = createLearnArticleHtml(PUBLISHED_ARTICLE, PUBLISHED_NAV);
-      expect(html).toContain(
-        '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">',
-      );
+      expect(html).not.toContain('fonts.googleapis.com');
     });
 
     it('复用列表页 design tokens（--bg-base / --text-primary / --text-secondary / --bg-muted）', () => {
@@ -778,9 +774,7 @@ describe('Task 6: createFeedbackHtml 反馈表单页', () => {
 
     it('引入 Inter 字体 link（与列表页一致）', () => {
       const html = createFeedbackHtml();
-      expect(html).toContain(
-        '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">',
-      );
+      expect(html).not.toContain('fonts.googleapis.com');
     });
 
     it('复用列表页 design tokens（--bg-base / --text-primary / --text-secondary / --bg-muted）', () => {
