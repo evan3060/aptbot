@@ -337,12 +337,24 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
     const httpServer = createServer(async (req, res) => {
       const pathname = new URL(req.url ?? '/', `http://localhost:${port}`).pathname;
 
-      // HEAD 请求：对 HTML 路由返回 200 + 安全 headers（无 body），避免 curl -I 返回 404
+      // 全局安全 headers 注入：拦截 res.writeHead，自动合并 securityHeaders 到所有响应
+      // （包括外部 handler 函数的 API JSON 响应），防止移动端浏览器风险提示
+      const _originalWriteHead = res.writeHead.bind(res);
+      res.writeHead = ((statusCode: number, ...rest: unknown[]) => {
+        const extra = rest[0];
+        const merged = extra && typeof extra === 'object' && !Array.isArray(extra)
+          ? { ...securityHeaders, ...(extra as Record<string, string>) }
+          : { ...securityHeaders };
+        return (_originalWriteHead as (...args: unknown[]) => typeof res)(statusCode, merged);
+      }) as typeof res.writeHead;
+
+      // HEAD 请求：对 HTML 路由返回 200（无 body），避免 curl -I 返回 404
+      // 安全 headers 由上方 writeHead 拦截器自动注入
       if (req.method === 'HEAD' &&
           (pathname === '/' || pathname === '/index.html' ||
            pathname === '/demo' || pathname === '/demo/' || pathname === '/demo/index.html' ||
            pathname === '/learn' || pathname === '/feedback')) {
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', ...securityHeaders });
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         res.end();
         return;
       }
@@ -574,7 +586,7 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
         res.end(html);
         return;
       }
-      res.writeHead(404, { 'content-type': 'text/plain', ...securityHeaders });
+      res.writeHead(404, { 'content-type': 'text/plain' });
       res.end('Not Found');
     });
     const wss = new WsServer({ server: httpServer });
