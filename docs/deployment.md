@@ -2,7 +2,7 @@
 
 > 本文记录 aptbot 部署到 VPS 的完整流程，覆盖 systemd 进程管理、反向代理（nginx 或 Caddy）、TLS 签发、SSH 加固与 sudoers 配置。所有敏感字段以 `<placeholder>` 表示。
 
-> **当前部署版本：** v0.3.0（双轨 agent 系统 + React WebUI 重设计 + OpenCode free 模型）。详见 [CHANGELOG.md](../CHANGELOG.md)。
+> **当前部署版本：** v0.3.1（WebUI 移动端适配 + 响应式布局）。详见 [CHANGELOG.md](../CHANGELOG.md)。
 
 ## 部署架构
 

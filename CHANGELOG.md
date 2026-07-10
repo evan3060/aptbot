@@ -2,6 +2,64 @@
 
 本文件记录 aptbot 各版本变更。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.3.1] - 2026-07-10
+
+aptbot 0.3.1 WebUI 移动端适配。将 0.3.0 完成的 React WebUI 从桌面专用布局扩展为响应式，覆盖手机（<768px）/ 平板 / 桌面（≥768px）三档视口。核心特性为侧边栏抽屉化与 InputArea 快捷指令自动缩放，其余组件做间距 / 字号 / 全屏化适配。基于 [docs/superpowers/specs/2026-07-09-0.3.1-mobile-adaptation-design.md](./docs/superpowers/specs/2026-07-09-0.3.1-mobile-adaptation-design.md) 实施，[PLAN-0.3.1](./docs/superpowers/plans/2026-07-09-0.3.1-mobile-adaptation.md) 共 12 task 全部完成 + 人工验收通过。
+
+### Added
+
+#### Task 1-2 — 基建 hook
+- `src/webui-react/lib/use-media-query.ts`：`useIsDesktop()` hook，matchMedia('(min-width: 768px)') + resize 监听，SSR 安全
+- `src/webui-react/lib/use-quick-actions-layout.ts`：`computeQuickActionsLayout()` 纯函数 + `useQuickActionsLayout()` hook，贪心填充算法 + ResizeObserver 测量容器宽度 + 溢出按钮折叠到「更多」面板
+- `tests/webui-react/use-media-query.test.ts`：5 个单元测试
+- `tests/webui-react/use-quick-actions-layout.test.ts`：8 个单元测试（6 算法 + 2 hook wrapper）
+
+#### Task 3 — App.tsx 协调层
+- `sidebarOpen` state + `isDesktop` from useIsDesktop
+- body 滚动锁（sidebarOpen && !isDesktop 时 overflow hidden）
+- Esc 键关闭抽屉
+- main margin `ml-64` → `md:ml-64`（移动端占满宽度）
+- 4 个 handler 自动关闭抽屉（handleSelectSession / handleSelectAgent / handleCreateSession / handleStartNewSessionWithAgent）
+
+#### Task 4-5 — 侧边栏抽屉化 + Backdrop + Hamburger
+- Sidebar 接收 isDesktop / isOpen / onClose props，移动端 transform translate-x 抽屉动画
+- Backdrop 遮罩（z-30 bg-black/30 backdrop-blur，点击关闭）
+- Hamburger 移动端顶栏（lucide Menu 图标 + agent 名称）
+- SessionItem 删除 / 重命名按钮移动端常显（opacity-100 md:opacity-0 md:group-hover:opacity-100）
+
+#### Task 6 — ChatArea 响应式
+- 根容器 padding `p-3 sm:p-4 md:p-6 lg:p-8`
+- 代码块 `overflow-x-auto` + `text-xs md:text-sm`（移动端横滑）
+- NewSessionPicker `grid-cols-1 md:grid-cols-2`
+- EmptyState 辅助文案 `hidden md:block`
+- InlineToolCalls 紧凑字号
+
+#### Task 7 — InputArea 适配 + 快捷指令自动缩放
+- 下拉框移动端 collapsible（⚙️ 设置 toggle + max-h transition）
+- textarea `text-base`（防 iOS 缩放）+ `min-h-[60px] md:min-h-[80px]`
+- 快捷指令区 ResizeObserver 测量 + useQuickActionsLayout 自动缩放
+- 「更多 ⋯」按钮 + 弹出面板（grid grid-cols-3 md:grid-cols-4，click-outside 关闭）
+- Bug fix: useLayoutEffect deps `[]` → `[activeAgentSlug === 'default']`（切换 agent 后 remount 导致 containerWidth 卡 0）
+
+#### Task 8 — FooterBar 精简
+- 移动端单行 + 色点 + 短文字（conn / wait / close / disc）
+- model 名 `truncate max-w-[120px] md:max-w-none`
+- 字号 `text-[10px] md:text-xs`
+
+#### Task 9 — 模态移动端全屏化
+- AuthModal：移动端 `fixed inset-0 rounded-none` + `text-base` 输入 + `w-full` 按钮
+- AgentModals：移动端全屏 + sticky header（× + 标题）+ sticky footer（保存 / 取消）
+- MemoryToast：移动端顶部全宽 banner `top-0 left-0 right-0 rounded-none`
+
+#### Task 10 — UAT 测试
+- `tests/uat/mobile-adaptation-uat.spec.ts`：8 个 Playwright UAT 场景（桌面布局 / 移动布局 / 抽屉打开 / 抽屉关闭-遮罩 / 抽屉关闭-选会话 / 快捷指令缩放 / AuthModal 全屏 / AgentModals 全屏）
+- 桌面回归 10/10 通过 + vitest 1781/1783（2 pre-existing flaky）+ tsc 0
+
+### Test Coverage
+- vitest: 1781/1783 pass（2 pre-existing auth-api ECONNRESET flaky）
+- Playwright UAT: 8/8 mobile + 10/10 desktop regression
+- tsc: 0 errors
+
 ## [0.3.0] - 2026-07-06
 
 aptbot 从「单 agent 多会话」演进为「双轨 agent 系统」。八大主题：双轨 agent（Mode A 通用 + Mode B 专业）+ 桌面模式（WebUI 为唯一主交互入口，左侧栏 agent 树形结构）+ skill chip 区（仅 default agent，点击填模板）+ 共享记忆（professional agent 跨 session MEMORY.md）+ 自动注入（systemPrompt builder + KV 缓存 key 稳定性）+ 审计日志（append-only JSONL memory.log.jsonl）+ 归档（archiveAgent 复制 + 验证 + 删除）+ 迁移（legacy `data/sessions/` 自动迁移到新数据模型）。基于 [docs/superpowers/specs/2026-07-06-0.3.0-dual-mode-agent-design.md](./docs/superpowers/specs/2026-07-06-0.3.0-dual-mode-agent-design.md) 实施，[PLAN-0.3.0.md](./PLAN-0.3.0.md) 共 20 task 全部完成。统一抽象：Mode A 是 Mode B 的退化特例，两者都是 AgentProfile 实例。
