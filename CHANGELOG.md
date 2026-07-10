@@ -55,8 +55,12 @@ aptbot 0.3.1 WebUI 移动端适配。将 0.3.0 完成的 React WebUI 从桌面�
 - `tests/uat/mobile-adaptation-uat.spec.ts`：8 个 Playwright UAT 场景（桌面布局 / 移动布局 / 抽屉打开 / 抽屉关闭-遮罩 / 抽屉关闭-选会话 / 快捷指令缩放 / AuthModal 全屏 / AgentModals 全屏）
 - 桌面回归 10/10 通过 + vitest 1781/1783（2 pre-existing flaky）+ tsc 0
 
+### Fixed
+- 移动端浏览器「网站有风险」提示：通过 `res.writeHead` 拦截器在请求处理器入口全局注入安全 headers（HSTS / X-Content-Type-Options / X-Frame-Options / Referrer-Policy），覆盖所有响应类型（HTML / API JSON / 404 / 静态资源 / HEAD）
+- HEAD 请求返回 404 问题：新增 HEAD 路由处理（/, /demo, /learn, /feedback），返回 200 + 安全 headers（无 body），修复 `curl -I` 返回 404 的诊断误报
+
 ### Test Coverage
-- vitest: 1781/1783 pass（2 pre-existing auth-api ECONNRESET flaky）
+- vitest: 1782/1783 pass（1 pre-existing webui DOM flaky）
 - Playwright UAT: 8/8 mobile + 10/10 desktop regression
 - tsc: 0 errors
 
