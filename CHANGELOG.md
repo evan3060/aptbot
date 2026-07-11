@@ -2,6 +2,33 @@
 
 本文件记录 aptbot 各版本变更。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.3.2] - 2026-07-10
+
+aptbot 0.3.2 首页博客子域名接入 + 研发流程规范升级。将首页"知识"/"学习入口"链接从站内 `/learn` 切换到已上线的 `blog.aptbot.de` 子域名，采用路径式 i18n 路由（中文 `/`、英文 `/en/`）与首页语言设置同步。同步升级通用研发规范至 v1.1，新增代码清晰度三审章节与 plan 文件位置统一。
+
+### Changed
+
+#### 首页博客子域名接入
+- `src/access/landing-page.ts`：nav 链接 / Hero CTA / knowledge CTA / chapter more / 文章卡片共 5 处链接从 `/learn` 改为 `https://blog.aptbot.de/`（路径式路由）
+- i18n 文案更新：zh `知识` → `博客`、`学习入口` → `博客`；en `Learn` → `Blog`、`Learning Hub` → `Blog`
+- `applyLang()` JS 逻辑：语言切换时动态更新所有 `.blog-link` 与 `.article-card[data-slug]` 的 href，中文指向 `https://blog.aptbot.de/<slug>`、英文指向 `https://blog.aptbot.de/en/<slug>`
+- Hero secondary CTA 改为条件渲染（仅 `learnEnabled=true` 时显示），避免 v0.2.2 兼容模式污染
+- `tests/access/landing-page.spec.ts`：3 处断言同步更新 + 新增中文路径验证用例
+
+### Added
+
+#### 研发流程规范 v1.1
+- `docs/superpowers/dev-workflow.md` 第 5.5 节「代码清晰度三审」：合并前强制执行三轮检查（去重 → 拆分 → 统一），对应 B2.5 步骤
+  - 第一轮去重：跨文件重复逻辑（≥5 行在 2+ 文件出现）抽取公共模块
+  - 第二轮拆分：函数 >50 行或多个抽象层级按职责拆分
+  - 第三轮统一：命名 / 错误处理 / 导入顺序与项目规范对齐，无规范时抽取到 `docs/coding-conventions.md`
+- 第 8 节「跨项目迁移兼容性检查」：aptblog 独立项目迁移 learn 文章场景的规范
+- P2 约束：每个版本（含 patch）必须新开 `feat/<version>` 分支
+
+#### plan 文件位置统一
+- 4 个 plan 文件从根目录迁移到 `docs/superpowers/plans/`，命名规范化为 `YYYY-MM-DD-<version>-<topic>.md`
+- `CHANGELOG.md` / `README.md` / `README.zh-CN.md` / design 文档中所有 plan 引用同步更新
+
 ## [0.3.1] - 2026-07-10
 
 aptbot 0.3.1 WebUI 移动端适配。将 0.3.0 完成的 React WebUI 从桌面专用布局扩展为响应式，覆盖手机（<768px）/ 平板 / 桌面（≥768px）三档视口。核心特性为侧边栏抽屉化与 InputArea 快捷指令自动缩放，其余组件做间距 / 字号 / 全屏化适配。基于 [docs/superpowers/specs/2026-07-09-0.3.1-mobile-adaptation-design.md](./docs/superpowers/specs/2026-07-09-0.3.1-mobile-adaptation-design.md) 实施，[PLAN-0.3.1](./docs/superpowers/plans/2026-07-09-0.3.1-mobile-adaptation.md) 共 12 task 全部完成 + 人工验收通过。
