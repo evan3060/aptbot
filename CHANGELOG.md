@@ -2,6 +2,33 @@
 
 本文件记录 aptbot 各版本变更。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.3.2] - 2026-07-10
+
+aptbot 0.3.2 首页博客子域名接入 + 研发流程规范升级。将首页"知识"/"学习入口"链接从站内 `/learn` 切换到已上线的 `blog.aptbot.de` 子域名，采用路径式 i18n 路由（中文 `/`、英文 `/en/`）与首页语言设置同步。同步升级通用研发规范至 v1.1，新增代码清晰度三审章节与 plan 文件位置统一。
+
+### Changed
+
+#### 首页博客子域名接入
+- `src/access/landing-page.ts`：nav 链接 / Hero CTA / knowledge CTA / chapter more / 文章卡片共 5 处链接从 `/learn` 改为 `https://blog.aptbot.de/`（路径式路由）
+- i18n 文案更新：zh `知识` → `博客`、`学习入口` → `博客`；en `Learn` → `Blog`、`Learning Hub` → `Blog`
+- `applyLang()` JS 逻辑：语言切换时动态更新所有 `.blog-link` 与 `.article-card[data-slug]` 的 href，中文指向 `https://blog.aptbot.de/<slug>`、英文指向 `https://blog.aptbot.de/en/<slug>`
+- Hero secondary CTA 改为条件渲染（仅 `learnEnabled=true` 时显示），避免 v0.2.2 兼容模式污染
+- `tests/access/landing-page.spec.ts`：3 处断言同步更新 + 新增中文路径验证用例
+
+### Added
+
+#### 研发流程规范 v1.1
+- `docs/superpowers/dev-workflow.md` 第 5.5 节「代码清晰度三审」：合并前强制执行三轮检查（去重 → 拆分 → 统一），对应 B2.5 步骤
+  - 第一轮去重：跨文件重复逻辑（≥5 行在 2+ 文件出现）抽取公共模块
+  - 第二轮拆分：函数 >50 行或多个抽象层级按职责拆分
+  - 第三轮统一：命名 / 错误处理 / 导入顺序与项目规范对齐，无规范时抽取到 `docs/coding-conventions.md`
+- 第 8 节「跨项目迁移兼容性检查」：aptblog 独立项目迁移 learn 文章场景的规范
+- P2 约束：每个版本（含 patch）必须新开 `feat/<version>` 分支
+
+#### plan 文件位置统一
+- 4 个 plan 文件从根目录迁移到 `docs/superpowers/plans/`，命名规范化为 `YYYY-MM-DD-<version>-<topic>.md`
+- `CHANGELOG.md` / `README.md` / `README.zh-CN.md` / design 文档中所有 plan 引用同步更新
+
 ## [0.3.1] - 2026-07-10
 
 aptbot 0.3.1 WebUI 移动端适配。将 0.3.0 完成的 React WebUI 从桌面专用布局扩展为响应式，覆盖手机（<768px）/ 平板 / 桌面（≥768px）三档视口。核心特性为侧边栏抽屉化与 InputArea 快捷指令自动缩放，其余组件做间距 / 字号 / 全屏化适配。基于 [docs/superpowers/specs/2026-07-09-0.3.1-mobile-adaptation-design.md](./docs/superpowers/specs/2026-07-09-0.3.1-mobile-adaptation-design.md) 实施，[PLAN-0.3.1](./docs/superpowers/plans/2026-07-09-0.3.1-mobile-adaptation.md) 共 12 task 全部完成 + 人工验收通过。
@@ -55,14 +82,19 @@ aptbot 0.3.1 WebUI 移动端适配。将 0.3.0 完成的 React WebUI 从桌面�
 - `tests/uat/mobile-adaptation-uat.spec.ts`：8 个 Playwright UAT 场景（桌面布局 / 移动布局 / 抽屉打开 / 抽屉关闭-遮罩 / 抽屉关闭-选会话 / 快捷指令缩放 / AuthModal 全屏 / AgentModals 全屏）
 - 桌面回归 10/10 通过 + vitest 1781/1783（2 pre-existing flaky）+ tsc 0
 
+### Fixed
+- 移动端浏览器「网站有风险」提示（根因）：learn / feedback / landing / chat 页面引用了 `https://fonts.googleapis.com` 外部资源，Google Fonts 在大陆被 GFW 干扰导致加载失败触发风险提示。全站移除 Google Fonts 引用，改用系统字体栈（Inter → system-ui / PingFang SC / Microsoft YaHei fallback）
+- 移动端浏览器「网站有风险」提示（辅助）：通过 `res.writeHead` 拦截器在请求处理器入口全局注入安全 headers（HSTS / X-Content-Type-Options / X-Frame-Options / Referrer-Policy），覆盖所有响应类型（HTML / API JSON / 404 / 静态资源 / HEAD）
+- HEAD 请求返回 404 问题：新增 HEAD 路由处理（/, /demo, /learn, /feedback），返回 200 + 安全 headers（无 body），修复 `curl -I` 返回 404 的诊断误报
+
 ### Test Coverage
-- vitest: 1781/1783 pass（2 pre-existing auth-api ECONNRESET flaky）
+- vitest: 1782/1783 pass（1 pre-existing webui DOM flaky）
 - Playwright UAT: 8/8 mobile + 10/10 desktop regression
 - tsc: 0 errors
 
 ## [0.3.0] - 2026-07-06
 
-aptbot 从「单 agent 多会话」演进为「双轨 agent 系统」。八大主题：双轨 agent（Mode A 通用 + Mode B 专业）+ 桌面模式（WebUI 为唯一主交互入口，左侧栏 agent 树形结构）+ skill chip 区（仅 default agent，点击填模板）+ 共享记忆（professional agent 跨 session MEMORY.md）+ 自动注入（systemPrompt builder + KV 缓存 key 稳定性）+ 审计日志（append-only JSONL memory.log.jsonl）+ 归档（archiveAgent 复制 + 验证 + 删除）+ 迁移（legacy `data/sessions/` 自动迁移到新数据模型）。基于 [docs/superpowers/specs/2026-07-06-0.3.0-dual-mode-agent-design.md](./docs/superpowers/specs/2026-07-06-0.3.0-dual-mode-agent-design.md) 实施，[PLAN-0.3.0.md](./PLAN-0.3.0.md) 共 20 task 全部完成。统一抽象：Mode A 是 Mode B 的退化特例，两者都是 AgentProfile 实例。
+aptbot 从「单 agent 多会话」演进为「双轨 agent 系统」。八大主题：双轨 agent（Mode A 通用 + Mode B 专业）+ 桌面模式（WebUI 为唯一主交互入口，左侧栏 agent 树形结构）+ skill chip 区（仅 default agent，点击填模板）+ 共享记忆（professional agent 跨 session MEMORY.md）+ 自动注入（systemPrompt builder + KV 缓存 key 稳定性）+ 审计日志（append-only JSONL memory.log.jsonl）+ 归档（archiveAgent 复制 + 验证 + 删除）+ 迁移（legacy `data/sessions/` 自动迁移到新数据模型）。基于 [docs/superpowers/specs/2026-07-06-0.3.0-dual-mode-agent-design.md](./docs/superpowers/specs/2026-07-06-0.3.0-dual-mode-agent-design.md) 实施，[docs/superpowers/plans/2026-07-06-0.3.0-dual-mode-agent.md](./docs/superpowers/plans/2026-07-06-0.3.0-dual-mode-agent.md) 共 20 task 全部完成。统一抽象：Mode A 是 Mode B 的退化特例，两者都是 AgentProfile 实例。
 
 ### Added
 
@@ -234,7 +266,7 @@ aptbot 从「单 agent 多会话」演进为「双轨 agent 系统」。八大�
 ### Release Finalization（封仓收尾）
 
 - 设计文档 [docs/superpowers/specs/2026-07-06-0.3.0-dual-mode-agent-design.md](./docs/superpowers/specs/2026-07-06-0.3.0-dual-mode-agent-design.md) 已就位
-- 实施计划 [PLAN-0.3.0.md](./PLAN-0.3.0.md) Task 1-20 全部完成
+- 实施计划 [docs/superpowers/plans/2026-07-06-0.3.0-dual-mode-agent.md](./docs/superpowers/plans/2026-07-06-0.3.0-dual-mode-agent.md) Task 1-20 全部完成
 - CHANGELOG / README / README.zh-CN / ARCHITECTURE 文档同步
 - UAT 核验清单 [docs/superpowers/plans/0.3.0-uat-checklist.md](./docs/superpowers/plans/0.3.0-uat-checklist.md) 就位
 - `package.json` 版本升至 `0.3.0`
@@ -484,7 +516,7 @@ aptbot 从"可用"演进为"可靠 + 可扩展 + 体验流畅"。引入 10 项�
 
 - `package.json` 版本升至 `0.2.2`
 - 设计文档 [docs/superpowers/specs/2026-06-30-0.2.2-design.md](./docs/superpowers/specs/2026-06-30-0.2.2-design.md) 已就位
-- 实施计划 [PLAN-0.2.2.md](./PLAN-0.2.2.md) Task 1-14 全部完成，状态 ✅ COMPLETED
+- 实施计划 [docs/superpowers/plans/2026-07-01-0.2.2-main.md](./docs/superpowers/plans/2026-07-01-0.2.2-main.md) Task 1-14 全部完成，状态 ✅ COMPLETED
 - UAT 核验清单 [docs/superpowers/plans/0.2.2-uat-checklist.md](./docs/superpowers/plans/0.2.2-uat-checklist.md) 71/77 通过
 - 打 `v0.2.2` git tag
 - VPS 部署验证推迟到 0.2.3 一起部署
@@ -549,7 +581,7 @@ aptbot.de 落地页 + Demo 页 adept.ai 风格克隆。新增 opt-in 落地页�
 
 ## [0.2.0] - 2026-06-29
 
-L1 迭代封仓：用户系统 + 多客户端同步 + Codex 风格侧边栏 + 会话重命名。13 任务 + 会话重命名增强 + agent session ownership 修复，58 测试文件 / 584 测试通过 / `tsc` 0 错误。基于 [PLAN-L1.md](./PLAN-L1.md) 与设计 [docs/superpowers/specs/2026-06-29-l1-user-system-multi-client-design.md](./docs/superpowers/specs/2026-06-29-l1-user-system-multi-client-design.md) 实施。
+L1 迭代封仓：用户系统 + 多客户端同步 + Codex 风格侧边栏 + 会话重命名。13 任务 + 会话重命名增强 + agent session ownership 修复，58 测试文件 / 584 测试通过 / `tsc` 0 错误。基于 [docs/superpowers/plans/2026-06-29-l1-user-system.md](./docs/superpowers/plans/2026-06-29-l1-user-system.md) 与设计 [docs/superpowers/specs/2026-06-29-l1-user-system-multi-client-design.md](./docs/superpowers/specs/2026-06-29-l1-user-system-multi-client-design.md) 实施。
 
 ### Added
 
@@ -623,11 +655,11 @@ L1 迭代封仓：用户系统 + 多客户端同步 + Codex 风格侧边栏 + �
 ### Release Finalization（封仓收尾）
 
 - `.gitignore` 补充 `.trae-cn/`（TRAE IDE 本地数据）
-- `PLAN-L1.md` 顶部状态更新为 `✅ L1 COMPLETED`，Task 13 全部 checkbox 完成
+- `docs/superpowers/plans/2026-06-29-l1-user-system.md` 顶部状态更新为 `✅ L1 COMPLETED`，Task 13 全部 checkbox 完成
 - 设计文档归档至 `docs/superpowers/specs/`
 - 实施计划归档至 `docs/superpowers/plans/`
 - `package.json` 版本升至 `0.2.0`
-- 下一迭代计划 [PLAN-L2.md](./PLAN-L2.md) 已生成
+- 下一迭代计划待生成（后续 0.2.1+ 版本）
 
 ---
 
@@ -733,4 +765,4 @@ MVP 首个封仓版本。42 任务 / 54 源文件 / 5714 LOC src + 6289 LOC test
 
 ---
 
-> **MVP v0.1.0 已于 2026-06-28 完整封仓。** 下一迭代见 [PLAN-L1.md](./PLAN-L1.md)：浏览器会话隔离 + 多客户端同步。
+> **MVP v0.1.0 已于 2026-06-28 完整封仓。** 下一迭代见 [docs/superpowers/plans/2026-06-29-l1-user-system.md](./docs/superpowers/plans/2026-06-29-l1-user-system.md)：浏览器会话隔离 + 多客户端同步。

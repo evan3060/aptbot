@@ -34,9 +34,7 @@ describe('Task 6: chat-page adept 风格迁移', () => {
 
     it('引入 Inter 字体 link', () => {
       const html = createChatPageHtml('/ws');
-      expect(html).toContain(
-        '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">',
-      );
+      expect(html).not.toContain('fonts.googleapis.com');
     });
 
     it('body 字体改 Inter', () => {

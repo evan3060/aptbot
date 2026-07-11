@@ -270,14 +270,18 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
     // Task 9 (0.2.3): learnEnabled 默认 false；feedbackEnabled 默认 true
     const isLearnEnabled = learnEnabled === true;
     const isFeedbackEnabled = feedbackEnabled !== false;
-    // Task 9 (0.2.3): HTML 响应头统一（所有 HTML 响应含 nosniff + HSTS）
-    const htmlHeaders = {
-      'content-type': 'text/html; charset=utf-8',
-      'cache-control': 'no-cache, no-store, must-revalidate',
+    // 安全响应头（应用到所有响应，防止移动端浏览器风险提示）
+    const securityHeaders = {
       'x-content-type-options': 'nosniff',
       'strict-transport-security': 'max-age=31536000; includeSubDomains',
       'x-frame-options': 'DENY',
       'referrer-policy': 'no-referrer-when-downgrade',
+    };
+    // Task 9 (0.2.3): HTML 响应头统一（所有 HTML 响应含 nosniff + HSTS）
+    const htmlHeaders = {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-cache, no-store, must-revalidate',
+      ...securityHeaders,
     };
     // Task 9 (0.2.3): /learn/:slug 文章不存在时的友好 404 HTML
     const learnNotFoundHtml = `<!DOCTYPE html>
@@ -332,6 +336,28 @@ export function startWebSocketServer(options: WebSocketServerOptions): Promise<W
 
     const httpServer = createServer(async (req, res) => {
       const pathname = new URL(req.url ?? '/', `http://localhost:${port}`).pathname;
+
+      // 全局安全 headers 注入：拦截 res.writeHead，自动合并 securityHeaders 到所有响应
+      // （包括外部 handler 函数的 API JSON 响应），防止移动端浏览器风险提示
+      const _originalWriteHead = res.writeHead.bind(res);
+      res.writeHead = ((statusCode: number, ...rest: unknown[]) => {
+        const extra = rest[0];
+        const merged = extra && typeof extra === 'object' && !Array.isArray(extra)
+          ? { ...securityHeaders, ...(extra as Record<string, string>) }
+          : { ...securityHeaders };
+        return (_originalWriteHead as (...args: unknown[]) => typeof res)(statusCode, merged);
+      }) as typeof res.writeHead;
+
+      // HEAD 请求：对 HTML 路由返回 200（无 body），避免 curl -I 返回 404
+      // 安全 headers 由上方 writeHead 拦截器自动注入
+      if (req.method === 'HEAD' &&
+          (pathname === '/' || pathname === '/index.html' ||
+           pathname === '/demo' || pathname === '/demo/' || pathname === '/demo/index.html' ||
+           pathname === '/learn' || pathname === '/feedback')) {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.end();
+        return;
+      }
 
       // Task 9 (0.2.3): /api/feedback 必须在 /api/* 之前判断（路由优先级）
       // /api/feedback 与 /api/feedback/:id/moderate 均由 handleFeedbackApi 处理

@@ -328,18 +328,20 @@ v0.2.3 新增知识体系（`/learn` 列表页 + `/learn/:slug` 文章页 + `/fe
 
 所有 HTML 响应含 `Cache-Control: no-cache, no-store, must-revalidate`，确保文章内容实时更新。
 
-### 安全响应头（v0.2.3 增强）
+### 安全响应头（v0.2.3 引入，v0.3.1 增强为全局注入）
 
-所有 HTML 响应（`/` / `/learn` / `/learn/:slug` / `/feedback` / `/demo`）统一含以下安全头：
+v0.3.1 起通过 `res.writeHead` 拦截器在请求处理器入口全局注入安全 headers，**所有响应类型**（HTML / API JSON / 404 / 静态资源 / HEAD）统一含以下安全头：
 
 | 响应头 | 值 | 作用 |
 |--------|------|------|
 | `X-Content-Type-Options` | `nosniff` | 阻止 MIME 类型嗅探 |
-| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` | 强制 HTTPS（HSTS） |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` | 强制 HTTPS（HSTS），防止移动端浏览器风险提示 |
 | `X-Frame-Options` | `DENY` | 阻止点击劫持（禁止被 iframe 嵌入） |
 | `Referrer-Policy` | `no-referrer-when-downgrade` | 控制 Referer 泄露 |
 
-> **验证命令：** `curl -sI https://aptbot.de/ | grep -iE "strict|x-frame|referrer|nosniff"`
+> **验证命令：** `curl -sI https://aptbot.de/ | grep -iE "strict|x-frame|referrer|nosniff"`（HEAD 请求也应返回 200 + 安全头）
+
+> **v0.3.1 HEAD 请求支持：** 新增 HEAD 路由处理（/, /demo, /learn, /feedback），返回 200 + 安全 headers（无 body），修复 `curl -I` 返回 404 的诊断误报。
 
 > **版本隔离：** `landingPage` 默认 `undefined`（视为 false）。clone 自部署的用户不加该字段时行为与 v0.2.0 完全一致，零影响。只有显式设置 `landingPage: true` 才会启用落地页路由。
 
